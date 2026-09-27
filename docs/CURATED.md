@@ -47,6 +47,17 @@ and list captured C# paths with their SHA-256 hashes in `code`. Changes to those
 files invalidate the explanation until reviewed. This establishes declared
 dependency stability, not runtime behavior or completeness of the author's claim.
 
+An optional `symbol` on a code dependency restricts its hash to a declared C#
+type, field, property, constructor or method plus conservative enclosing context.
+For example: `{"kind":"method","type":"Game.Generator","member":"Generate","parameters":["float"]}`.
+Compute its hash with `py -3 -m wikibuild.code_dependencies --help`; use the pinned
+packages in `requirements-source.txt` only when such a check is declared.
+Missing/ambiguous declarations and parser errors mark the claim unverified.
+Helpers and constants must be declared separately; this does not infer a call
+graph or prove runtime behavior. Whole-file checks and selected-data checks
+remain available without those packages. This optional checker is not required
+for baseline reconciliation or publication.
+
 Definitions are limited to 32 KiB, 64 fact dependencies, 32 code dependencies and
 128 text segments. Rendered text is limited to 16 KiB, checked before concatenation.
 Oversized or malformed definitions and text produce content exceptions.

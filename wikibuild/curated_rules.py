@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 import re
 
 from .storage import ContractError, digest, json_bytes
+from . import code_dependencies
 
 ENTITY = re.compile(r"e-[0-9a-f]{32}\Z")
 NAME = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
@@ -64,14 +65,19 @@ def validate(value):
         raise ContractError("Code dependencies require code-backed scope")
     seen = set()
     for dependency in value["code"]:
-        if not isinstance(dependency, dict) or set(dependency) != {"path", "sha256"}:
+        if not isinstance(dependency, dict) or set(dependency) not in ({"path", "sha256"}, {"path", "sha256", "symbol"}):
             raise ContractError("Invalid code dependency fields")
         path = dependency["path"]
-        if not isinstance(path, str) or PurePosixPath(path).is_absolute() or ".." in PurePosixPath(path).parts or "\\" in path or ":" in path or not path.endswith(".cs") or path in seen:
+        if not isinstance(path, str) or PurePosixPath(path).is_absolute() or ".." in PurePosixPath(path).parts or "\\" in path or ":" in path or not path.endswith(".cs"):
             raise ContractError("Code dependencies must name unique captured C# files")
         if not isinstance(dependency["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", dependency["sha256"]):
             raise ContractError("Code dependency needs its SHA-256")
-        seen.add(path)
+        if "symbol" in dependency:
+            code_dependencies.validate(dependency["symbol"])
+        key = code_dependencies.key(dependency)
+        if key in seen:
+            raise ContractError("Code dependencies must name unique captured C# files or symbols")
+        seen.add(key)
     return value
 
 

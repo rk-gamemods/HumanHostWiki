@@ -4,16 +4,19 @@ from collections import defaultdict
 import json
 from pathlib import Path
 
-from . import curated_rules as rules, extraction, model, snapshots
+from . import code_dependencies, curated_rules as rules, extraction, model, snapshots
 from .exceptions import Exceptions
 from .source import Source
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 
-def contract():
+def contract(named_code=False):
     folder = Path(__file__).parent
-    return {name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
-            for name in ("curation.py", "curated_rules.py", "source.py", "storage.py")}
+    result = {name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
+              for name in ("curation.py", "curated_rules.py", "code_dependencies.py", "source.py", "storage.py")}
+    if named_code:
+        result["parser"] = code_dependencies.runtime(required=True)
+    return result
 
 
 def definitions(root, project):
@@ -114,20 +117,48 @@ def selected(root, run, active):
 
 
 def code_hashes(source, run, active):
-    paths = {dep["path"] for item in active.values() if item["definition"]
-             for dep in item["definition"]["code"]}
+    paths = defaultdict(dict)
+    for item in active.values():
+        for dep in item["definition"]["code"] if item["definition"] else []:
+            paths[dep["path"]][code_dependencies.key(dep)] = dep
     if not paths:
         return {}, 0
     result = {}
     with Source(source, run["source_commit"]) as inputs:
         for path in sorted(paths):
+            dependencies = paths[path]
             if path not in inputs.blobs:
-                result[path] = None
+                result.update({key: {"sha256": None, "result": "code-changed-or-missing"} for key in dependencies})
                 continue
+            named = any("symbol" in dep for dep in dependencies.values())
             with inputs.lines(path) as lines:
-                for _ in lines:
-                    pass
-            result[path] = inputs.dependencies[path]["sha256"]
+                if named:
+                    data = b"".join(lines)
+                else:
+                    for _ in lines:
+                        pass
+            file_hash = inputs.dependencies[path]["sha256"]
+            document, error = None, None
+            if named:
+                try:
+                    document = code_dependencies.Document(data)
+                except code_dependencies.SelectionError as exc:
+                    error = str(exc)
+            for key, dep in dependencies.items():
+                check = {"sha256": file_hash, "result": "passed"}
+                if "symbol" in dep:
+                    try:
+                        if error:
+                            raise code_dependencies.SelectionError(error)
+                        check = document.select(dep["symbol"])
+                    except code_dependencies.SelectionError as exc:
+                        check = {"sha256": None, "result": str(exc), "symbol": dep["symbol"]}
+                    check["source_file_sha256"] = file_hash
+                result[key] = check
+            # Only one assembly's source and syntax tree need to stay in memory.
+            document = None
+            if named:
+                del data
         return result, inputs.bytes_read
 
 
@@ -166,9 +197,12 @@ def evaluate(key, item, run, receipt, facts, codes, previous, identity, baseline
         if reason:
             result["reasons"].append(name + ": " + reason)
     for dep in definition["code"]:
-        actual = codes[dep["path"]]
-        check = {"code": dep["path"], "expected_sha256": dep["sha256"], "actual_sha256": actual,
-                 "result": "passed" if actual == dep["sha256"] else "code-changed-or-missing"}
+        actual = codes[code_dependencies.key(dep)]
+        check = {"code": dep["path"], "expected_sha256": dep["sha256"],
+                 "actual_sha256": actual["sha256"],
+                 **{name: value for name, value in actual.items() if name != "sha256"}}
+        if check["result"] == "passed" and actual["sha256"] != dep["sha256"]:
+            check["result"] = "code-changed-or-missing"
         result["checks"].append(check)
         if check["result"] != "passed":
             result["reasons"].append(dep["path"] + ": " + check["result"])
@@ -200,8 +234,10 @@ def run(root, project, source, runs):
     metrics = {"reused": True, "source_bytes_read": 0, "model_bytes_read": 0, "snapshots_reused": 0}
     if not authored:
         return None, metrics
+    named_code = any("symbol" in dep for item in authored.values() if item["definition"]
+                     for dep in item["definition"]["code"])
     inputs = {"definitions": definition_inputs(authored),
-              "identity_runs": [digest(json_bytes(run)) for run in runs], "contract": contract(),
+              "identity_runs": [digest(json_bytes(run)) for run in runs], "contract": contract(named_code),
               "receipts": [digest(json_bytes(snapshots.read(root, run["snapshot_id"]))) for run in runs]}
     identity = digest(json_bytes(inputs))
     destination = within(root, f"curation/runs/{identity}.json")
@@ -253,7 +289,7 @@ def run(root, project, source, runs):
                            snapshot + "/" + "; ".join(record["reasons"]))
         result["snapshots"][snapshot] = records
     result["exceptions"] = issues.report()
-    if contract() != inputs["contract"] or definitions(root, project) != authored:
+    if contract(named_code) != inputs["contract"] or definitions(root, project) != authored:
         raise ContractError("Curated definitions or checker changed during processing")
     if source_pin:
         extraction.ensure_source(source, source_pin)

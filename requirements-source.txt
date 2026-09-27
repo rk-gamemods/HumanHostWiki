@@ -1,0 +1,3 @@
+# Optional named C# dependency checks; validated by wikibuild/code_dependencies.py.
+tree-sitter==0.25.2
+tree-sitter-c-sharp==0.23.5

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import test_reader
-from wikibuild import curation, curated_rules, pages, reader
+from wikibuild import code_dependencies, curation, curated_rules, pages, reader
 from wikibuild.storage import ContractError, digest, git, json_bytes
 
 
@@ -172,6 +172,88 @@ class CurationTests(unittest.TestCase):
         self.assertIn('code-changed-or-missing', self.note(result)['reasons'][0])
         self.assertEqual(self.note(result)['last_verified']['build_id'], '100')
         self.assertNotIn('class Item', json.dumps(result))
+
+    def test_named_dependencies_share_reads_and_ignore_unrelated_changes(self):
+        source = self.root / 'source'
+        source.mkdir()
+        self.init_git(source)
+        path = source / 'Item.cs'
+        original = b'class Item { const int Limit = 3; void Use(float x) { Fuel += x; } int Other = 1; }\n'
+        path.write_bytes(original)
+        selectors = [{'kind': 'field', 'type': 'Item', 'member': 'Limit'},
+                     {'kind': 'method', 'type': 'Item', 'member': 'Use', 'parameters': ['float']}]
+        document = code_dependencies.Document(original)
+        self.definition.update(scope='code-backed', code=[
+            {'path': 'Item.cs', 'symbol': selector, 'sha256': document.select(selector)['sha256']}
+            for selector in selectors])
+        self.commit_definition()
+        git(source, 'add', '.')
+        git(source, 'commit', '-qm', 'Old game code')
+        self.fixture.old['source_commit'] = git(source, 'rev-parse', 'HEAD')
+        changed = original.replace(b'Other = 1', b'Other = 2')
+        path.write_bytes(changed)
+        git(source, 'add', '.')
+        git(source, 'commit', '-qm', 'Unrelated game code')
+        self.fixture.new['source_commit'] = git(source, 'rev-parse', 'HEAD')
+        result, metrics = self.run_checks()
+        self.assertEqual(metrics['source_bytes_read'], len(original) + len(changed))
+        self.assertEqual(self.note(result)['status'], 'passed')
+        checks = [check for check in self.note(result)['checks'] if 'code' in check]
+        self.assertEqual(len(checks), 2)
+        self.assertTrue(all(check['line'] == 1 and check['source_file_sha256'] == digest(changed) for check in checks))
+        self.assertNotIn('class Item', json.dumps(result))
+        with patch.object(curation, 'code_hashes', side_effect=AssertionError('Repeated code read')):
+            again, metrics = self.run_checks()
+        self.assertEqual(again, result)
+        self.assertTrue(metrics['reused'])
+        self.assertEqual(metrics['source_bytes_read'], 0)
+        self.assertEqual(metrics['model_bytes_read'], 0)
+        with patch('wikibuild.code_dependencies.metadata.version', return_value='999'):
+            with self.assertRaisesRegex(ContractError, 'pinned parser'):
+                self.run_checks()
+        duplicate = copy.deepcopy(self.definition)
+        duplicate['code'].append(duplicate['code'][0])
+        with self.assertRaisesRegex(ContractError, 'unique'):
+            curated_rules.validate(duplicate)
+
+    def test_changed_missing_ambiguous_and_unparseable_symbols_are_isolated_content_failures(self):
+        source = self.root / 'source'
+        source.mkdir()
+        self.init_git(source)
+        path = source / 'Item.cs'
+        original = b'class Item { const int Limit = 3; }\n'
+        selector = {'kind': 'field', 'type': 'Item', 'member': 'Limit'}
+        unrelated = copy.deepcopy(self.definition)
+        (self.path.parent / 'independent.json').write_bytes(json_bytes(unrelated))
+        self.definition.update(scope='code-backed', code=[{
+            'path': 'Item.cs', 'symbol': selector,
+            'sha256': code_dependencies.Document(original).select(selector)['sha256']}])
+        self.commit_definition()
+        path.write_bytes(original)
+        git(source, 'add', '.')
+        git(source, 'commit', '-qm', 'Old game code')
+        self.fixture.old['source_commit'] = git(source, 'rev-parse', 'HEAD')
+        cases = [(original.replace(b'3', b'4'), 'code-changed-or-missing'),
+                 (b'class Item { }', 'code-member-missing'),
+                 (b'class Item { int Limit; int Limit; }', 'code-member-ambiguous'),
+                 (b'class Item {', 'code-parse-error')]
+        for data, reason in cases:
+            with self.subTest(reason=reason):
+                path.write_bytes(data)
+                git(source, 'add', '.')
+                git(source, 'commit', '-qm', reason)
+                self.fixture.new['source_commit'] = git(source, 'rev-parse', 'HEAD')
+                result, metrics = self.run_checks()
+                self.assertEqual(self.note(result)['status'], 'unverified')
+                self.assertIn(reason, self.note(result)['reasons'][0])
+                self.assertEqual(self.note(result)['last_verified']['build_id'], '100')
+                self.assertEqual(self.note(result, key='items/independent')['status'], 'passed')
+                self.assertIn('curated-check-failed', json.dumps(result['exceptions']))
+        # Parse failure affects named checks only; an explicit file hash still works.
+        active = {'file': {'definition': {'code': [{'path': 'Item.cs', 'sha256': digest(data)}]}}}
+        codes, size = curation.code_hashes(source, self.fixture.new, active)
+        self.assertEqual(codes['Item.cs']['sha256'], digest(data))
+        self.assertEqual(size, len(data))
 
     def test_malformed_definition_preserves_previous_checked_text_and_unsafe_expression_is_never_run(self):
         first, _ = self.run_checks()
