@@ -554,6 +554,26 @@ entrypoint. Its selector was corrected to choose a storage role, and the focused
 test passed. Protected synthetic Git fixtures remain retained without overriding
 file protections. The live repositories have not exercised capacity rollover yet.
 
+Implementation commit `0d893ca` completed the normal operator update and published
+release `bd8693d245c439e4bc52d164e562f767abd167662155d4f404e04f430b6f39e7`
+to all thirteen existing sites. The independent release audit checked 797 owned
+files (48,307,247 bytes), 589 candidate files and 91 historical configurations.
+The unchanged update then passed in 8.485 seconds with all thirteen child commits
+and 818 observed files' hashes and modification times unchanged. Normalize and
+identity reused their results with zero selected-source bytes read; this does not
+mean zero filesystem I/O. The operator report retained 193 exception groups and
+27,087 occurrences without an execution failure. No exception was resolved in
+this checkpoint. Evidence is in `.local/entrypoint-operator-report.txt`,
+`.local/entrypoint-release-audit.json` and `.local/entrypoint-live-repeat.json`.
+The published browser check passed hub-to-item navigation, search for `Crude Axe`,
+entry facts and selection of the older `8f1263c7d28f` capture while retaining the
+release ID. It does not establish gameplay correctness or distinct-build coverage.
+
+The retained decompilations for builds 25448142 (`7550530`) and 25407931 (`3c01f7f`)
+have no `Catalog` tree, checked with `git ls-tree <revision> Catalog BUILD_INFO.md`
+in the local source repository. They do not satisfy the two-build catalog acceptance
+gate. Current wiki captures still cover one game build and an extractor correction.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters
