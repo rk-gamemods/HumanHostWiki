@@ -39,6 +39,9 @@ complete product.
 - Complete capacity acceptance for live GitHub overflow and indivisible control
   records. Storage allocation, bounded indexes and entrypoint rollover have
   forced-threshold tests with retained historical links; see their checkpoints below.
+- Complete retention for failed preparation attempts and rebuildable caches.
+  Verified duplicate payloads from committed release staging are removed by the
+  normal update; diagnostic journals and preparation indexes remain retained.
 - Run real initial generation and an unchanged repeat; measure time, bytes read,
   output size and peak memory. Exercise changed/new/removed/unsupported records and
   tool corrections, using real builds and focused fixtures for unavailable cases.
@@ -668,6 +671,47 @@ historical entry and showed its application version as unknown. Its facts and
 relationships remained accessible. These captures share one Steam build and do
 not satisfy the distinct-real-build acceptance requirement. The 193 unresolved
 content groups (27,087 occurrences) remain pending user direction.
+
+### Committed release-staging retention checkpoint
+
+The normal update now removes committed duplicate release payloads after supported
+publication work. [RETENTION.md](RETENTION.md) owns eligibility, conservation,
+path checks and retry behavior. Completion markers avoid repeated Git reads and
+payload scans. This housekeeping changes no public artifact contract or release ID.
+
+The real update on 2026-09-27 completed in 19.412 seconds while the full test suite
+ran independently. It removed 2,204 files containing 90,247,462 bytes from nine
+completed staging directories. `.local/rs/` fell from 2,447 files and 92,172,547
+bytes to 243 files and 1,925,085 bytes. The retained files are diagnostic journals
+and Git preparation files. No cleanup issue was reported. The audit script and
+result are `.local/retention_acceptance.py` and `.local/retention-live.json`.
+It independently measured removed bytes, preserved all 13 child HEADs and 982
+release/output files and timestamps, and compared the complete content exception
+report with the previous run. Only the local pipeline result advanced to reflect
+the new runner contract; public release `748fc6c9de3b17187d77d4df69818b72939c03554225b9c3155929390db52411`
+remained selected. The 193 content groups remain pending user direction.
+
+The immediate unchanged repeat took 9.495 seconds, preserved all 983 observed
+files and 13 HEADs, and reused cleanup without removing files. Its evidence is
+`.local/retention-live-repeat.json`. The independent release audit rechecked
+960 owned files (56,680,248 bytes), 674 candidate files and 117 historical
+configurations; see `.local/retention-release-audit.json`.
+
+A separate cached-cleanup measurement took 0.0304 seconds and peaked at 745,738
+bytes of Python allocations for the nine completed journals. This measures
+neither initial cleanup nor whole-process working set. The reproducer is
+`.local/retention_cached_cost.py`; `.local/retention-cached-cost.json` records the
+measurement. The regression test also rejects any Git call on cached cleanup.
+
+Seven focused retention tests passed in 2.274 seconds, including a real Windows
+directory junction, a changed journal plus payload, absent Git objects, pending
+transactions and retry after a simulated permission failure. The existing eleven
+pipeline tests passed in 52.016 seconds; a new cleanup-report isolation check
+passed separately in 1.330 seconds. All 208 tests then passed in 534.448 seconds
+against the final implementation, with no skips; the log is
+`.local/retention-full-tests.log`. Registry, map, checkout-lock and whitespace
+checks passed. Parent and captured-source working trees remained clean.
+Protected test fixtures remain retained without overriding permissions.
 
 ## Deferred classifier experiments
 

@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from . import availability, extraction, history, physical, publication, reader, release, snapshots
+from . import availability, extraction, history, physical, publication, reader, release, release_retention, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -64,7 +64,7 @@ def run(root, project, source, progress=None):
         if observed:
             completed[stage] = {"status": observed["status"], "observation_id": digest(json_bytes(observed))}
         contracts = {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
-                     "availability": availability.contract(),
+                     "availability": availability.contract(), "retention": release_retention.contract(),
                      "extraction": extraction.contract(root, project), "identity": history.contract(),
                      "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}
         reviewed = history.corrections(root)
@@ -114,7 +114,7 @@ def run(root, project, source, progress=None):
         # These final checks establish the common input, not gameplay verification.
         extraction.ensure_source(source, receipt["source_commit"])
         if contracts != {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
-                         "availability": availability.contract(),
+                         "availability": availability.contract(), "retention": release_retention.contract(),
                          "extraction": extraction.contract(root, project), "identity": history.contract(),
                          "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}:
             raise ContractError("Pipeline rules changed during processing")
@@ -135,6 +135,10 @@ def run(root, project, source, progress=None):
         completed[stage] = {"status": published["status"]}
         if published["status"] == "published":
             completed[stage]["hub"] = published["hub"]
+        stage = "retention"
+        if progress:
+            progress(stage)
+        metrics[stage] = release_retention.run(root)
         result = {"schema_version": 1, "request_key": request_key,
                   "previous_run": previous["run_id"] if previous else None,
                   "source_commit": receipt["source_commit"], "snapshot_id": receipt["snapshot_id"],
@@ -187,4 +191,6 @@ def operator_report(root, result):
         lines.append(f"- [{group['topic']}/{group['stage']}] {group['code']}: {group['pattern']} "
                      f"({group['occurrences']}; {group['change']})")
     lines.append(saved["exceptions"]["next_action"])
+    for retained in result.get("metrics", {}).get("retention", {}).get("retained", []):
+        lines.append(f"Staging cleanup issue [{retained['stage']}]: {retained['reason']}")
     return "\n".join(lines) + "\n"

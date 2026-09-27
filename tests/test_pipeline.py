@@ -58,6 +58,16 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(all(value["reused"] for value in second["metrics"].values()))
         self.assertEqual(sum(value.get("source_bytes_read", 0) for value in second["metrics"].values()), 0)
 
+    def test_cleanup_issue_is_reported_separately_after_supported_work(self):
+        retained = {"reused": False, "removed_files": 0, "removed_bytes": 0,
+                    "retained": [{"stage": "0123456789ab", "reason": "protected payload"}]}
+        with patch.object(pipeline.release_retention, "run", return_value=retained):
+            result = self.run_pipeline()
+        saved = pipeline.read(self.root, result["run_id"])
+        self.assertEqual(saved["status"], "git-release-ready")
+        self.assertNotIn("protected payload", json.dumps(saved["exceptions"]))
+        self.assertIn("Staging cleanup issue [0123456789ab]: protected payload", pipeline.operator_report(self.root, result))
+
     def test_failure_preserves_last_success_and_reuses_completed_stages_on_retry(self):
         first = self.run_pipeline()
         before = self.latest().read_bytes()
@@ -185,10 +195,14 @@ class PipelineTests(unittest.TestCase):
         self.assertGreater(result['exception_groups'], 0)
         self.assertEqual(result['status'], 'published')
         self.assertEqual(len(pipeline.publication.published(self.root)['repositories']), 13)
+        self.assertGreater(result['metrics']['retention']['removed_files'], 0)
+        self.assertFalse(result['metrics']['retention']['retained'])
         self.assertTrue((self.root / 'repositories/items-equipment/site/reader.json').is_file())
         pipeline.release.verify(self.root, released)
         with patch.object(pipeline.publication.github_pages, 'GitHubPages', return_value=host):
-            self.assertEqual(result['run_id'], pipeline.run(self.root, project, self.source)['run_id'])
+            repeated = pipeline.run(self.root, project, self.source)
+            self.assertEqual(result['run_id'], repeated['run_id'])
+            self.assertTrue(repeated['metrics']['retention']['reused'])
 
 
 if __name__ == "__main__":

@@ -60,6 +60,12 @@ repository's previous commit. Failed or skipped captures therefore cannot hide
 changes from a later successful run. The first pipeline run has no comparison
 baseline. Public release coordination must retain its separate publication state.
 
+After supported publication work, [release-staging retention](RETENTION.md)
+removes verified duplicate payloads under the same writer lock. Its counts appear
+in invocation metrics, outside immutable pipeline results. Preserved cleanup
+issues are recorded separately from content exceptions and do not undo completed
+publication. Pending release transactions remain untouched.
+
 ## Operator report
 
 Supported content proceeds while unresolved content is grouped by stage, topic,

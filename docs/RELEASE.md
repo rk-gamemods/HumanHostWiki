@@ -82,9 +82,12 @@ successor installation and the retiring front's final update share that journal.
 The manifest's `entrypoints` map selects active physical fronts, while `routes`
 continues to name the original topic URLs.
 
-Operational staging remains under `.local/rs/` for recovery and inspection. It is
-not published. Indivisible control metadata and post-success staging
-retention still need implementation; historical public records are retained.
+Operational staging lives under `.local/rs/` for recovery and inspection. After
+supported publication work completes, the normal update removes staged payloads
+that have independently verified committed copies. Journals and small Git
+preparation files remain local. [RETENTION.md](RETENTION.md) owns these checks,
+retry behavior and the remaining cache-retention work. Historical public records
+are retained. Indivisible control metadata still needs implementation.
 
 ## Validation and preview
 
