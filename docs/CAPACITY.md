@@ -2,8 +2,8 @@
 
 The [ADR](adr/0001-versioned-public-wiki.md#5-storage-and-presentation) requires
 automatic file, site and history budgets while preserving logical topic ownership
-and historical URLs. The allocator and committed-input measurement are implemented.
-Release projection, repository rollover and publication integration remain unfinished;
+and historical URLs. Allocation, committed-input measurement and immutable reference
+projection are implemented. Repository rollover and publication integration remain unfinished;
 the normal update does not yet allocate physical partitions.
 
 ## Owners and inputs
@@ -34,8 +34,21 @@ before allocation. Existing immutable content remains reusable after a budget ch
 
 ## Integration contract
 
-Release projection must allocate leaf objects before resolving and hashing their
-parent references. It must preserve prior locations and write only new objects.
+`wikibuild/capacity_projection.py` plans reader data packs and runtimes first,
+then snapshot indexes, then release configurations. Each phase resolves references
+to its allocated dependencies before hashing the containing object. Logical routes,
+snapshot membership and facts stay unchanged. References to another physical site
+use absolute URLs; references in the original repository retain their existing bytes.
+The browser must continue resolving relative references against the original logical
+topic base, even when a configuration or index lives in another physical repository.
+
+`wikibuild/release_content.py` owns snapshot/configuration transformations for both
+normal release writing and capacity projection. It rewrites only declared pack
+references. Evidence paths and strings inside facts are not URL rewrite targets.
+Projection verifies the candidate, retains leaf paths instead of bytes, and holds
+only transformed metadata. Its write iterator yields one new payload at a time,
+rechecks its hash and skips reused files. Planning creates no destination files.
+
 The release journal owns new repository identities, staged files, prepared commits
 and the route changes that depend on them. Publication must verify new storage
 targets before promoting any route that advertises them.
@@ -58,6 +71,7 @@ Run from the umbrella directory:
 ```powershell
 py -3 -m unittest discover -s tests -p 'test_capacity*.py' -v
 py -3 tools/check_capacity.py
+py -3 tools/check_capacity_projection.py
 ```
 
 The diagnostic reads the current committed inventory, checks unchanged placement,
@@ -66,3 +80,10 @@ and 4 MiB histories with 128 KiB reserves. It verifies conservation, topic owner
 budgets and replay. It creates no payload copies, partitions or remotes. Its Python
 peak-memory measurement excludes native Git child processes. This is allocator
 evidence, not an end-to-end capacity acceptance test.
+
+The projection diagnostic follows planned physical URLs and compares their bytes,
+snapshot fields, pack membership and runtime hashes independently against the real
+reader candidate. It checks both current placement and forced budgets, then verifies
+that replay yields no writes. Small tests additionally materialize two releases in
+temporary physical directories and verify that both remain readable. These checks
+do not exercise provisioning, Git promotion, Pages publication or entrypoint rollover.

@@ -323,6 +323,23 @@ of unrelated branches. The [capacity contract](CAPACITY.md) identifies the remai
 projection, rollover, final-size verification and publication work. No automatic
 capacity integration or remote partition creation is claimed by this checkpoint.
 
+The reference projection now uses the same snapshot/configuration transforms as
+the normal release writer. The expanded capacity suite passes 24 tests, including
+two-snapshot placement, a second release with retained URLs, replay without payload
+reads, namespace mismatches and changed dependencies. All 8 existing release tests
+passed in 36.865 seconds after that shared transformation change.
+All 11 pipeline tests also passed in 41.366 seconds, including independent supported
+updates with content exceptions and unchanged-run reuse.
+
+`tools/check_capacity_projection.py` independently checked the current candidate's
+439 immutable objects and 26 snapshot indexes. Its 604 pack references retained
+their logical ownership and bytes; forced 2 MiB sites relocated 370 references into
+16 additional planned partitions. Replay yielded zero writes. The diagnostic took
+4.095 seconds with 5,818,254 bytes of traced Python peak memory, excluding native
+Git memory. It created no physical repositories or public changes. Journaled writes,
+final prepared Git measurements, bounded control metadata and entrypoint rollover
+remain required before the normal update can use these plans automatically.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters

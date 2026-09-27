@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import uuid
 
-from . import extraction, git_transaction, reader, workspace
+from . import extraction, git_transaction, reader, release_content, workspace
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 OWNER_FILE = ".wiki-output.json"
@@ -22,7 +22,7 @@ def immutable(path, value):
 def contract():
     folder = Path(__file__).parent
     return {name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
-            for name in ("release.py", "git_transaction.py", "release_bootstrap.js", "workspace.py")}
+            for name in ("release.py", "release_content.py", "git_transaction.py", "release_bootstrap.js", "workspace.py")}
 
 
 def bases(project):
@@ -90,9 +90,7 @@ def project_topic(candidate, repo, destination, stage, release_id):
         changes[name] = {"old": prior["sha256"] if prior else None, "new": record["sha256"], "bytes": len(data)}
 
     config = json.loads((topic / "reader.json").read_text(encoding="utf-8"))
-    config["release_id"] = release_id
-    config["publication"] = "prepared-git-release"
-    config["snapshots"] = {}
+    snapshot_refs, runtime_refs = {}, {}
     reference_paths = []
     for source in sorted(topic.rglob("*")):
         if not source.is_file():
@@ -102,13 +100,14 @@ def project_topic(candidate, repo, destination, stage, release_id):
         if re.fullmatch(r"data/[0-9a-f]{64}\.json", name):
             add("site/" + name, data)
         elif re.fullmatch(r"snapshots/build-[0-9]+-[0-9a-f]{12}\.json", name):
+            data = release_content.snapshot(data, lambda path, sha, size: path)
             target = "objects/" + digest(data) + ".json"
             add("site/" + target, data)
-            config["snapshots"][source.stem] = {"path": target, "sha256": digest(data), "bytes": len(data)}
+            snapshot_refs[source.stem] = {"path": target, "sha256": digest(data), "bytes": len(data)}
         elif name in {"reader.js", "reader.css"}:
             target = f"runtime/{digest(data)}/{name}"
             add("site/" + target, data)
-            config.setdefault("runtime", {})[source.suffix[1:]] = target
+            runtime_refs[source.suffix[1:]] = target
         elif name.startswith("reference/") and source.suffix == ".md":
             add(name, data.replace(("release=" + config["candidate_id"]).encode(), ("release=" + release_id).encode()))
             reference_paths.append(name)
@@ -116,8 +115,10 @@ def project_topic(candidate, repo, destination, stage, release_id):
             add("site/" + name, data)
         elif name != "reader.json":
             raise ContractError(f"Unexpected reader output for release: {name}")
-    add(f"site/releases/{release_id}.json", json_bytes(config))
-    add("site/reader.json", json_bytes(config))
+    configuration = release_content.configuration((topic / "reader.json").read_bytes(), release_id,
+                                                   snapshot_refs, runtime_refs)
+    add(f"site/releases/{release_id}.json", configuration)
+    add("site/reader.json", configuration)
     add("site/reader.js", (Path(__file__).parent / "release_bootstrap.js").read_bytes().replace(b"\r\n", b"\n"))
     add("site/reader.css", b"/* The release loader selects the versioned stylesheet. */\n")
     links = [f"# {repo['title']} reference", "", f"Release: `{release_id}`.", "",

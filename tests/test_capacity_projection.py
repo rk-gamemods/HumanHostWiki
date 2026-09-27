@@ -1,0 +1,231 @@
+"""Real reader candidates prove located-reference fidelity and historical reuse."""
+
+from dataclasses import replace
+import hashlib
+import json
+from pathlib import Path
+import unittest
+from unittest.mock import patch
+from urllib.parse import urljoin
+
+import test_reader
+from tools.check_capacity_projection import audit
+from wikibuild import capacity, capacity_projection, reader, release, release_content
+from wikibuild.storage import ContractError, digest, json_bytes
+
+
+class CapacityProjectionTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = test_reader.ReaderTests()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.project = self.fixture.project
+        self.project["github_owner"] = "wiki-fixture"
+        for repo in self.project["repositories"]:
+            repo["github_name"] = "Wiki-" + repo["id"]
+        self.bases = release.bases(self.project)
+        self.candidate = reader.build(self.fixture.root, self.project, self.fixture.runs, bases=self.bases)
+        self.path = Path(self.candidate["path"])
+        self.topics = [capacity.Topic(repo["id"], repo["github_name"]) for repo in self.project["repositories"]]
+        self.originals = tuple(capacity.partition(topic, 0) for topic in self.topics)
+        self.release_id = "a" * 64
+
+    def build(self, partitions=None, stored=(), **kwargs):
+        return capacity_projection.build(self.path, self.release_id, "wiki-fixture",
+                                         self.originals if partitions is None else partitions, stored, **kwargs)
+
+    def materialize(self, projection, output):
+        partitions = {part.id: part for part in projection.partitions}
+        writes = 0
+        for placed, data in projection.writes():
+            part = partitions[placed.partition]
+            # This adapter stands for the later journaled release writer. Use
+            # exclusive creation so a changed historical file fails the test.
+            target = output / part.github_name / placed.artifact.path.removeprefix("site/")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("xb") as stream:
+                stream.write(data)
+            writes += 1
+        return writes
+
+    def inspect(self, projection, output):
+        """Follow URLs as the browser does; do not use production reference code."""
+        counts = {"snapshots": 0, "packs": 0, "relocated": 0}
+        for topic, config_ref in projection.configurations.items():
+            def fetch(ref):
+                url = urljoin(self.bases[topic], ref["path"])
+                self.assertTrue(url.startswith("https://wiki-fixture.github.io/"))
+                relative = url.removeprefix("https://wiki-fixture.github.io/")
+                data = (output / relative).read_bytes()
+                self.assertEqual(len(data), ref["bytes"])
+                self.assertEqual(hashlib.sha256(data).hexdigest(), ref["sha256"])
+                return json.loads(data)
+
+            config = fetch(config_ref)
+            self.assertEqual(config["topic"], topic)
+            self.assertEqual(config["release_id"], projection.release_id)
+            original = json.loads((self.path / topic / "reader.json").read_bytes())
+            for name in ("versions", "default_snapshot", "topics", "official_links"):
+                self.assertEqual(config[name], original[name])
+            for extension, name in config["runtime"].items():
+                relative = urljoin(self.bases[topic], name).removeprefix("https://wiki-fixture.github.io/")
+                self.assertEqual((output / relative).read_bytes(), (self.path / topic / ("reader." + extension)).read_bytes())
+            for snapshot, ref in config["snapshots"].items():
+                index = fetch(ref)
+                before = json.loads((self.path / topic / "snapshots" / (snapshot + ".json")).read_bytes())
+                for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+                    self.assertEqual(len(index[kind]), len(before[kind]))
+                    for actual, expected in zip(index[kind], before[kind]):
+                        counts["relocated"] += actual["path"] != expected["path"]
+                        self.assertEqual({k: v for k, v in actual.items() if k != "path"},
+                                         {k: v for k, v in expected.items() if k != "path"})
+                        self.assertEqual(fetch(actual), json.loads((self.path / topic / expected["path"]).read_bytes()))
+                        counts["packs"] += 1
+                    index[kind] = before[kind]
+                self.assertEqual(index, before)
+                counts["snapshots"] += 1
+        return counts
+
+    def test_original_locations_preserve_legacy_snapshot_and_configuration_bytes(self):
+        result = self.build()
+        self.assertFalse(result.created)
+        for topic in self.topics:
+            expected = json.loads((self.path / topic.id / "reader.json").read_bytes())
+            expected.update(release_id=self.release_id, publication="prepared-git-release", snapshots={}, runtime={})
+            for source in (self.path / topic.id / "snapshots").glob("*.json"):
+                raw = source.read_bytes()
+                name = "objects/" + hashlib.sha256(raw).hexdigest() + ".json"
+                self.assertEqual(result.payloads[topic.id + "/site/" + name].read(), raw)
+                expected["snapshots"][source.stem] = {"path": name, "sha256": digest(raw), "bytes": len(raw)}
+            for extension in ("js", "css"):
+                raw = (self.path / topic.id / ("reader." + extension)).read_bytes()
+                expected["runtime"][extension] = f"runtime/{hashlib.sha256(raw).hexdigest()}/reader.{extension}"
+            self.assertEqual(result.payloads[topic.id + f"/site/releases/{self.release_id}.json"].read(), json_bytes(expected))
+
+    def test_forced_rollover_references_preserve_two_snapshots_and_replay_writes_nothing(self):
+        sealed = tuple(replace(part, sealed=True) for part in self.originals)
+        limits = capacity.Budgets(file_bytes=20_000, site_bytes=26_000, history_bytes=26_000,
+                                  site_reserve_bytes=1000, history_reserve_bytes=1000)
+        result = self.build(sealed, budgets=limits)
+        self.assertGreater(len(result.created), len(self.topics))
+        self.assertEqual(tuple(part for part in result.partitions if part.ordinal == 0), sealed)
+        output = self.fixture.root / "physical-sites"
+        self.assertEqual(self.materialize(result, output), len(result.placements))
+        checked = self.inspect(result, output)
+        self.assertEqual(checked["snapshots"], 6)
+        self.assertGreater(checked["relocated"], 0)
+        self.assertEqual(checked["packs"], checked["relocated"])
+        before = {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in output.rglob("*") if p.is_file()}
+        replay = self.build(result.partitions, result.placements, budgets=limits)
+        self.assertFalse(replay.created)
+        self.assertEqual(replay.placements, result.placements)
+        self.assertEqual(replay.partitions, result.partitions)
+        self.assertEqual(replay.configurations, result.configurations)
+        # The write boundary skips reused payloads entirely.
+        with patch.object(capacity_projection.Payload, "read", side_effect=AssertionError("reused payload read")):
+            self.assertEqual(self.materialize(replay, output), 0)
+        self.assertEqual(before, {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in output.rglob("*") if p.is_file()})
+
+    def test_second_release_reuses_dependencies_and_retains_historical_urls(self):
+        first = self.build(tuple(replace(part, sealed=True) for part in self.originals))
+        output = self.fixture.root / "physical-sites"
+        self.materialize(first, output)
+        before = {p: p.read_bytes() for p in output.rglob("*") if p.is_file()}
+        self.release_id = "b" * 64
+        second = self.build(tuple(replace(part, sealed=True) for part in first.partitions), first.placements)
+        self.assertEqual(len(second.placements) - len(second.reused), len(self.topics))
+        self.assertEqual(len(second.created), len(self.topics))
+        self.materialize(second, output)
+        self.inspect(first, output)
+        self.inspect(second, output)
+        self.assertTrue(all(path.read_bytes() == data for path, data in before.items()))
+
+    def test_changed_leaf_is_rejected_at_the_write_boundary(self):
+        result = self.build()
+        leaf = next(value for value in result.payloads.values() if value.source and "/data/" in value.artifact.path)
+        leaf.source.write_bytes(leaf.source.read_bytes() + b" ")
+        with self.assertRaisesRegex(ContractError, "changed before release write"):
+            list(result.writes())
+
+    def test_namespace_or_modified_candidate_is_rejected_without_writes(self):
+        with self.assertRaisesRegex(ContractError, "publication namespace"):
+            capacity_projection.build(self.path, self.release_id, "another-owner", self.originals)
+        (self.path / "items/reader.json").write_bytes(b"{}")
+        with self.assertRaisesRegex(ContractError, "modified"):
+            self.build()
+
+    def test_wrong_dependency_size_is_rejected_even_with_valid_candidate_file_hashes(self):
+        source = self.path / "items/snapshots" / (self.fixture.new["snapshot_id"] + ".json")
+        value = json.loads(source.read_bytes())
+        value["entries"][0]["bytes"] += 1
+        source.write_bytes(json_bytes(value))
+        # A syntactically intact candidate is insufficient: projection must
+        # check that each dependency agrees with the allocated leaf object.
+        marker = self.path / "candidate.json"
+        manifest = json.loads(marker.read_bytes())
+        manifest["files"][source.relative_to(self.path).as_posix()] = {
+            "sha256": digest(source.read_bytes()), "bytes": source.stat().st_size}
+        marker.write_bytes(json_bytes(manifest))
+        with self.assertRaisesRegex(ContractError, "dependency differs"):
+            self.build()
+
+    def test_independent_auditor_rejects_changed_snapshot_membership(self):
+        result = self.build(tuple(replace(part, sealed=True) for part in self.originals))
+        checked = audit(self.path, result, "wiki-fixture")
+        self.assertGreater(checked["pack_references"], 0)
+        key = next(key for key, payload in result.payloads.items()
+                   if "/site/objects/" in key and json.loads(payload.read())["entries"])
+        old = result.payloads[key]
+        value = json.loads(old.read())
+        value["entries"][0]["first"] = "corrupted-entry-boundary"
+        data = json_bytes(value)
+        # Keep the forged payload internally self-consistent. The audit must
+        # still reject disagreement with the candidate, even if hashes pass.
+        changed = replace(old, data=data, artifact=replace(old.artifact, path="site/objects/" + digest(data) + ".json",
+                                                         sha256=digest(data), bytes=len(data)))
+        config_key = old.artifact.topic + f"/site/releases/{self.release_id}.json"
+        old_config = result.payloads[config_key]
+        config = json.loads(old_config.read())
+        for reference in config["snapshots"].values():
+            if reference["sha256"] == old.artifact.sha256:
+                reference.update(path=reference["path"].replace(old.artifact.sha256, changed.artifact.sha256),
+                                 sha256=changed.artifact.sha256, bytes=changed.artifact.bytes)
+        config_data = json_bytes(config)
+        changed_config = replace(old_config, data=config_data,
+                                 artifact=replace(old_config.artifact, sha256=digest(config_data), bytes=len(config_data)))
+        replacements = {key: changed, config_key: changed_config}
+        payloads = {k: v for k, v in result.payloads.items() if k not in replacements}
+        payloads.update({value.artifact.key: value for value in replacements.values()})
+        placements = tuple(replace(item, artifact=replacements[item.artifact.key].artifact)
+                           if item.artifact.key in replacements else item for item in result.placements)
+        configurations = {topic: dict(ref) for topic, ref in result.configurations.items()}
+        configurations[old.artifact.topic].update(sha256=changed_config.artifact.sha256, bytes=changed_config.artifact.bytes)
+        result = replace(result, payloads=payloads, placements=placements, configurations=configurations)
+        with self.assertRaises(AssertionError):
+            audit(self.path, result, "wiki-fixture")
+
+
+class ReferenceTransformTests(unittest.TestCase):
+    def test_only_declared_pack_paths_change_and_bad_references_fail(self):
+        sha = "a" * 64
+        pack = {"path": "data/" + sha + ".json", "sha256": sha, "bytes": 3}
+        value = {"schema_version": 1, **{kind: [] for kind in release_content.SHARD_KINDS},
+                 "evidence": {"path": pack["path"]}, "entries": [pack]}
+        before = json_bytes(value)
+        result = release_content.snapshot(before, lambda path, *_: "https://example.invalid/" + path)
+        self.assertEqual(json.loads(result)["evidence"], value["evidence"])
+        self.assertEqual(release_content.snapshot(before, lambda path, *_: path), before)
+        pack["path"] = "../../private"
+        with self.assertRaisesRegex(ContractError, "content-addressed"):
+            release_content.snapshot(json_bytes(value), lambda path, *_: path)
+
+    def test_configuration_requires_all_selected_snapshots_and_runtime(self):
+        data = json_bytes({"schema_version": 1, "versions": [{"snapshot_id": "one"}]})
+        with self.assertRaisesRegex(ContractError, "snapshot coverage"):
+            release_content.configuration(data, "a" * 64, {}, {"js": "script", "css": "style"})
+        with self.assertRaisesRegex(ContractError, "both reader runtimes"):
+            release_content.configuration(data, "a" * 64, {"one": {}}, {"js": "script"})
+
+
+if __name__ == "__main__":
+    unittest.main()
