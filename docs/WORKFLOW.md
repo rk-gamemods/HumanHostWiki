@@ -92,8 +92,8 @@ pwsh -NoProfile -File ../tools/Decompile-GameCode.ps1
 Capture may be expensive and follows the parent's recovery rules. The wrapper
 also invokes wiki processing when capture is unchanged. The wiki commands never
 invoke capture implicitly. To rerun only wiki processing against the existing
-capture, use `py -3 wiki.py update --operator-report`. The current source generator does
-not provide the game's display version, so the receipt records it as unknown.
+capture, use `py -3 wiki.py update --operator-report`. New captures preserve the
+[application version](GAME_VERSION.md); older captures without evidence remain unknown.
 
 ## Extract selected facts
 
@@ -174,6 +174,10 @@ with Ctrl+C. It pins the candidate selected at startup. Restart it after rebuild
 to inspect a newer candidate. Optional `--candidate <id>` selects retained output;
 `--port <number>` chooses the port. Entry routes use the same `404.html` fallback
 contract expected on Pages. Group pages are ordinary static files.
+
+For optional authored explanations, follow [CURATED.md](CURATED.md). Definitions
+belong to the topic repository; the normal update checks them, retains their last
+successful checks and reports unresolved explanations after supported work finishes.
 
 The browser supports topic search, entry evidence, reverse relationships and a
 captured-version selector. A missing historical entry is explicit; it never
@@ -266,7 +270,8 @@ directory so earlier previews remain available.
   evidence. Explicitly remove only the verified generated output after checking
   its absolute path; then rebuild. File protection is not bypassed.
 
-There is no automatic garbage collection. Old local previews can be removed
+The normal update removes verified duplicate committed release payloads under the
+[retention contract](RETENTION.md). Other old local previews can be removed
 after confirming none is selected or in use. Published historical revisions and
 source snapshots require a separate retention decision.
 

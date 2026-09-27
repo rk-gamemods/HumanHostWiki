@@ -156,6 +156,24 @@ function fixture(count = 121) {
   assert.doesNotMatch(subject.nodes.status.textContent, /Selected build matches/);
   console.log("Availability evidence, historical comparison and unavailable state passed");
 
+  const checked = {status: "passed", title: "Configured limit", text: "<script>literal</script>",
+    scope: "selected-data", checks: [], authored_source: {path: "curated/limit.json"},
+    last_verified: {build_id: "100", snapshot_id: "build-100-aaaaaaaaaaaa", text: "Old checked text"}};
+  const flattened = node => [node.textContent, ...node.children.flatMap(flattened)];
+  const tags = node => [node.tag, ...node.children.flatMap(tags)];
+  let explanation = subject.context.checkedExplanations([checked]);
+  assert.ok(flattened(explanation).includes("<script>literal</script>"));
+  assert.ok(!tags(explanation).includes("script"));
+  assert.match(flattened(explanation).join(" "), /Declared selected-data checks passed/);
+  explanation = subject.context.checkedExplanations([{...checked, status: "unverified", text: null,
+    reasons: ["limit: above-maximum"]}]);
+  const explanationText = flattened(explanation).join(" ");
+  assert.match(explanationText, /Unverified explanation: limit: above-maximum/);
+  assert.match(explanationText, /Last successful check: Steam build 100/);
+  assert.match(explanationText, /Previously checked text.*Old checked text/);
+  assert.doesNotMatch(explanationText, /checks passed/);
+  console.log("Literal authored text, scoped checks and retained failed-check history passed");
+
   if (process.argv[2]) {
     const input = JSON.parse(fs.readFileSync(process.argv[2], "utf8")), root = path.resolve(input.root);
     const disk = url => {

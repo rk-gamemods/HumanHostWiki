@@ -102,7 +102,7 @@ flowchart LR
 | register | wikibuild/snapshots.py | implemented |
 | normalize | wikibuild/extraction.py and topic adapters | partial |
 | identity | wikibuild/identity.py, model.py and history.py | partial |
-| project | wikibuild/reader.py, packs.py, pages.py and web/ | partial |
+| project | wikibuild/reader.py, curation.py, curated_rules.py, packs.py, pages.py and web/ | partial |
 | verify | reader artifact checks and independent tools/check_*.py; gameplay checks unfinished | partial |
 | release | wikibuild/release.py and git_transaction.py; selected-fact Git releases | partial |
 | publish | wikibuild/publication.py, publication_git.py and github_pages.py | partial |

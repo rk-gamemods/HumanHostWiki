@@ -99,6 +99,44 @@ class ReleaseTests(unittest.TestCase):
             self.assertTrue((folder / record['path']).is_file())
         self.assertEqual(independent_check(self.root)['historical_configs'], 2 * len(self.project['repositories']))
 
+    def test_reviewed_explanation_after_published_baseline_preserves_old_release_and_repeats(self):
+        first, _ = self.run_release()
+        repo = self.root / 'repositories/items'
+        path = repo / 'curated/weight.json'
+        path.parent.mkdir()
+        path.write_bytes(json_bytes({'schema_version': 1, 'entity': self.fixture.a,
+            'title': 'Configured weight', 'since': self.fixture.old['snapshot_id'],
+            'scope': 'selected-data', 'facts': {'weight': {'path': '/weight', 'type': 'integer'}},
+            'text': ['Configured weight: ', {'fact': 'weight'}], 'code': []}))
+        git(repo, 'add', 'curated')
+        git(repo, 'commit', '-qm', 'Reviewed explanation')
+        authored_commit = git(repo, 'rev-parse', 'HEAD')
+        self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
+        with self.assertRaises(ContractError):
+            self.run_release()  # An unadopted child commit remains drift.
+        workspace.checkout_lock(self.root, self.project)
+        with self.assertRaisesRegex(ContractError, 'Release checkout differs'):
+            release.verify(self.root, first)  # Publication of the old release stays strict.
+        second, _ = self.run_release()
+        self.assertNotEqual(first['release_id'], second['release_id'])
+        self.assertEqual(git(repo, 'rev-parse', 'HEAD^'), authored_commit)
+        release.verify(self.root, first, check_checkout=False)
+        release.verify(self.root, second)
+        self.assertEqual(self.run_release()[0], second)
+        self.assertEqual(independent_check(self.root)['historical_configs'], 2 * len(self.project['repositories']))
+
+    def test_reviewed_successor_cannot_change_generated_outputs(self):
+        first, _ = self.run_release()
+        repo = self.root / 'repositories/items'
+        path = repo / 'README.md'
+        path.write_text('Changed generated content')
+        git(repo, 'add', 'README.md')
+        git(repo, 'commit', '-qm', 'Generated output drift')
+        workspace.checkout_lock(self.root, self.project)
+        with self.assertRaises(ContractError):
+            release.verify(self.root, first, reviewed_project=self.project)
+        self.assertEqual(path.read_text(), 'Changed generated content')
+
     def test_failure_between_children_preserves_previous_release_then_resumes(self):
         first, _ = self.run_release()
         self.new_candidate()

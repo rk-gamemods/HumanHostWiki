@@ -34,6 +34,17 @@ def markdown(kind, entries, snapshot, candidate, base):
         name = escape(row["name"])
         href = escape(entry(base, row["entity_key"], snapshot, candidate), quote=True)
         lines += [f'<h2><a href="{href}">{name}</a></h2>', "", f'Wiki key: `{row["entity_key"]}`. Status: {row["status"]}.', ""]
+        for note in row.get("explanations", []):
+            lines += [f'<h3>{escape(note["title"])}</h3>', ""]
+            if note["status"] == "passed":
+                lines += [f'<p>{escape(note["text"])}</p>', f'<p>Declared {escape(note["scope"])} checks passed.</p>', ""]
+            else:
+                lines += [f'<p>Unverified explanation: {escape("; ".join(note["reasons"]))}</p>', ""]
+            last = note.get("last_verified")
+            if last:
+                lines += [f'<p>Last successful check: Steam build {escape(last["build_id"])}; {escape(last["snapshot_id"])}.</p>', ""]
+                if note["status"] != "passed":
+                    lines += [f'<details><summary>Previously checked text</summary><p>{escape(last["text"])}</p></details>', ""]
         if row.get("preview"):
             lines += ["| Field | Extracted value |", "| --- | --- |"]
             for field, value in row["preview"].items():

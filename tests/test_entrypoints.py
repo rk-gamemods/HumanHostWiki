@@ -56,7 +56,7 @@ class EntrypointReleaseTests(unittest.TestCase):
         inventory = capacity_inventory.read(self.root, self.project)
         sizes = [part.history_bytes for part in inventory.partitions]
         soft, hard = min(sizes) - 1, max(sizes) + 65536
-        self.project["capacity"] = {"file_bytes": 24000, "history_bytes": hard, "history_reserve_bytes": hard - soft}
+        self.project["capacity"] = {"file_bytes": 25000, "history_bytes": hard, "history_reserve_bytes": hard - soft}
         return first, published
 
     def test_real_size_rollover_interrupt_retry_publication_failure_and_frozen_replay(self):

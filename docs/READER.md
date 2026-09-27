@@ -8,6 +8,7 @@ repositories and coordinated publication remain the release coordinator's job.
 | Owner | Responsibility |
 | --- | --- |
 | `wikibuild/reader.py` | Pin history, partition selected records, validate artifacts and atomically select a complete candidate |
+| `wikibuild/curation.py` / `curated_rules.py` | Check committed authored explanations and retain scoped results; see [CURATED.md](CURATED.md) |
 | `wikibuild/pages.py` | Pure HTML/Markdown presentation and safe links |
 | `wikibuild/web/reader.js` | Version selection, bounded topic search, grouped records, entry navigation and provenance |
 | `wikibuild/web/reader.css` | Responsive presentation without external fonts, scripts or services |
@@ -17,7 +18,9 @@ revisions, provenance and entry/search records live in content-addressed JSON
 packs. Unchanged packs are shared across snapshots. A snapshot index names exact
 packs and identity runs. The browser loads only the selected topic/version and
 requested group or entity shard. Source code and the source asset index are never
-reader inputs. Compact asset identifiers and evidence locators remain visible.
+presentation inputs. The optional explanation checker reads only its declared
+captured code dependencies and passes hashes to the presentation layer. Compact
+asset identifiers and evidence locators remain visible.
 
 During release, [capacity projection](CAPACITY.md) can replace oversized lists of
 pack references with hashed directory pages. The runtime selects matching branches
@@ -60,5 +63,10 @@ revision reuse, cross-topic links retaining the selected snapshot, explicit gaps
 bounded shard splitting, escaping hostile labels, changed/unknown output and
 failure before promotion. A real browser check must exercise search, version
 selection, entry links and readable selected facts. Public release verification,
-capacity-driven repository allocation, curated claims and external-link checking
+capacity-driven repository allocation, complete gameplay verification and external-link checking
 remain separate completion gates.
+
+Optional [authored explanations](CURATED.md) are attached to entry packs and
+grouped Markdown. Their checks remain separate from page gameplay verification.
+Search records omit explanation text to keep topic search small. A failed check
+shows its reason and last successful text without hiding generated facts.

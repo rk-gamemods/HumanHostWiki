@@ -253,6 +253,8 @@ Separate optional authored prose from generated facts. Claims use generated valu
 and executable dependency checks. Updates refresh factual sections automatically;
 failed checks mark only the affected explanation unverified with its last verified
 build and reason. Maintaining core reference coverage must not require prose edits.
+The [authored explanation contract](../CURATED.md) owns definition fields,
+scoped checks, preserved history and the operator workflow.
 
 Official backlinks use scripted entity/topic matching and recorded checks:
 populated, empty, missing or temporarily unavailable. Link only useful populated

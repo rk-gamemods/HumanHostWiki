@@ -48,7 +48,7 @@
     {"id": "register", "depends_on": ["capture"], "owner": "wikibuild/snapshots.py", "status": "implemented"},
     {"id": "normalize", "depends_on": ["register"], "owner": "wikibuild/extraction.py and topic adapters", "status": "partial"},
     {"id": "identity", "depends_on": ["normalize"], "owner": "wikibuild/identity.py, model.py and history.py", "status": "partial"},
-    {"id": "project", "depends_on": ["identity"], "owner": "wikibuild/reader.py, packs.py, pages.py and web/", "status": "partial"},
+    {"id": "project", "depends_on": ["identity"], "owner": "wikibuild/reader.py, curation.py, curated_rules.py, packs.py, pages.py and web/", "status": "partial"},
     {"id": "verify", "depends_on": ["project"], "owner": "reader artifact checks and independent tools/check_*.py; gameplay checks unfinished", "status": "partial"},
     {"id": "release", "depends_on": ["verify"], "owner": "wikibuild/release.py and git_transaction.py; selected-fact Git releases", "status": "partial"},
     {"id": "publish", "depends_on": ["release"], "owner": "wikibuild/publication.py, publication_git.py and github_pages.py", "status": "partial"}

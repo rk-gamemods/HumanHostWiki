@@ -33,9 +33,11 @@ complete product.
 - Complete individual asset identities, real cross-build identity coverage and
   dependency-based verification beyond the selected-observation identity stage.
 - Complete historical capture coverage, reader presentation of interpreted units
-  and conditions, authored-claim checks and useful external backlinks beyond the
+  and conditions, dedicated curated guides and useful external backlinks beyond the
   selected-fact reader. Steam availability and captured application-version
   evidence are implemented; gameplay freshness and page-check receipts remain.
+  Entry-attached authored checks are implemented under [CURATED.md](CURATED.md);
+  these establish only their declared data/code scope.
 - Complete capacity acceptance for live GitHub overflow and indivisible control
   records. Storage allocation, bounded indexes and entrypoint rollover have
   forced-threshold tests with retained historical links; see their checkpoints below.
@@ -712,6 +714,54 @@ against the final implementation, with no skips; the log is
 `.local/retention-full-tests.log`. Registry, map, checkout-lock and whitespace
 checks passed. Parent and captured-source working trees remained clean.
 Protected test fixtures remain retained without overriding permissions.
+
+### Checked authored explanations checkpoint
+
+`curation.py` and `curated_rules.py` check committed topic definitions against
+selected typed facts and optional captured C# hashes. Definition revisions affect
+pipeline request identity. A failed check logs a content exception, retains its
+last successful text and leaves independent generated facts available. Results are
+scoped to the declared checks and do not grant page gameplay verification.
+The [authoring contract](CURATED.md) records schemas, owners and recovery.
+
+The Crude Axe example was published in release
+`777a627ba7ac1c13208f8db5b95783f3267edcff7a260cf35a884613219a928f`.
+Its configured `MaxStack` value of 1 was independently compared with the captured
+`Catalog/views/items.jsonl` Git blob at source commit
+`0bf00fe33781a7357b2d462fdaad49b0c3518b86`. The browser showed the explanation for
+the current capture and omitted it for an older capture, keeping gameplay
+verification explicitly unperformed. Two older captures were checked for absence
+of the newly authored explanation. All captures still represent Steam build
+25548639; this does not close the two-game-build acceptance requirement.
+
+Reproduce the example audit with `py -3 .local/curation_acceptance.py` and the
+unchanged update with `py -3 tools/benchmark_release.py`. Evidence is retained in
+`.local/curation-source-audit.json` and `.local/curation-repeat.json`. The first
+published repeat took 9.988 seconds and preserved 13 child HEADs and 1,024 file
+hashes/timestamps. Cached explanation checking took 0.0489 seconds with 43,508
+peak Python-allocated bytes, excluding subprocess/whole-process memory, and read
+zero model or code bytes. Historical checks also reuse unchanged snapshot inputs.
+
+Independent `tools/check_reader.py` and `tools/check_release.py` audits passed
+24,438 selected observations, 219,948 reader assertions and 143 retained release
+configurations. The authored-file adoption and publication path gaps found by the
+initial real runs were repaired and covered by regression tests. Unadopted child
+commits, generated-file changes, private bytes and source-code paths remain
+rejected. The 193 content exception groups / 27,087 occurrences are unchanged and
+remain pending user direction. Dedicated guide pages/search, complete gameplay
+verification and the other remaining completion gates are still open.
+
+The complete suite passed 226 tests in 601.046 seconds with no skips, recorded in
+`.local/curation-final-tests.log`. A subsequent one-line correction excludes
+explanations from removed-entry search records while retaining their entry-page
+history. Its regression failed before the correction; all 15 curated checks,
+15 reader tests and the production JavaScript checks passed afterward
+(`.local/curation-search-fix-tests.log`, `.local/curation-reader-final-tests.log`).
+The earlier broad attempt exposed the 24,000-byte synthetic capacity limit being
+smaller than the expanded 24,833-byte runtime; capacity cases now exercise 25,000
+bytes and still prove index splitting and rollover. One earlier run also detected
+an implementation edit during release preparation; the passing full run used
+frozen implementation files. The failed-attempt log remains retained.
 
 ## Deferred classifier experiments
 

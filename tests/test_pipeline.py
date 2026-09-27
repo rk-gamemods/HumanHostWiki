@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import test_extraction
 import wiki
-from wikibuild import extraction, pipeline, workspace
+from wikibuild import extraction, history, model, pipeline, workspace
 from wikibuild.adapters import items_loot
 from wikibuild.storage import ContractError, git, json_bytes, writer_lock
 
@@ -57,6 +57,47 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(pointer, (self.latest().read_bytes(), self.latest().stat().st_mtime_ns))
         self.assertTrue(all(value["reused"] for value in second["metrics"].values()))
         self.assertEqual(sum(value.get("source_bytes_read", 0) for value in second["metrics"].values()), 0)
+
+    def test_authored_failure_reaches_operator_after_supported_stages_and_correction_has_new_baseline(self):
+        first = self.run_pipeline()
+        captured = history.latest(self.root)
+        entry = next(row for row in model.rows(extraction.artifact(self.root, captured['models']))
+                     if row['semantic']['kind'] == 'item')
+        repo = self.root / 'repositories/items-equipment'
+        repo.mkdir(parents=True)
+        git(repo, 'init', '-q')
+        git(repo, 'config', 'user.name', 'Wiki fixture')
+        git(repo, 'config', 'user.email', 'wiki@example.invalid')
+        path = repo / 'curated/stack.json'
+        path.parent.mkdir()
+        definition = {'schema_version': 1, 'entity': entry['entity_key'], 'title': 'Stack configuration',
+                      'since': captured['snapshot_id'], 'scope': 'selected-data', 'code': [],
+                      'text': ['Configured maximum stack: ', {'fact': 'stack'}],
+                      'facts': {'stack': {'path': '/MaxStack', 'type': 'integer', 'max': 1}}}
+
+        def commit():
+            path.write_bytes(json_bytes(definition))
+            git(repo, 'add', 'curated')
+            git(repo, 'commit', '-qm', 'Change declared check')
+
+        commit()
+        failed = self.run_pipeline()
+        saved = pipeline.read(self.root, failed['run_id'])
+        self.assertEqual(saved['status'], 'git-release-ready')
+        self.assertEqual(saved['previous_run'], first['run_id'])
+        self.assertIn('release', saved['completed'])
+        self.assertIn('curated-check-failed', pipeline.operator_report(self.root, failed))
+        self.assertIn('ask how to proceed', pipeline.operator_report(self.root, failed))
+        groups = [group for group in saved['exceptions']['groups'] if group['stage'] == 'curation']
+        self.assertEqual(len(groups), 1)
+        definition['facts']['stack']['max'] = 10
+        commit()
+        corrected = self.run_pipeline()
+        resolved = pipeline.read(self.root, corrected['run_id'])
+        self.assertEqual(resolved['previous_run'], failed['run_id'])
+        self.assertIn(groups[0]['key'], resolved['exceptions']['resolved_since_previous'])
+        self.assertFalse(any(group['stage'] == 'curation' for group in resolved['exceptions']['groups']))
+        self.assertEqual(self.run_pipeline()['run_id'], corrected['run_id'])
 
     def test_cleanup_issue_is_reported_separately_after_supported_work(self):
         retained = {"reused": False, "removed_files": 0, "removed_bytes": 0,

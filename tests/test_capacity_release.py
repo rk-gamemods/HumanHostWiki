@@ -17,7 +17,7 @@ class CapacityReleaseTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.root, self.project = self.fixture.root, self.fixture.project
-        self.project["capacity"] = {"file_bytes": 24_000, "site_bytes": 50_000, "history_bytes": 250_000,
+        self.project["capacity"] = {"file_bytes": 25_000, "site_bytes": 50_000, "history_bytes": 250_000,
                                     "site_reserve_bytes": 25_000, "history_reserve_bytes": 25_000}
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = test_publication.Host(self.project["github_owner"])
@@ -125,7 +125,7 @@ class CapacityReleaseTests(unittest.TestCase):
 
     def test_paged_ownership_commits_publishes_and_preserves_prior_release_reads(self):
         # Force only the metadata-page threshold. Runtime objects still obey
-        # the independently configured 24,000-byte physical file budget.
+        # the independently configured 25,000-byte physical file budget.
         with patch.object(ownership, "PAGE_BYTES", 2048):
             first, _ = self.run_release()
             audit = check(self.root)

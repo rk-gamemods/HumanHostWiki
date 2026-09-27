@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from . import availability, extraction, history, physical, publication, reader, release, release_retention, snapshots
+from . import availability, curation, extraction, history, physical, publication, reader, release, release_retention, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -68,7 +68,8 @@ def run(root, project, source, progress=None):
                      "extraction": extraction.contract(root, project), "identity": history.contract(),
                      "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}
         reviewed = history.corrections(root)
-        request_key = digest(json_bytes([receipt, project, contracts, reviewed, observed]))
+        authored = curation.definition_inputs(curation.definitions(root, project))
+        request_key = digest(json_bytes([receipt, project, contracts, reviewed, observed, authored]))
         request_path = within(root, f".local/pipeline/requests/{request_key}.json")
         if request_path.exists():
             request = json.loads(request_path.read_text(encoding="utf-8"))
@@ -101,8 +102,10 @@ def run(root, project, source, progress=None):
         stage = "project"
         if progress:
             progress(stage)
-        projected = reader.build(root, project, bases=release.bases(project),
+        projected = reader.build(root, project, bases=release.bases(project), source=source,
                                  max_pack_bytes=min(reader.DEFAULT_PACK_BYTES, physical.budgets(project).file_bytes))
+        metrics["curation"] = projected["curation"]["metrics"]
+        reports["curation"] = projected["curation"]["exceptions"]
         completed[stage] = {"candidate_id": projected["candidate_id"], "bytes": projected["bytes"]}
         metrics[stage] = {"reused": projected["reused"]}
         if projected.get("projection_reused"):
@@ -122,6 +125,8 @@ def run(root, project, source, progress=None):
             raise ContractError("Reviewed mappings changed during processing")
         if availability.latest(root, project) != observed:
             raise ContractError("Availability evidence changed during processing")
+        if curation.definition_inputs(curation.definitions(root, project)) != authored:
+            raise ContractError("Curated definitions changed during processing")
         completed[stage] = {"scope": "stage-artifacts-and-stable-source", "gameplay_verified": False}
         stage = "release"
         if progress:

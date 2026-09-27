@@ -71,7 +71,7 @@ def read(root, project):
     if manifest:
         if set(manifest["repositories"]) != {repo["id"] for repo in repositories}:
             raise ContractError("Release outputs differ from the physical registry")
-        release.verify(root, manifest)
+        release.verify(root, manifest, reviewed_project=project)
     published = publication.published(root)
     owners = {topic.id: topic for topic in topics}
     partitions, stored = [], []
@@ -81,7 +81,7 @@ def read(root, project):
             record = manifest["repositories"][repo["id"]]
             if record["github_name"] != repo["github_name"] or record["path"] != repo["path"]:
                 raise ContractError("Released repository differs from its physical identity")
-            commit = record["commit"]
+            commit = git(path, "rev-parse", "HEAD")
             owner, _ = ownership.committed(path, commit)
         else:
             if (path / release.OWNER_FILE).exists():

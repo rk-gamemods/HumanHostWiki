@@ -246,6 +246,29 @@ class PublicationTests(unittest.TestCase):
             publication_git.audit(repo, git(repo, "rev-parse", "HEAD"))
 
 
+    def test_curated_json_is_audited_and_cannot_export_private_bytes_or_code_paths(self):
+        repo = self.root / 'repositories/items'
+        baseline = git(repo, 'rev-parse', 'HEAD')
+        path = repo / 'curated/example.json'
+        path.parent.mkdir()
+        path.write_bytes(json_bytes({'text': ['Configured value: ', {'fact': 'value'}]}))
+        git(repo, 'add', 'curated')
+        git(repo, 'commit', '-qm', 'Public authored JSON')
+        accepted = git(repo, 'rev-parse', 'HEAD')
+        self.assertEqual(publication_git.audit(repo, accepted, baseline)['commits'], 1)
+        path.write_bytes(json_bytes({'text': ['C:/Users/Admin/private']}))
+        git(repo, 'add', 'curated')
+        git(repo, 'commit', '-qm', 'Private bytes fixture')
+        private = git(repo, 'rev-parse', 'HEAD')
+        with self.assertRaisesRegex(ContractError, 'Private or binary'):
+            publication_git.audit(repo, private, accepted)
+        (path.parent / 'raw.cs').write_text('class Raw {}')
+        git(repo, 'add', 'curated')
+        git(repo, 'commit', '-qm', 'Forbidden source fixture')
+        with self.assertRaisesRegex(ContractError, 'Unapproved public history path'):
+            publication_git.audit(repo, git(repo, 'rev-parse', 'HEAD'), private)
+
+
 class AdapterTests(unittest.TestCase):
     def test_public_http_hashes_and_oversized_response_rejection(self):
         content = b'{"selected":true}\n'

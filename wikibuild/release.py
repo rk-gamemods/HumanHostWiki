@@ -102,14 +102,25 @@ def read(root, release_id):
     return value
 
 
-def verify(root, value, *, check_checkout=True):
+def verify(root, value, *, check_checkout=True, reviewed_project=None):
+    if reviewed_project is not None:
+        if not check_checkout:
+            raise ContractError("Reviewed successors require checkout validation")
+        workspace.checkout_lock(root, reviewed_project, check=True)
     for topic, record in value["repositories"].items():
         path = within(root, record["path"])
         if git(path, "rev-parse", record["commit"] + "^{tree}") != record["tree"]:
             raise ContractError(f"Release commit tree differs: {topic}")
         if check_checkout:
-            if git(path, "rev-parse", "HEAD") != record["commit"] or git(path, "status", "--porcelain=v1", "--untracked-files=all"):
+            head = git(path, "rev-parse", "HEAD")
+            if git(path, "status", "--porcelain=v1", "--untracked-files=all"):
                 raise ContractError(f"Release checkout differs: {topic}")
+            if head != record["commit"]:
+                if reviewed_project is None:
+                    raise ContractError(f"Release checkout differs: {topic}")
+                # Only allocation for a new release accepts reviewed authored commits.
+                # Current publication/reuse still requires the exact release HEAD.
+                git(path, "merge-base", "--is-ancestor", record["commit"], head)
             if extraction.file_hash(path / OWNER_FILE) != record["ownership_sha256"]:
                 raise ContractError(f"Release ownership receipt differs: {topic}")
             owned(path)

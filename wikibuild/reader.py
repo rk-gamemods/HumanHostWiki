@@ -8,7 +8,8 @@ import re
 import uuid
 from urllib.parse import urlsplit
 
-from . import availability, extraction, history, model, packs, pages, snapshots
+from . import availability, curation, extraction, history, model, packs, pages, snapshots
+from .exceptions import Exceptions
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 DEFAULT_PACK_BYTES = 512 * 1024
@@ -25,7 +26,7 @@ def candidate_path(cache_root, candidate_id):
 
 def contract():
     folder = Path(__file__).parent
-    paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py")]
+    paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py")]
     paths += sorted((folder / "web").glob("*"))
     return {path.relative_to(folder).as_posix(): digest(path.read_bytes().replace(b"\r\n", b"\n")) for path in paths}
 
@@ -97,6 +98,15 @@ def validate_snapshot(stage, snapshot, topics):
             if key in membership or record["topic"] != topic or not ENTITY.fullmatch(key):
                 raise ContractError("Reader has duplicate or invalid canonical ownership")
             membership[key] = topic
+            for note in record.get("explanations", []):
+                if (note["entity"] != key or note["topic"] != topic or note["snapshot_id"] != snapshot
+                        or note["status"] not in {"passed", "unverified"}):
+                    raise ContractError("Explanation leaves its owning entry or snapshot")
+                if note["status"] == "passed" and (not isinstance(note["text"], str) or not note["last_verified"]
+                                                 or note["last_verified"]["snapshot_id"] != snapshot or note["reasons"]):
+                    raise ContractError("Passed explanation lacks its successful check")
+                if note["status"] == "unverified" and (note["text"] is not None or not note["reasons"]):
+                    raise ContractError("Failed explanation lacks its reason")
             if record["status"] != "present":
                 continue
             semantic = semantics[record["revision_id"]]
@@ -119,13 +129,17 @@ def validate_snapshot(stage, snapshot, topics):
     return count
 
 
-def project_snapshot(root, project, run, stage, output, limit, known):
+def project_snapshot(root, project, run, stage, output, limit, known, explanations=None):
     snapshot = run["snapshot_id"]
     state = history.load_state(root, run)
     models = extraction.artifact(root, run["models"])
     routes = {key: {"name": row["descriptor"]["name"], "topic": row["descriptor"]["topic"]} for key, row in state.items()}
     owners = {kind: repo["id"] for repo in project["repositories"] for kind in repo["owns"]}
     topics = [repo["id"] for repo in project["repositories"]]
+    notes = defaultdict(list)
+    for key, explanation in sorted((explanations or {}).items()):
+        if explanation["entity"] in state and explanation["topic"] == state[explanation["entity"]]["descriptor"]["topic"]:
+            notes[explanation["entity"]].append(explanation)
     backlinks = defaultdict(list)
     seen = set()
     for row in model.rows(models):
@@ -163,13 +177,15 @@ def project_snapshot(root, project, run, stage, output, limit, known):
                   "first_seen": ledger["first_seen"], "last_changed": ledger["last_changed"],
                   "last_data_checked": ledger["last_data_checked"], "last_verified": ledger["last_verified"],
                   "decision": ledger["decision"], "links": links, "backlink_count": len(reverse)}
+        if notes[key]:
+            record["explanations"] = notes[key]
         data["entries"][key] = packs.compact(record)
         # Full facts remain in semantic packs. Search stays compact and text only.
         primitive = {name: value for name, value in semantic["facts"].items() if value is None or isinstance(value, (str, int, float, bool))}
         brief = {"entity_key": key, **routes[key], "kind": semantic["kind"], "status": "present",
                  "source_id": row["provenance"]["source_id"], "preview": dict(list(primitive.items())[:6])}
         data["search"][key] = packs.compact(brief)
-        groups[topic][semantic["kind"]].append(brief)
+        groups[topic][semantic["kind"]].append({**brief, **({"explanations": notes[key]} if notes[key] else {})})
         counts[topic][semantic["kind"]] += 1
     for key, ledger in state.items():
         if ledger["status"] == "present":
@@ -179,8 +195,10 @@ def project_snapshot(root, project, run, stage, output, limit, known):
                   "status": ledger["status"], "last_seen": ledger["last_seen"],
                   "last_changed": ledger["last_changed"], "last_verified": ledger["last_verified"],
                   **({"superseded_by": ledger["superseded_by"]} if ledger.get("superseded_by") else {})}
+        if notes[key]:
+            record["explanations"] = notes[key]
         maps[topic]["entries"][key] = packs.compact(record)
-        maps[topic]["search"][key] = packs.compact(record)
+        maps[topic]["search"][key] = packs.compact({name: value for name, value in record.items() if name != "explanations"})
     receipt = snapshots.read(root, snapshot)
     for topic, data in maps.items():
         writer = lambda name, value, topic=topic: output(f"{topic}/{name}", value)
@@ -201,11 +219,15 @@ def project_snapshot(root, project, run, stage, output, limit, known):
             "observations": verified}, groups
 
 
-def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=None, cache_root=None):
+def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=None, cache_root=None, source=None):
     """Caller holds writer_lock. This writes staging only, not child repositories."""
     runs = versions(root) if runs is None else runs
     if not runs or len({run["snapshot_id"] for run in runs}) != len(runs):
         raise ContractError("Reader needs one identity run per selected snapshot")
+    source = Path(source) if source else root / project.get("source", {}).get("default_path", "../HumanHostCodebase")
+    checked, check_metrics = curation.run(root, project, source, runs)
+    curated = {"run_id": checked["run_id"] if checked else None, "metrics": check_metrics,
+               "exceptions": checked["exceptions"] if checked else Exceptions().report()}
     bases = bases or {repo["id"]: f"/{repo['id']}/" for repo in project["repositories"]}
     if set(bases) != {repo["id"] for repo in project["repositories"]} or any(not base.endswith("/") for base in bases.values()):
         raise ContractError("Reader bases must name every topic with a trailing slash")
@@ -216,7 +238,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
             raise ContractError("Reader base must be an HTTPS site or absolute local URL path")
     inputs = {"project": project, "runs": [digest(json_bytes(run)) for run in runs], "renderer": contract(),
               "receipts": [digest(json_bytes(snapshots.read(root, run["snapshot_id"]))) for run in runs],
-              "bases": bases, "pack_bytes": max_pack_bytes, "availability": availability.latest(root, project)}
+              "bases": bases, "pack_bytes": max_pack_bytes, "availability": availability.latest(root, project),
+              "curation": checked["run_id"] if checked else None}
     candidate_id = digest(json_bytes(inputs))
     cache_root = Path(cache_root).resolve() if cache_root else within(root, ".local")
     if not cache_root.is_relative_to(within(root, ".local")):
@@ -226,7 +249,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     if destination.exists():
         manifest = verify(destination, candidate_id)
         write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
-        return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"], "reused": True}
+        return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"], "reused": True, "curation": curated}
     prior, prior_path = None, None
     if pointer.exists():
         prior_id = json.loads(pointer.read_bytes())["candidate_id"]
@@ -280,10 +303,11 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         verify(stage, candidate_id)
         if contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]:
             raise ContractError("Reader inputs changed during availability projection")
+        curation.ensure_definitions(root, project, checked)
         os.rename(stage, destination)
         write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
         return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"],
-                "reused": False, "projection_reused": True}
+                "reused": False, "projection_reused": True, "curation": curated}
 
     projected, current_groups = {}, None
     all_groups = {repo["id"]: set() for repo in project["repositories"]}
@@ -292,7 +316,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         # Revalidate pinned artifacts, even if a caller supplied the run.
         extraction.artifact(root, run["state"])
         extraction.artifact(root, run["models"])
-        version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known)
+        version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known,
+                                           checked["snapshots"].get(run["snapshot_id"]) if checked else None)
         projected[run["snapshot_id"]] = version
         for topic, kinds in groups.items():
             all_groups[topic].update(kinds)
@@ -329,7 +354,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     verify(stage, candidate_id)
     if contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]:
         raise ContractError("Reader inputs changed during generation")
+    curation.ensure_definitions(root, project, checked)
     destination.parent.mkdir(parents=True, exist_ok=True)
     os.rename(stage, destination)
     write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
-    return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"], "reused": False}
+    return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"], "reused": False, "curation": curated}

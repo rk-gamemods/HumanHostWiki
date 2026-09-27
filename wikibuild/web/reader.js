@@ -261,6 +261,33 @@ function status() {
   document.getElementById("status").title = versionEvidence ? `${versionEvidence.source_path} · ${versionEvidence.object_id}${versionEvidence.field} · SHA-256 ${versionEvidence.source_sha256}` : "";
 }
 
+function checkedExplanations(records) {
+  const section = element("section");
+  for (const note of records || []) {
+    section.append(element("h3", note.title));
+    if (note.status === "passed") {
+      section.append(element("p", note.text), element("p", `Declared ${note.scope} checks passed.`, "badge"));
+    } else {
+      section.append(notice(`Unverified explanation: ${note.reasons.join("; ")}`));
+    }
+    if (note.last_verified) {
+      const last = note.last_verified;
+      section.append(element("p", `Last successful check: Steam build ${last.build_id} (${last.snapshot_id}).`, "muted"));
+      if (note.status !== "passed") {
+        const old = element("details");
+        old.append(element("summary", "Previously checked text"), element("p", last.text));
+        section.append(old);
+      }
+    }
+    const evidence = element("details");
+    evidence.append(element("summary", "Explanation checks and source evidence"), valueNode({
+      definition: note.authored_source, scope: note.scope, checks: note.checks, last_successful_check: note.last_verified
+    }));
+    section.append(evidence);
+  }
+  return section;
+}
+
 async function showEntry(key) {
   const record = await keyed(index.entries, key);
   if (!record) {
@@ -284,6 +311,7 @@ async function showEntry(key) {
   if (config.capture_catalog) history.append(capturePager(appendHistory));
   else config.versions.forEach(appendHistory);
   article.append(history);
+  if (record.explanations?.length) article.append(checkedExplanations(record.explanations));
   if (record.status !== "present") {
     const messages = {"not-present": "The source object was absent from this captured catalog.", uncaptured: "The required capture or extraction scope was unavailable.", unresolved: "The earlier observation could not be safely reconciled with this snapshot.", superseded: "A reviewed identity correction superseded this key. Earlier snapshots retain their original decisions."};
     article.append(notice(messages[record.status] || "This entry has no current observation."));
