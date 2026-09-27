@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "project": "Human Host Wiki",
+  "github_owner": "rk-gamemods",
+  "language": "en",
+  "publication": {"visibility": "public", "monetized": false, "advertising": false, "host": "github-pages", "remote_setup": "not-created"},
+  "source": {"kind": "humanhost-codebase", "default_path": "../HumanHostCodebase", "steam_app_id": "2393970", "catalog_schema": 1},
+  "official_links": [
+    {"title": "Human Host on Steam", "url": "https://store.steampowered.com/app/2393970/Human_Host/"},
+    {"title": "Recognized community wiki", "url": "https://wiki.nerdwerx.io/index.php/Human_Host:Main_Page"}
+  ],
+  "repositories": [
+    {"id": "hub", "title": "Start here", "path": "repositories/hub", "github_name": "HumanHost-Wiki", "role": "hub", "owns": ["guide", "release-summary"], "coverage": "Topic overview, curated guides, version selection, coverage and release history"},
+    {"id": "items-equipment", "title": "Items and equipment", "path": "repositories/items-equipment", "github_name": "HumanHost-Wiki-Items", "role": "topic", "owns": ["item", "equipment"], "coverage": "All known items, weapons, armor, tools, consumables, materials and their properties"},
+    {"id": "loot-acquisition", "title": "Loot and acquisition", "path": "repositories/loot-acquisition", "github_name": "HumanHost-Wiki-Loot", "role": "topic", "owns": ["loot-tag", "loot-table", "loot-source"], "coverage": "Loot eligibility, tables, containers, drops, acquisition conditions and source-to-item relationships"},
+    {"id": "crafting-processing", "title": "Crafting and processing", "path": "repositories/crafting-processing", "github_name": "HumanHost-Wiki-Crafting", "role": "topic", "owns": ["recipe", "workbench", "processing-rule"], "coverage": "Recipes, ingredients, workbenches, processing, repairs and disassembly"},
+    {"id": "combat", "title": "Combat", "path": "repositories/combat", "github_name": "HumanHost-Wiki-Combat", "role": "topic", "owns": ["combat-rule", "damage-type"], "coverage": "Damage calculations, armor interactions, body-part effects and weapon mechanics"},
+    {"id": "creatures-ai", "title": "Creatures and AI", "path": "repositories/creatures-ai", "github_name": "HumanHost-Wiki-Creatures", "role": "topic", "owns": ["creature", "ai-rule"], "coverage": "Creature variants, perception, movement, targeting and attacks"},
+    {"id": "spawning-populations", "title": "Spawning and populations", "path": "repositories/spawning-populations", "github_name": "HumanHost-Wiki-Spawning", "role": "topic", "owns": ["spawn-rule", "population"], "coverage": "Spawn rules, population groups, distances, despawning and cleanup"},
+    {"id": "skills-survival", "title": "Skills and survival", "path": "repositories/skills-survival", "github_name": "HumanHost-Wiki-Survival", "role": "topic", "owns": ["skill", "status-effect", "survival-rule"], "coverage": "Progression, buffs, health, stamina, hunger, thirst and status effects"},
+    {"id": "biomes-resources", "title": "Biomes and resources", "path": "repositories/biomes-resources", "github_name": "HumanHost-Wiki-Biomes", "role": "topic", "owns": ["biome", "resource-distribution"], "coverage": "Regional resources, items, creatures and loot; unique or exclusive occurrences only where verified"},
+    {"id": "construction", "title": "Construction", "path": "repositories/construction", "github_name": "HumanHost-Wiki-Construction", "role": "topic", "owns": ["building-piece", "construction-rule"], "coverage": "Building pieces, materials, durability, destruction and structural relationships"},
+    {"id": "vehicles", "title": "Vehicles", "path": "repositories/vehicles", "github_name": "HumanHost-Wiki-Vehicles", "role": "topic", "owns": ["vehicle", "vehicle-rule"], "coverage": "Vehicle families, parts, assembly, controls and operating mechanics"},
+    {"id": "world-systems", "title": "World systems", "path": "repositories/world-systems", "github_name": "HumanHost-Wiki-World", "role": "topic", "owns": ["world-rule", "weather", "time-rule"], "coverage": "Weather, time, environmental conditions and world organization"},
+    {"id": "technical-reference", "title": "Technical reference", "path": "repositories/technical-reference", "github_name": "HumanHost-Wiki-Technical", "role": "topic", "owns": ["asset", "component", "configuration", "tag", "layer", "unclassified"], "coverage": "Every asset identity, component types, configuration fields, tags, layers and visible coverage gaps"}
+  ],
+  "relationships": [
+    {"from": "items-equipment", "to": "loot-acquisition", "kind": "acquired-from"},
+    {"from": "loot-acquisition", "to": "items-equipment", "kind": "yields"},
+    {"from": "crafting-processing", "to": "items-equipment", "kind": "consumes-or-produces"},
+    {"from": "combat", "to": "items-equipment", "kind": "governs"},
+    {"from": "creatures-ai", "to": "combat", "kind": "uses-combat-rules"},
+    {"from": "creatures-ai", "to": "loot-acquisition", "kind": "drops"},
+    {"from": "spawning-populations", "to": "creatures-ai", "kind": "spawns"},
+    {"from": "spawning-populations", "to": "biomes-resources", "kind": "occurs-in"},
+    {"from": "skills-survival", "to": "combat", "kind": "modifies"},
+    {"from": "biomes-resources", "to": "items-equipment", "kind": "provides"},
+    {"from": "biomes-resources", "to": "loot-acquisition", "kind": "contains-sources"},
+    {"from": "construction", "to": "items-equipment", "kind": "requires"},
+    {"from": "vehicles", "to": "crafting-processing", "kind": "assembled-with"},
+    {"from": "world-systems", "to": "biomes-resources", "kind": "governs"},
+    {"from": "technical-reference", "to": "items-equipment", "kind": "backs-game-entity"}
+  ],
+  "pipeline": [
+    {"id": "capture", "depends_on": [], "owner": "HumanHostMods/tools/Decompile-GameCode.ps1", "status": "external-existing"},
+    {"id": "register", "depends_on": ["capture"], "owner": "wikibuild/snapshots.py", "status": "implemented"},
+    {"id": "normalize", "depends_on": ["register"], "owner": "future wiki adapters", "status": "planned"},
+    {"id": "identity", "depends_on": ["normalize"], "owner": "future identity registry", "status": "planned"},
+    {"id": "project", "depends_on": ["identity"], "owner": "future topic projectors", "status": "planned"},
+    {"id": "verify", "depends_on": ["project"], "owner": "future semantic and link validation", "status": "planned"},
+    {"id": "release", "depends_on": ["verify"], "owner": "future release coordinator", "status": "planned"},
+    {"id": "publish", "depends_on": ["release"], "owner": "future GitHub Pages publisher", "status": "planned"}
+  ]
+}
