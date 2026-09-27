@@ -27,8 +27,10 @@ complete product.
 ## Remaining completion gates
 
 The [external article integration](EXTERNAL_LINKS.md) now includes normal-update
-refresh, production routing, release storage and rendered backlinks. Its fixture
-checks pass; normal-entrypoint publication and live browser proof remain pending.
+refresh, production routing, release storage and rendered backlinks. It has passed
+normal-entrypoint publication, independent projection/release audits, an unchanged
+repeat and live browser checks. Article accuracy and gameplay verification remain
+separate from those checks.
 
 - Extend the integrated runner through gameplay verification
   without changing the operator workflow.
@@ -37,8 +39,8 @@ checks pass; normal-entrypoint publication and live browser proof remain pending
 - Complete individual asset identities, real cross-build identity coverage and
   dependency-based verification beyond the selected-observation identity stage.
 - Complete historical capture coverage, reader presentation of interpreted units
-  and conditions, dedicated curated guides and useful external backlinks beyond the
-  selected-fact reader. Steam availability and captured application-version
+  and conditions, and dedicated curated guides beyond the selected-fact reader.
+  Steam availability and captured application-version
   evidence are implemented; gameplay freshness and page-check receipts remain.
   Entry-attached authored checks are implemented under [CURATED.md](CURATED.md);
   these establish only their declared data/code scope.
@@ -71,7 +73,41 @@ own view. After the final view-ownership correction, all 37 affected browser,
 reader, article integration and capacity projection tests passed. The larger suite
 was not repeated for that final browser-only correction.
 
-Normal-entrypoint publication and independent live-page checks remain pending.
+Implementation commit: `1af73b9ba0f077818e4bf89c3dc21c5c87914d33`.
+The normal `tools/Decompile-GameCode.ps1` invocation completed in 229.894 seconds,
+including installed-input hash verification and coordinated Pages publication.
+It reused source commit `0bf00fe33781a7357b2d462fdaad49b0c3518b86` and published
+release `e89be19a88ba2209581b9895133719aecb02628a3a8040a6243c7ba2ffc00022`
+across all 13 repositories. The pipeline result is
+`75175867182867b8ca1b00e1f86f831987efa8ebcf9d861a0ad9bd758da0df8b`.
+
+The independent article projection audit checked 14 topic lookups and 5,748 eligible
+entries across three captures of Steam build 25548639. Twelve entry links matched
+populated destinations, representing four entries in each capture. The audit derives
+matches from selected search records and the pinned observation. The independent
+reader audit checked 24,438 observations with 219,948 assertions across 689 files
+and 54,257,588 output bytes. The release audit checked 1,055 owned files,
+57,788,850 owned bytes and 169 retained historical configurations.
+
+The public browser checks verified Stone Axe facts and its revision-313 article
+link, selected a historical capture without losing the link or its version context,
+and confirmed that Construction's missing article and Vehicles' unsupported article
+leave their catalog navigation available. No gameplay compatibility was claimed.
+
+An immediate `tools/benchmark_release.py` run passed in 9.896 seconds, retaining
+all 13 child HEADs and the bytes/timestamps of 1,080 files. Article requests and
+response bytes were zero; extraction, identity and authored-check source reads
+were also zero. This repeat measures the wiki update, excluding the decompile
+entrypoint's installed-file hash scan. These are single-run timing observations.
+
+Production article observation
+`00b9b61998c9e154e33fc41377938872f0884673a85c9bd0c23c92a1c1e27ef5`
+recorded 17 populated and five unavailable selected articles. The latter use
+unsupported markup: Combat Perks, Craft Perks, Survival Perks, Game Structure and
+Vehicle Building. They remain logged for user direction, along with the unchanged
+193 game-content groups covering 27,087 occurrences. This work did not investigate
+or classify those exceptions. Local acceptance logs use `.local/external-integration-*`;
+the article-match audit is `.local/external-projection-audit.json`.
 
 ### External article adapter checkpoint
 
