@@ -21,8 +21,7 @@ and [ADR-0001](docs/adr/0001-versioned-public-wiki.md).
 ## Work and publication
 
 The accepted product is a public, English, free, ad-free factual wiki with the
-full agreed catalog and historical provenance. The user accepted the possibility
-of a future removal request; advance studio contact is not a prerequisite.
+full agreed catalog and historical provenance.
 Derived factual documentation belongs in the wiki repositories. The parent
 codebase's source and raw catalog remain local inputs, read in place.
 
