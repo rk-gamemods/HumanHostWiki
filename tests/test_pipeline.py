@@ -113,6 +113,16 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn("protected payload", json.dumps(saved["exceptions"]))
         self.assertIn("Staging cleanup issue [0123456789ab]: protected payload", pipeline.operator_report(self.root, result))
 
+    def test_reader_cache_issue_is_reported_after_supported_work_without_content_escalation(self):
+        with patch.object(pipeline.reader_retention.os, "link", side_effect=OSError("protected reader cache")):
+            result = self.run_pipeline()
+        saved = pipeline.read(self.root, result["run_id"])
+        self.assertEqual(saved["status"], "git-release-ready")
+        self.assertIn("publish", saved["completed"])
+        self.assertNotIn("protected reader cache", json.dumps(saved["exceptions"]))
+        self.assertIn("Reader cache cleanup issue", pipeline.operator_report(self.root, result))
+        self.assertIn("protected reader cache", pipeline.operator_report(self.root, result))
+
     def test_failure_preserves_last_success_and_reuses_completed_stages_on_retry(self):
         first = self.run_pipeline()
         before = self.latest().read_bytes()

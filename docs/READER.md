@@ -54,6 +54,8 @@ The configuration pins [Steam availability evidence](AVAILABILITY.md) separately
 from snapshot facts. A change only to this evidence reuses validated immutable
 packs through hard links and skips model projection. Shared files are never edited
 in place; controls and reference links receive new files in private staging.
+The normal update also shares verified identical files across existing candidates
+under the [local retention contract](RETENTION.md#immutable-reader-files).
 New local cache directories use the first 24 hexadecimal hash characters to keep
 Windows paths short; full identities remain in manifests and pointers. A prefix
 collision fails the full-identity check. Existing full-hash directories remain

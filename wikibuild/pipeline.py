@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from . import availability, curation, external_links, extraction, history, physical, publication, reader, release, release_retention, snapshots
+from . import availability, curation, external_links, extraction, history, physical, publication, reader, reader_retention, release, release_retention, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -74,6 +74,7 @@ def run(root, project, source, progress=None):
             completed[stage] = {"observation_id": digest(json_bytes(articles)), **external_links.summary(articles)}
         contracts = {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
                      "availability": availability.contract(), "retention": release_retention.contract(),
+                     "reader_retention": reader_retention.contract(),
                      "external_articles": external_links.contract(),
                      "extraction": extraction.contract(root, project), "identity": history.contract(),
                      "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}
@@ -128,6 +129,7 @@ def run(root, project, source, progress=None):
         extraction.ensure_source(source, receipt["source_commit"])
         if contracts != {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
                          "availability": availability.contract(), "retention": release_retention.contract(),
+                         "reader_retention": reader_retention.contract(),
                          "external_articles": external_links.contract(),
                          "extraction": extraction.contract(root, project), "identity": history.contract(),
                          "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}:
@@ -157,6 +159,10 @@ def run(root, project, source, progress=None):
         if progress:
             progress(stage)
         metrics[stage] = release_retention.run(root)
+        stage = "reader-retention"
+        if progress:
+            progress(stage)
+        metrics[stage] = reader_retention.run(root)
         result = {"schema_version": 1, "request_key": request_key,
                   "previous_run": previous["run_id"] if previous else None,
                   "source_commit": receipt["source_commit"], "snapshot_id": receipt["snapshot_id"],
@@ -220,4 +226,6 @@ def operator_report(root, result):
     lines.append(saved["exceptions"]["next_action"])
     for retained in result.get("metrics", {}).get("retention", {}).get("retained", []):
         lines.append(f"Staging cleanup issue [{retained['stage']}]: {retained['reason']}")
+    for retained in result.get("metrics", {}).get("reader-retention", {}).get("retained", []):
+        lines.append(f"Reader cache cleanup issue [{retained['candidate']}]: {retained['reason']}")
     return "\n".join(lines) + "\n"

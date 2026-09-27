@@ -49,7 +49,9 @@ separate from those checks.
   forced-threshold tests with retained historical links; see their checkpoints below.
 - Complete retention for failed preparation attempts and rebuildable caches.
   Verified duplicate payloads from committed release staging are removed by the
-  normal update; diagnostic journals and preparation indexes remain retained.
+  normal update. Identical immutable reader files share storage while retaining
+  all candidate paths. Failed staging, unique obsolete cache content, diagnostic
+  journals and preparation indexes remain retained.
 - Run real initial generation and an unchanged repeat; measure time, bytes read,
   output size and peak memory. Exercise changed/new/removed/unsupported records and
   tool corrections, using real builds and focused fixtures for unavailable cases.
@@ -57,6 +59,43 @@ separate from those checks.
   browser behavior and remote state, and audit every ADR acceptance requirement.
 
 ## Current evidence
+
+### Reader cache sharing checkpoint
+
+On 2026-09-27, the normal wiki update shared 7,320 duplicate files across 16 local
+reader candidates. Independent before/after hashing confirmed that all 9,650
+existing files, including manifests, retained their paths and bytes. Unique-inode
+file lengths fell from 748,756,204 to 113,969,356 bytes, a reduction of 634,786,848
+bytes. These are logical file lengths per inode, not a free-disk-space measurement.
+
+The compactor verified 746,673,073 payload bytes. With allocation tracing enabled,
+it took 38.204 seconds and peaked at 34,009,824 traced Python allocation bytes.
+An immediate cleanup repeat took 0.058 seconds, reused its completion receipt and
+read zero payload bytes. The benchmark records its scope and complete metrics in
+`.local/reader-retention-benchmark.json`; [RETENTION.md](RETENTION.md) owns the
+storage and recovery contract.
+
+The production pipeline result is
+`f1f4b7855b328dab494753d7e29efee30acd2d9ec1eca73cade4cc44e2124113`.
+It reused reader `60976dc8cc1a0e127488e8eb411d0c77eb640ecff99fd65a1728f04b82a22938`
+and public release `e89be19a88ba2209581b9895133719aecb02628a3a8040a6243c7ba2ffc00022`.
+Extraction, identity and authored-check source reads were zero; external article
+requests and response bytes were zero. The subsequent normal decompile invocation
+also succeeded with the same source capture and release. The 193 game-content
+exception groups and five article issues remain pending user direction.
+
+The subsequent unchanged-update check passed in 10.457 seconds, preserving all
+13 child HEADs and the hashes/timestamps of 1,080 checked files. Every stage reused
+its result. This check ran while the isolated full test suite was also active;
+its elapsed time is an observed run, not a controlled performance comparison.
+
+The full Python suite passed all 268 tests in 622.629 seconds, including 12 direct
+reader-retention cases and 14 pipeline cases. Coverage includes independent byte
+conservation, receipt reuse, new candidates, corrupt files, unknown content,
+interrupted replacement, protected operations, unsupported hard links, malformed
+metadata, missing payloads, stale temporaries and Windows junctions. The repository
+validator, map check, lock check and diff whitespace check passed. Test cleanup
+retained protected Git fixtures without overriding their file protection.
 
 ### External article integration checkpoint
 

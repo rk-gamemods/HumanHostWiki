@@ -274,10 +274,12 @@ directory so earlier previews remain available.
   evidence. Explicitly remove only the verified generated output after checking
   its absolute path; then rebuild. File protection is not bypassed.
 
-The normal update removes verified duplicate committed release payloads under the
-[retention contract](RETENTION.md). Other old local previews can be removed
-after confirming none is selected or in use. Published historical revisions and
-source snapshots require a separate retention decision.
+The normal update removes verified duplicate committed release payloads and shares
+identical immutable reader files under the [retention contract](RETENTION.md).
+Reader paths remain available for previews and recovery. Never edit candidate files
+in place: they can share storage. Other old local previews can be removed after
+confirming none is selected or in use. Published historical revisions and source
+snapshots require a separate retention decision.
 
 ## Tests and scope of proof
 
