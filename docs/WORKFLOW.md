@@ -6,7 +6,7 @@ GitHub CLI. Captured enum extraction and optional named C# checks use the pinned
 packages installed once with `py -3 -m pip install -r requirements-source.txt`.
 See [selected extraction](EXTRACTION.md) and [authored checks](CURATED.md).
 
-The public [wiki](https://rk-gamemods.github.io/HumanHost-Wiki/) and
+The public [Unofficial Game Data Wiki for Human Host](https://rk-gamemods.github.io/HumanHost-Wiki/) and
 [hub repository](https://github.com/rk-gamemods/HumanHost-Wiki) are live.
 The [delivery acceptance](ACCEPTANCE.md) lists implemented requirements and
 finite evidence limitations. The
