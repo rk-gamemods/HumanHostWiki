@@ -45,7 +45,7 @@
     {"id": "detect", "depends_on": [], "owner": "operator-invoked decompile pipeline", "status": "planned"},
     {"id": "capture", "depends_on": ["detect"], "owner": "HumanHostMods/tools/Decompile-GameCode.ps1", "status": "external-existing"},
     {"id": "register", "depends_on": ["capture"], "owner": "wikibuild/snapshots.py", "status": "implemented"},
-    {"id": "normalize", "depends_on": ["register"], "owner": "future wiki adapters", "status": "planned"},
+    {"id": "normalize", "depends_on": ["register"], "owner": "wikibuild/extraction.py and topic adapters", "status": "partial"},
     {"id": "identity", "depends_on": ["normalize"], "owner": "future identity registry", "status": "planned"},
     {"id": "project", "depends_on": ["identity"], "owner": "future topic projectors", "status": "planned"},
     {"id": "verify", "depends_on": ["project"], "owner": "future semantic and link validation", "status": "planned"},

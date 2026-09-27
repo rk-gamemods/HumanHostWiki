@@ -7,8 +7,10 @@ complete product.
 ## Boundaries and performance
 
 - The parent decompiler owns input stability, source/catalog capture and Git diff.
-  Its command invokes the wiki only after successful capture or verified reuse.
-- `wikibuild/source.py` streams selected immutable Git blobs through one process.
+  The planned command integration invokes the wiki only after successful capture
+  or verified reuse; that entrypoint integration is still unfinished.
+- `wikibuild/source.py` reads hash-verified record ranges from the existing source
+  checkout, with one streaming Git process for historical/mismatched local bytes.
   Adapters own field selection and interpretation. No raw catalog copy or public
   source tree is an intermediate wiki artifact.
 - `wikibuild/exceptions.py` groups unsupported cases by rule/pattern, with counts
@@ -63,8 +65,45 @@ complete product.
 - The wiki suite passed 38 tests; the parent catalog suite passed 20 tests with the
   configured isolated Python dependencies. The mod solution built with zero warnings
   and zero errors. Map, registry, lock, documentation links and diff checks passed.
-- Public repositories, release generation and the remaining topics have not been
-  implemented yet. No game files or third-party plugins were changed.
+- Public repositories and release generation have not been implemented yet.
+  No game files or third-party plugins were changed.
+
+### Expanded extraction checkpoint
+
+- Source commit `8f1263c7d28f1fcfd19e212c97d860cefa31b3b0` adds record byte offsets
+  and SHA-256 hashes to the existing scripted-object index. Raw object bytes are
+  unchanged. A real repeat verified the installed inputs and reused this clean
+  source commit without catalog export or assembly decompilation.
+- Topic-specific field contracts now extract 795 recipe observations, 70 skill
+  observations, 36 status effects, 4,189 building configurations, and selected
+  combat, creature, spawning, biome, vehicle and world settings, alongside the
+  earlier item/loot records. These are source observations; duplicate definitions
+  across containers have not yet been reconciled into canonical entities.
+- Local accounting covers all 414,343 indexed objects: 4,834 selected component
+  contracts, 2,832 selected-view inputs, 28,744 technical components, 305,404
+  structural/technical records, 45,518 omitted media/rendering payload records,
+  and 27,011 uninterpreted components. Only bounded type summaries describe the
+  unselected records. This accounting is not complete gameplay interpretation.
+- The exception report contains 191 unsupported component classes. Gameplay gaps
+  include `Item_Info`, `Battle_Info`, `Zombie_Input` and trap/controller classes;
+  they must be addressed before claiming the full ADR scope. Existing contracts
+  complete despite those gaps. Infrastructure assemblies have explicit technical
+  accounting rules, so known engine UI/rendering types do not require repeated
+  manual classification.
+- Three known editor-only decoding gaps remain attached to their technical type
+  summaries and capture provenance; they are not presented as decoded fields.
+- Independent validation checked 2,231 values/references/hash/name/count assertions
+  across 92 sampled gameplay observations and 527 type summaries. It reads committed
+  records through Git directly and does not import the extractor or source reader.
+- A fresh benchmark took 2.442 seconds, read 109,252,036 source bytes (104.2 MiB),
+  and produced 14,802,216 bytes (14.1 MiB) of selected records. Peak Python working
+  set was 53.1 MiB, excluding the Git subprocess. The repeat took 0.096 seconds,
+  read zero source bytes and preserved result bytes and the pointer timestamp.
+  These are local measurements, not performance guarantees.
+- The wiki suite passed 53 tests and the parent catalog suite passed 21 tests.
+  New checks cover nested selection, null/unknown references, recipe projection,
+  source/index hash disagreement, assembly-name collisions and object accounting.
+  [Extraction contracts](EXTRACTION.md) identify the owning files for corrections.
 
 ## Deferred classifier experiments
 

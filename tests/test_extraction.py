@@ -54,6 +54,11 @@ class ExtractionTests(unittest.TestCase):
                 {"languageType": 2, "_ItemName": "Canned beans"}]}},
             {"id": "fixture.assets#999", "fields": {"unused": "DO NOT EXPORT"}}])
         self.put("Catalog/unselected.jsonl", [{"unselected": "DO NOT EXPORT"}])
+        self.put("Catalog/views/object-index.jsonl", [
+            {"id": "fixture.assets#1", "type": "MonoBehaviour", "class": "Icon_Info", "assembly": "Item_Info"},
+            {"id": "fixture.assets#2", "type": "MonoBehaviour", "class": "Tooltip_Text", "assembly": "Language"},
+            {"id": "fixture.assets#999", "type": "Texture2D", "class": None},
+        ])
         self.commit()
 
     def tearDown(self):
@@ -92,7 +97,8 @@ class ExtractionTests(unittest.TestCase):
         self.assertNotIn("NON ENGLISH", json.dumps(rows))
         self.assertNotIn("Catalog/unselected.jsonl", result["dependencies"])
         self.assertGreater(metrics["source_bytes_read"], 0)
-        self.assertIn("combat", result["remaining_topics"])
+        self.assertIn("combat", result["topics_without_records"])
+        self.assertEqual("partial", result["topic_coverage"]["items-equipment"]["status"])
         self.assertEqual("not-created", result["wiki_release"])
 
     def test_noop_reuses_validated_outputs_without_source_reads_or_rewrites(self):
@@ -122,7 +128,7 @@ class ExtractionTests(unittest.TestCase):
         report = json.loads(extraction.artifact(self.wiki, result["exceptions"]).read_text())
         self.assertEqual(1, report["group_count"])
         self.assertEqual("new-field", report["groups"][0]["code"])
-        self.assertEqual(4, len(self.rows(result)))
+        self.assertEqual(6, len(self.rows(result)))
         self.assertNotIn("_NewFeature", self.rows(result)[0]["facts"])
 
     def test_previously_missing_dependency_is_revisited_when_it_appears(self):
@@ -152,10 +158,10 @@ class ExtractionTests(unittest.TestCase):
                                       "fields": {"new": 12}, "loot_sets": ["fixture.assets#5"]}])
         self.commit()
         result, _ = self.extract()
-        row = self.rows(result)[-1]
+        row = next(row for row in self.rows(result) if row["kind"] == "loot-source")
         self.assertEqual({}, row["facts"])
         self.assertEqual("fixture.assets#5", row["relationships"][0]["target_source_id"])
-        self.assertEqual(4, len(self.rows(result)))
+        self.assertEqual(6, len(self.rows(result)))
 
     def test_corrupt_output_is_rejected_and_never_overwritten(self):
         result, _ = self.extract()
@@ -240,6 +246,21 @@ class ExtractionTests(unittest.TestCase):
                 source.locations["fixture.assets#999"] = location
                 with self.assertRaisesRegex(ContractError, "location"):
                     source.objects(["fixture.assets#999"])
+
+    def test_corrupt_locator_digest_cannot_be_published_as_evidence(self):
+        with Source(self.source, self.receipt["source_commit"]) as source:
+            source.locations["fixture.assets#2"] = {**self.record_location(), "sha256": "0" * 64}
+            with self.assertRaisesRegex(ContractError, "hash differs"):
+                source.objects(["fixture.assets#2"])
+
+    def test_capture_accounting_mismatch_preserves_last_success(self):
+        first, _ = self.extract()
+        self.put("Catalog/coverage.json", {"objects": 4, "decode_failures": []})
+        self.commit()
+        with self.assertRaisesRegex(ContractError, "accounting differs"):
+            self.extract()
+        pointer = json.loads((self.wiki / ".local/extraction-latest.json").read_text())
+        self.assertEqual(first["run_id"], pointer["run_id"])
 
     def test_grouping_is_bounded_and_independent_of_record_order(self):
         reports = []

@@ -93,20 +93,32 @@ py -3 wiki.py extract
 ```
 
 This development command registers the pinned existing source and extracts the
-implemented item/loot contracts. It streams selected Git blobs, resolves English
-item names and records exact field evidence. Media, unrelated fields and raw code
+implemented contracts across the registered topics. It reads selected records,
+resolves English item/skill names and records exact field evidence. Media, unrelated fields and raw code
 are excluded. New fields produce grouped wiki exceptions while known fields and
 independent records continue. Missing required input files or malformed records
 are execution failures, not successful content exceptions.
 
 The JSON result names the content-addressed records and exception report under
-`.local/extractions/`. It explicitly lists the remaining topics and does not claim
+`.local/extractions/`. It reports partial coverage by topic and does not claim
 a wiki release or runtime verification. The last-success pointer advances only
 after all output hashes validate. Rerunning validates and reuses complete output;
 modified output is refused. An unrelated source commit reuses facts when every
 selected dependency is unchanged. Previously absent dependencies are rechecked.
 
-See [implementation evidence](IMPLEMENTATION.md) for unfinished delivery gates.
+See [extraction contracts](EXTRACTION.md) for extension points and
+[implementation evidence](IMPLEMENTATION.md) for unfinished delivery gates.
+
+Check selected real-source facts independently and measure an isolated fresh run:
+
+```powershell
+py -3 tools/check_extraction.py
+py -3 tools/benchmark_extraction.py
+```
+
+The benchmark retains its generated cache under `.local/benchmarks/`; it reads the
+existing source in place. It verifies unchanged output bytes and pointer timestamps.
+Its peak-memory figure covers the Python process and excludes the Git subprocess.
 
 ## Build the architecture preview
 

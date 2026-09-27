@@ -1,6 +1,6 @@
 {
   "kind": "local-checkout-baseline",
-  "project_sha256": "d656a6f0ae3f6ce82d51a8892f5ef9c42f13ca4073049075cd6ef1864fbfa0b8",
+  "project_sha256": "2d33a3ccc6b8585cc52fd6a957f73f6116a4b7b27796e06f3e2d61d6e9d5072e",
   "repositories": {
     "biomes-resources": {
       "commit": "44773fe3e87b54034872305f90c80c35e6bc2af8",

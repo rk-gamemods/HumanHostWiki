@@ -65,8 +65,8 @@ Registration or a navigation preview cannot establish gameplay verification.
 The complete scope and implementation status are separate: the current foundation
 supports registry validation, local repository setup/locking, input registration,
 generated architecture maps and deterministic navigation previews.
-Selected item/loot extraction is implemented with grouped exceptions and reuse.
-Other gameplay adapters, the integrated runner, identity matching, historical
+Selected facts in every topic are implemented with grouped exceptions and reuse.
+Gameplay coverage remains partial. The integrated runner, identity matching, historical
 browsing and publishing remain unfinished. These development commands are
 diagnostic entrypoints, not the intended maintenance workflow. Current evidence
 and remaining completion gates are in [IMPLEMENTATION.md](../IMPLEMENTATION.md).

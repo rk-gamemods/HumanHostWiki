@@ -75,7 +75,7 @@ def stage_order(manifest):
     require(len(stages) == len(by_id), "Duplicate pipeline stage")
     for stage in stages:
         require(bool(SLUG.fullmatch(stage["id"])), "Invalid stage ID")
-        require(stage["status"] in {"implemented", "planned", "external-existing"}, "Invalid stage status")
+        require(stage["status"] in {"implemented", "partial", "planned", "external-existing"}, "Invalid stage status")
         require(len(stage["depends_on"]) == len(set(stage["depends_on"])), "Duplicate stage dependency")
         require(all(dep in by_id for dep in stage["depends_on"]), "Unknown pipeline dependency")
     ordered, active = [], set()

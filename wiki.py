@@ -19,7 +19,7 @@ def run(root, args):
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in project["repositories"]]}
     if args.command == "plan":
-        return {"stages": project["pipeline"], "note": "Registration and selected item/loot extraction are implemented; build renders the architecture preview. Full normalization and release remain unfinished."}
+        return {"stages": project["pipeline"], "note": "Registration and selected facts in every topic are implemented; coverage remains partial. Build renders the architecture preview. Full normalization and release remain unfinished."}
     if args.command == "check-lock":
         result = workspace.checkout_lock(root, project, check=True)
         return {"lock": "current", "repositories": len(result["repositories"])}

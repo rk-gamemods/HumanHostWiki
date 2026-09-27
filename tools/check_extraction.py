@@ -5,15 +5,47 @@ coverage. Uses Git directly, without the adapter or Source implementations.
 """
 
 import argparse
+from collections import Counter, defaultdict
 import hashlib
 import json
 from pathlib import Path
 import subprocess
 
 
-def blob(source, commit, path):
-    return subprocess.run(["git", "-C", str(source), "show", f"{commit}:{path}"],
-                          check=True, capture_output=True).stdout
+def raw_records(source, commit, path):
+    process = subprocess.Popen(["git", "-C", str(source), "show", f"{commit}:{path}"],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        for line in process.stdout:
+            yield json.loads(line), hashlib.sha256(line).hexdigest()
+    finally:
+        process.stdout.close()
+        error = process.stderr.read().decode("utf-8", errors="replace")
+        process.stderr.close()
+        if process.wait():
+            raise ValueError(f"Raw source read failed: {path}: {error}")
+
+
+def at(value, path):
+    for part in path.strip("/").split("/") if path else []:
+        key = part.replace("~1", "/").replace("~0", "~")
+        value = value[int(key)] if isinstance(value, list) else value[key]
+    return value
+
+
+def compare_selected(expected, actual, context):
+    if isinstance(actual, dict):
+        if not isinstance(expected, dict):
+            raise ValueError(f"Object shape differs: {context}")
+        return sum(compare_selected(expected[key], value, context + "/" + key) for key, value in actual.items())
+    if isinstance(actual, list):
+        if not isinstance(expected, list) or len(expected) != len(actual):
+            raise ValueError(f"List shape differs: {context}")
+        return sum(compare_selected(left, right, context + f"/{index}")
+                   for index, (left, right) in enumerate(zip(expected, actual)) if right is not None)
+    if expected != actual or type(expected) is not type(actual):
+        raise ValueError(f"Fact differs: {context}")
+    return 1
 
 
 def check(root, source):
@@ -23,23 +55,26 @@ def check(root, source):
     if hashlib.sha256(data).hexdigest() != run["records"]["sha256"]:
         raise ValueError("Selected facts do not match their recorded hash")
     rows = [json.loads(line) for line in data.splitlines()]
-    sample = []
-    for kind in sorted({row["kind"] for row in rows}):
-        candidates = [row for row in rows if row["kind"] == kind]
+    sample, families = [], defaultdict(list)
+    summaries = [row for row in rows if row.get("fact_scope") == "catalog-type-summary"]
+    for row in rows:
+        if row.get("fact_scope") != "catalog-type-summary":
+            families[(row["kind"], row.get("component", {}).get("class", ""))].append(row)
+    for _, candidates in sorted(families.items()):
         sample.extend(candidates[index] for index in sorted({0, len(candidates) // 2, len(candidates) - 1}))
     requested = {}
     for row in sample:
-        identity = row["source_id"].split("/tag/", 1)[0] if row["kind"] == "loot-tag" else row["source_id"]
+        identity = row["source_id"].split("/tag/", 1)[0] if row["kind"] == "loot-tag" else row["evidence"][0]["object"]
         path = "Catalog/objects/" + identity.rsplit("#", 1)[0].replace("::", "/") + ".jsonl"
         requested.setdefault(path, set()).add(identity)
         for evidence in row["evidence"][1:]:
             requested.setdefault(evidence["path"], set()).add(evidence["object"])
-    objects = {}
+    objects, hashes = {}, {}
     for path, wanted in requested.items():
-        for line in blob(source, run["source_commit"], path).splitlines():
-            raw = json.loads(line)
+        for raw, sha in raw_records(source, run["source_commit"], path):
             if raw["id"] in wanted:
                 objects[raw["id"]] = raw
+                hashes[raw["id"]] = sha
     checks = 0
     for row in sample:
         if row["kind"] == "loot-tag":
@@ -52,15 +87,31 @@ def check(root, source):
                 raise ValueError(f"Loot eligibility differs: {row['source_id']}")
             checks += 1
             continue
-        raw = objects[row["source_id"]]
+        raw = objects[row["evidence"][0]["object"]]
         if row["kind"] == "loot-table":
             if raw["fields"]["_LootSpawnRates"] != row["facts"]["rates"]:
                 raise ValueError(f"Loot rates differ: {row['source_id']}")
             checks += 1
         else:
-            for field, actual in row["facts"].items():
-                if raw["fields"][field] != actual:
-                    raise ValueError(f"Fact differs: {row['source_id']} {field}")
+            checks += compare_selected(at(raw["fields"], row.get("source_field_base", "")), row["facts"], row["source_id"])
+        for evidence in row["evidence"]:
+            if "record_sha256" in evidence:
+                if evidence["record_sha256"] != hashes[evidence["object"]]:
+                    raise ValueError(f"Record hash differs: {evidence['object']}")
+                checks += 1
+        if "component" in row:
+            if any(raw["script"][key] != value for key, value in row["component"].items()):
+                raise ValueError(f"Component identity differs: {row['source_id']}")
+            checks += 1
+            for link in row["relationships"]:
+                if link["predicate"] == "defined-by":
+                    continue
+                ref = next((ref for ref in raw["references"] if ref["field"] == link["source_field"]), {})
+                actual_targets = sorted(ref.get("targets", [ref["target"]] if "target" in ref else []))
+                if link.get("target_source_ids", []) != actual_targets or link.get("status") != ref.get("status", "missing"):
+                    raise ValueError(f"Reference differs: {row['source_id']} {link['source_field']}")
+                if link.get("guid") != ref.get("guid"):
+                    raise ValueError(f"Reference GUID differs: {row['source_id']} {link['source_field']}")
                 checks += 1
         if row["kind"] == "item" and row["name_status"] == "english":
             names = {entry["_ItemName"] for evidence in row["evidence"][1:]
@@ -69,8 +120,25 @@ def check(root, source):
             if names != {row["name"]}:
                 raise ValueError(f"English name differs: {row['source_id']}")
             checks += 1
+        elif row.get("name_status") == "english":
+            names = {entry["text"] for evidence in row["evidence"][1:]
+                     for entry in objects[evidence["object"]]["fields"]["_Infos"]
+                     if entry["languageType"] == 2 and entry.get("text")}
+            if names != {row["name"]}:
+                raise ValueError(f"Definition name differs: {row['source_id']}")
+            checks += 1
+    totals = Counter()
+    for record, _ in raw_records(source, run["source_commit"], "Catalog/views/object-index.jsonl"):
+        totals[(record["type"], record.get("assembly"), record.get("class"))] += 1
+    if sum(totals.values()) != run["coverage"]["objects"]:
+        raise ValueError("Object coverage total differs")
+    for row in summaries:
+        facts = row["facts"]
+        if totals[(facts["engine_type"], facts["assembly"], facts["class"])] != facts["record_count"]:
+            raise ValueError(f"Technical type count differs: {row['name']}")
+        checks += 1
     return {"snapshot_id": run["snapshot_id"], "observations_checked": len(sample), "assertions": checks,
-            "kinds": sorted({row["kind"] for row in sample}), "status": "passed",
+            "kinds": sorted({row["kind"] for row in sample}), "status": "passed", "type_summaries_checked": len(summaries),
             "scope": "Selected serialized facts, English names and loot eligibility; not runtime verification"}
 
 

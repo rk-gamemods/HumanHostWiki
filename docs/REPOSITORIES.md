@@ -78,7 +78,7 @@ flowchart LR
   detect --> capture
   register["register: implemented"]
   capture --> register
-  normalize["normalize: planned"]
+  normalize["normalize: partial"]
   register --> normalize
   identity["identity: planned"]
   normalize --> identity
@@ -97,7 +97,7 @@ flowchart LR
 | detect | operator-invoked decompile pipeline | planned |
 | capture | HumanHostMods/tools/Decompile-GameCode.ps1 | external-existing |
 | register | wikibuild/snapshots.py | implemented |
-| normalize | future wiki adapters | planned |
+| normalize | wikibuild/extraction.py and topic adapters | partial |
 | identity | future identity registry | planned |
 | project | future topic projectors | planned |
 | verify | future semantic and link validation | planned |

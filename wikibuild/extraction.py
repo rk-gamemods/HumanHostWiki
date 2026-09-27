@@ -101,32 +101,46 @@ def run(root, project, source, receipt):
     staging = within(root, ".local/extractions/staging/" + uuid.uuid4().hex)
     staging.mkdir(parents=True)
     with Source(source, revision) as inputs:
+        inputs.item_names = {}
         if previous and previous["contract_sha256"] == contract_hash and dependencies_match(inputs, previous["dependencies"]):
             result = {**previous, "run_id": run_id, "snapshot_id": receipt["snapshot_id"], "source_commit": revision}
             metrics = {"reused": True, "source_bytes_read": 0}
         else:
             counts, keys = {}, set()
+            for adapter in ADAPTERS:
+                for path in adapter.INPUTS:
+                    inputs.identity(path)
+                if hasattr(adapter, "prepare"):
+                    adapter.prepare(inputs, issues)
+            declared_coverage = inputs.json("Catalog/coverage.json")
+            if declared_coverage.get("objects") != inputs.catalog["coverage"]["objects"]:
+                raise ContractError("Catalog object accounting differs from capture coverage")
+            inputs.catalog["coverage"]["decode_gaps"] = declared_coverage.get("decode_gaps", [])
             with (staging / "records.jsonl").open("wb") as stream:
                 for adapter in ADAPTERS:
-                    for path in adapter.INPUTS:
-                        inputs.identity(path)
                     for row in adapter.extract(inputs, issues):
                         key = row["observation_key"]
                         if key in keys:
                             raise ContractError(f"Duplicate observation: {key}")
                         keys.add(key)
                         row["topic"] = owners[row["kind"]]
+                        if row["kind"] == "item":
+                            inputs.item_names[row["source_id"]] = row["name"]
                         counts[row["kind"]] = counts.get(row["kind"], 0) + 1
                         stream.write((json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode())
             (staging / "exceptions.json").write_bytes(json_bytes(issues.report()))
             result = {"schema_version": 1, "run_id": run_id, "snapshot_id": receipt["snapshot_id"],
                       "source_commit": revision, "contract_sha256": contract_hash,
                       "dependencies": inputs.dependencies, "counts": counts,
+                      "coverage": inputs.catalog["coverage"],
                       "records": store_file(root, staging / "records.jsonl", "jsonl"),
                       "exceptions": store_file(root, staging / "exceptions.json", "json"),
                       "supported_kinds": sorted(kind for adapter in ADAPTERS for kind in adapter.KINDS),
-                      "remaining_topics": sorted(repo["id"] for repo in project["repositories"] if repo["role"] == "topic"
+                      "topics_without_records": sorted(repo["id"] for repo in project["repositories"] if repo["role"] == "topic"
                                                  and not set(repo["owns"]).intersection(counts)),
+                      "topic_coverage": {repo["id"]: {"status": "partial" if set(repo["owns"]).intersection(counts) else "no-records",
+                                                     "kinds": sorted(set(repo["owns"]).intersection(counts))}
+                                         for repo in project["repositories"] if repo["role"] == "topic"},
                       "status": "selected-facts-extracted", "wiki_release": "not-created"}
             metrics = {"reused": False, "source_bytes_read": inputs.bytes_read}
     ensure_source(source, revision)

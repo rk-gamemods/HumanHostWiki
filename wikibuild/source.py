@@ -161,12 +161,22 @@ class Source:
                         self.dependencies[path] = {**self.blobs[path], "access": "verified-record-ranges"}
             if not remaining:
                 continue
-            for row in self.records(path):
-                identity = row.get("id")
-                if identity in remaining:
-                    if identity in result:
-                        raise ContractError(f"Duplicate source object: {identity}")
-                    result[identity] = row
+            with self.lines(path) as lines:
+                for line in lines:
+                    try:
+                        row = json.loads(line)
+                    except (ValueError, UnicodeError) as exc:
+                        raise ContractError(f"Malformed source object record: {path}") from exc
+                    if not isinstance(row, dict):
+                        raise ContractError(f"Expected source object record: {path}")
+                    identity = row.get("id")
+                    if identity in remaining:
+                        if identity in result:
+                            raise ContractError(f"Duplicate source object: {identity}")
+                        location = self.locations.get(identity)
+                        if location and hashlib.sha256(line).hexdigest() != location.get("sha256"):
+                            raise ContractError(f"Indexed record hash differs from pinned source: {identity}")
+                        result[identity] = row
         return result
 
     def changed_paths(self, previous):
