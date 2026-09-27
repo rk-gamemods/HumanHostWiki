@@ -411,6 +411,18 @@ against the existing real release `d0d20c96`, including all 706 owned files and 
 historical configurations. These checks establish compatibility with the retained
 flat format as well as the forced directory fixture.
 
+The normal update from `cb25c5c` published
+[release 19db4c5f](../releases/19db4c5ffab35fc9323b2ebf8504f80fbcd1484df24a991bcf00aa2ae7960709.json)
+on all thirteen sites. Its independent audit passed for 732 owned files
+(47,491,035 bytes), 589 candidate files and 52 retained configurations across four
+wiki releases. The real snapshot indexes fit the default budget, so this publication
+checks runtime compatibility, not forced live splitting. Browser checks exercised
+Crude Axe search, entry loading and all three reverse references. The unchanged
+`tools/benchmark_release.py` run took 8.341 seconds and preserved all thirteen child
+commits and 753 checked files, including timestamps. The local receipt is
+`.local/shard-index-live-repeat.json`. The run still reports 193 unresolved content
+groups; no exception investigation was part of this work.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters
