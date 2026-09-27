@@ -170,7 +170,21 @@ function notice(text) {
   return element("p", text, "notice");
 }
 
-function valueNode(value) {
+function fieldLabel(field) {
+  const text = field.replace(/^_+/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ");
+  return text ? text[0].toUpperCase() + text.slice(1) : field;
+}
+
+function valueNode(value, context = null, pointer = "") {
+  if (context && Object.hasOwn(context.semantic.fact_labels || {}, pointer)) {
+    const label = context.semantic.fact_labels[pointer];
+    const relation = context.semantic.relationships.find(row => row.predicate === "coded-value" && row.field === pointer);
+    if (relation?.targets.length === 1) {
+      const target = relation.targets[0], destination = context.record.links[target];
+      if (destination) return link(label, url(destination.topic, target));
+    }
+    return element("span", label);
+  }
   if (value === null) return element("span", "Not set", "muted");
   if (typeof value !== "object") return element("span", typeof value === "boolean" ? (value ? "Yes" : "No") : value);
   const entries = Object.entries(value);
@@ -179,21 +193,21 @@ function valueNode(value) {
   details.append(element("summary", `${entries.length} ${Array.isArray(value) ? "entries" : "fields"}`));
   const list = element("dl", undefined, "facts");
   for (const [key, child] of entries) {
-    list.append(element("dt", Array.isArray(value) ? `Entry ${Number(key) + 1}` : key));
+    list.append(element("dt", Array.isArray(value) ? `Entry ${Number(key) + 1}` : context ? fieldLabel(key) : key));
     const description = element("dd");
-    description.append(valueNode(child));
+    description.append(valueNode(child, context, pointer + "/" + key));
     list.append(description);
   }
   details.append(list);
   return details;
 }
 
-function factsTable(facts) {
+function factsTable(facts, context = null) {
   const list = element("dl", undefined, "facts");
   for (const [field, value] of Object.entries(facts)) {
     const description = element("dd");
-    description.append(valueNode(value));
-    list.append(element("dt", field), description);
+    description.append(valueNode(value, context, "/" + field));
+    list.append(element("dt", context ? fieldLabel(field) : field), description);
   }
   return list;
 }
@@ -325,7 +339,7 @@ async function showEntry(key) {
   const notes = Array.isArray(semantic.notes) ? semantic.notes : semantic.notes ? [semantic.notes] : [];
   for (const note of notes) article.append(notice(note));
   if (semantic.fact_scope) article.append(element("p", `Scope: ${semantic.fact_scope}`, "muted"));
-  article.append(element("h3", "Extracted facts"), factsTable(semantic.facts));
+  article.append(element("h3", "Extracted facts"), factsTable(semantic.facts, {semantic, record}));
   article.append(element("h3", "Relationships"));
   const relationships = element("ul", undefined, "relations");
   for (const relation of semantic.relationships) {

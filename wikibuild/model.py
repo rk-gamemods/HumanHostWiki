@@ -7,6 +7,7 @@ from .identity import fingerprint
 from .storage import ContractError
 
 TARGET_KINDS = {
+    "coded-value": {"configuration"}, "ammunition-item": {"item"},
     **dict.fromkeys(("eligible-item", "produces-item", "produces-item-asset", "consumes-item-asset", "yields-item-asset", "collectible-item", "repair-item"), {"item"}),
     "uses-loot-table": {"loot-table"}, "disassembly": {"processing-rule"},
     "body-damage-set": {"damage-type"}, "biome": {"biome"}, "weather": {"weather"},
@@ -130,7 +131,7 @@ def project(row, entity, indexes, metadata, dependencies, issues):
     links, resolved = relationships(row, indexes, metadata, issues)
     semantic = {"kind": row["kind"], "topic": row["topic"], "name": row["name"], "facts": row["facts"],
                 "evidence_level": row["evidence_level"], "relationships": links}
-    for key in ("notes", "fact_scope", "name_status", "family"):
+    for key in ("notes", "fact_scope", "name_status", "family", "fact_labels"):
         if key in row:
             semantic[key] = row[key]
     evidence = []
@@ -142,6 +143,10 @@ def project(row, entity, indexes, metadata, dependencies, issues):
                          **({"input_sha256": dependency["sha256"]} if dependency.get("sha256") else {})})
     provenance = {"observation_key": row["observation_key"], "source_id": row["source_id"],
                   "evidence": evidence, "relationships": row.get("relationships", []), "resolved_targets": resolved}
+    if row.get("fact_labels"):
+        from .adapters.coded_values import values
+        provenance["coded_facts"] = {field: value for pointer in row["fact_labels"]
+                                      for field, value in values(row["facts"], pointer)}
     for key in ("component", "asset_paths", "game_objects", "parent_source_id", "source_field_base", "examples", "decode_gaps"):
         if key in row:
             provenance[key] = row[key]

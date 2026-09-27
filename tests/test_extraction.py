@@ -113,6 +113,26 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(stamp, pointer.stat().st_mtime_ns)
         self.assertEqual({"reused": True, "source_bytes_read": 0}, metrics)
 
+    def test_captured_enum_changes_invalidate_labels_and_unchanged_repeat_reuses(self):
+        self.extract()  # A previously absent source declaration must invalidate reuse.
+        source = self.source / 'Item_Info/Item_Info.decompiled.cs'
+        source.parent.mkdir()
+        source.write_text('class Icon_Info { public enum Slot_Type { Nothing, Ammo } public Slot_Type _SlotType; }')
+        self.commit()
+        first, metrics = self.extract()
+        self.assertFalse(metrics['reused'])
+        self.assertEqual('Nothing', self.rows(first)[0]['fact_labels']['/_SlotType'])
+        self.assertIn('Item_Info/Item_Info.decompiled.cs', first['dependencies'])
+        same, metrics = self.extract()
+        self.assertEqual(first, same)
+        self.assertEqual({'reused': True, 'source_bytes_read': 0}, metrics)
+        source.write_text(source.read_text().replace('Nothing, Ammo', 'Empty, Ammo'))
+        self.commit()
+        changed, metrics = self.extract()
+        self.assertFalse(metrics['reused'])
+        self.assertEqual('Empty', self.rows(changed)[0]['fact_labels']['/_SlotType'])
+        self.assertNotEqual(first['records']['sha256'], changed['records']['sha256'])
+
     def test_irrelevant_source_change_reuses_facts_but_records_new_snapshot(self):
         first, _ = self.extract()
         self.put("Catalog/unselected.jsonl", [{"irrelevant": "different"}])

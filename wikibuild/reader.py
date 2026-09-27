@@ -181,7 +181,8 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
             record["explanations"] = notes[key]
         data["entries"][key] = packs.compact(record)
         # Full facts remain in semantic packs. Search stays compact and text only.
-        primitive = {name: value for name, value in semantic["facts"].items() if value is None or isinstance(value, (str, int, float, bool))}
+        primitive = {name: semantic.get("fact_labels", {}).get("/" + name, value)
+                     for name, value in semantic["facts"].items() if value is None or isinstance(value, (str, int, float, bool))}
         brief = {"entity_key": key, **routes[key], "kind": semantic["kind"], "status": "present",
                  "source_id": row["provenance"]["source_id"], "preview": dict(list(primitive.items())[:6])}
         data["search"][key] = packs.compact(brief)

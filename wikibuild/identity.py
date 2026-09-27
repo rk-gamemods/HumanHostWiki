@@ -29,7 +29,7 @@ def describe(row, metadata):
     return {"observation_key": row["observation_key"], "source_id": identity,
             "source_object": row.get("parent_source_id", identity).split("/tag/", 1)[0],
             "kind": row["kind"], "topic": row["topic"],
-            "family": "catalog-type" if summary else row["kind"],
+            "family": "catalog-type" if summary else "source-enumeration" if row.get("fact_scope") == "source-enumeration" else row["kind"],
             "component": [component.get("assembly"), component.get("class")],
             "scope": identity.split("#", 1)[0] if "#" in identity else "catalog-summary",
             "name": row["name"], "facts_hash": fingerprint([row["facts"], sorted(references, key=fingerprint)]),

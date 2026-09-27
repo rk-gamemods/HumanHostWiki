@@ -31,7 +31,7 @@ def runtime(required=False):
         except metadata.PackageNotFoundError:
             versions[name] = None
     if required and versions != pins:
-        raise ContractError("Named C# checks require the pinned parser packages; run py -3 -m pip install -r requirements-source.txt")
+        raise ContractError("Captured C# extraction/checks require the pinned parser packages; run py -3 -m pip install -r requirements-source.txt")
     return {"required": pins, "installed": versions}
 
 

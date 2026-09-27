@@ -14,6 +14,8 @@ articles. Every published fact must come from an explicit field contract.
 | `wikibuild/adapters/catalog_policy.py` | Explicit infrastructure accounting and payload omissions |
 | `wikibuild/adapters/technical.py` | Reviewed technical exclusions and selected operating defaults, with field drift detection |
 | `wikibuild/adapters/prefabs.py` | Individual identities for GameObjects referenced by selected domain relationships |
+| `wikibuild/adapters/coded_values.py` | Captured enum declarations, boolean labels and named graph targets for selected fields |
+| `wikibuild/adapters/coded_contract.py` | Reviewed coded-field inventory and ammunition address-rule guards |
 | `wikibuild/adapters/acquisition.py` | Merchant stock/pricing and context-specific inventory templates |
 | `wikibuild/adapters/inventory.py` | Item-quality, upgrade, slot restrictions and initial-character configuration |
 | `wikibuild/adapters/combat.py` | Damage, attack timing, ammunition modifiers and combat preset links |
@@ -27,6 +29,7 @@ articles. Every published fact must come from an explicit field contract.
 | `wikibuild/adapters/entries.py` | Recipe/skill/status and biome stock entries from selected nested definitions |
 | `wikibuild/extraction.py` | Output hashes, reuse, coverage checks and last-success promotion |
 | `tools/check_extraction.py` | Independent comparison with committed source records |
+| `tools/check_coded_values.py` | Independent source-text audit of numeric mappings and ammunition item targets |
 
 The parent's `tools/game_catalog/catalog.py` writes record offsets and hashes into
 the existing object index. It creates no duplicate record file. The reader uses
@@ -52,6 +55,26 @@ ordinary local range reads do not. Legacy indexes without member metadata retain
 full decoding. Selected large values are not capped or silently truncated.
 
 ## Adding or correcting a contract
+
+Selected enum fields must have readable values and graph edges. `coded_values.py`
+resolves their types from the captured C# declarations, including inherited and
+nested fields. It emits only used named values, declaration locators and selected
+relationships. Raw numbers remain in provenance; no method bodies enter the wiki.
+Booleans display Yes/No. The reader humanizes field labels and preserves the
+selected snapshot and release when following a value link.
+
+The current inventory contains 31 enum field contracts. For example, the captured
+`Weapon_Range.AmmoType` maps 5 to 7.62x54mm. Its named entry links to the factory
+and material ammunition items using the captured Addressables and the game's
+reviewed address-building rule. Those helpers have syntax hashes, so a changed
+rule logs an exception instead of guessing that the old join is still valid.
+Unknown enum values, missing declarations and ambiguous mappings also remain
+exceptions. Adding labels cannot turn an unknown code into a supported fact.
+
+Install the pinned source parser once with
+`py -3 -m pip install -r requirements-source.txt`. The source parser versions,
+adapter code, contract and captured input hashes participate in invalidation.
+No LLM, remote classification or package installation occurs during an update.
 
 1. Inspect the generated views and selected raw records. Record the assembly,
    component class, field path, type and meaningful relationships.

@@ -6,18 +6,20 @@ import os
 from pathlib import Path
 import uuid
 
-from .adapters import ADAPTERS
+from .adapters import ADAPTERS, coded_values
+from .code_dependencies import runtime
 from .exceptions import Exceptions
 from .source import Source
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 
 def contract(root, project):
-    modules = ["extraction.py", "source.py", "source_record.py", "exceptions.py", "storage.py"]
+    modules = ["extraction.py", "source.py", "source_record.py", "exceptions.py", "storage.py", "code_dependencies.py"]
     paths = [Path(__file__).parent / name for name in modules]
     paths += sorted((Path(__file__).parent / "adapters").glob("*.py"))
     return digest(json_bytes({
         "schema": 1, "adapters": {adapter.NAME: adapter.VERSION for adapter in ADAPTERS},
+        "source_parser": runtime(),
         "code": {p.relative_to(Path(__file__).parent).as_posix(): digest(p.read_bytes().replace(b"\r\n", b"\n")) for p in paths},
         "owners": {repo["id"]: repo["owns"] for repo in project["repositories"]},
     }))
@@ -124,9 +126,10 @@ def run(root, project, source, receipt):
                         if key in keys:
                             raise ContractError(f"Duplicate observation: {key}")
                         keys.add(key)
+                        row["topic"] = owners[row["kind"]]
+                        coded_values.enrich(inputs, row, issues)
                         for observe in observers:
                             observe(inputs, row)
-                        row["topic"] = owners[row["kind"]]
                         if row["kind"] == "item":
                             inputs.item_names[row["source_id"]] = row["name"]
                         counts[row["kind"]] = counts.get(row["kind"], 0) + 1

@@ -72,7 +72,7 @@ def check(root, source, complete=False):
         if "component" in row:
             for identity in row.get("game_objects", []):
                 components_by_object[identity].add(row["source_id"])
-        if row.get("fact_scope") not in {"catalog-type-summary", "referenced-prefab-identity"}:
+        if row.get("fact_scope") not in {"catalog-type-summary", "referenced-prefab-identity", "source-enumeration"}:
             families[(row["kind"], row.get("component", {}).get("class", ""))].append(row)
     for _, candidates in sorted(families.items()):
         sample.extend(candidates if complete else
@@ -83,6 +83,8 @@ def check(root, source, complete=False):
         path = "Catalog/objects/" + identity.rsplit("#", 1)[0].replace("::", "/") + ".jsonl"
         requested.setdefault(path, set()).add(identity)
         for evidence in row["evidence"][1:]:
+            if "object" not in evidence:
+                continue  # Source declarations are checked by check_coded_values below.
             requested.setdefault(evidence["path"], set()).add(evidence["object"])
     objects, hashes = {}, {}
     for row in prefabs.values():
@@ -130,7 +132,7 @@ def check(root, source, complete=False):
                 raise ValueError(f"Component identity differs: {row['source_id']}")
             checks += 1
             for link in row["relationships"]:
-                if link["predicate"] == "defined-by":
+                if link["predicate"] in {"defined-by", "coded-value"}:
                     continue
                 ref = next((ref for ref in raw["references"] if ref["field"] == link["source_field"]), {})
                 actual_targets = sorted(ref.get("targets", [ref["target"]] if "target" in ref else []))
@@ -141,6 +143,7 @@ def check(root, source, complete=False):
                 checks += 1
         if row["kind"] == "item" and row["name_status"] == "english":
             names = {entry["_ItemName"] for evidence in row["evidence"][1:]
+                     if "object" in evidence
                      for entry in objects[evidence["object"]]["fields"]["_Infos"]
                      if entry["languageType"] == 2 and entry.get("_ItemName")}
             if names != {row["name"]}:
@@ -148,6 +151,7 @@ def check(root, source, complete=False):
             checks += 1
         elif row.get("name_status") == "english":
             names = {entry["text"] for evidence in row["evidence"][1:]
+                     if "object" in evidence
                      for entry in objects[evidence["object"]]["fields"]["_Infos"]
                      if entry["languageType"] == 2 and entry.get("text")}
             if names != {row["name"]}:
@@ -186,7 +190,10 @@ def check(root, source, complete=False):
         if totals[(facts["engine_type"], facts["assembly"], facts["class"])] != facts["record_count"]:
             raise ValueError(f"Technical type count differs: {row['name']}")
         checks += 1
+    from check_coded_values import check as check_codes
+    coded = check_codes(source, run["source_commit"], rows)
     return {"snapshot_id": run["snapshot_id"], "observations_checked": len(sample), "assertions": checks,
+            "coded_values": coded,
             "sampling": "all" if complete else "first-middle-last-per-family",
             "prefab_identities_checked": prefab_count,
             "kinds": sorted({row["kind"] for row in sample}), "status": "passed", "type_summaries_checked": len(summaries),

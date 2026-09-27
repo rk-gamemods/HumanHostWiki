@@ -223,7 +223,7 @@ function fixture(count = 121) {
     const loaded = subject.context.start();
     await requestStarted;
     try {
-      assert.match(flattened(subject.nodes.content).join(" "), route === "entry" ? /Extracted facts.*MaxStack.*1/ : /item \(1\)/,
+      assert.match(flattened(subject.nodes.content).join(" "), route === "entry" ? /Extracted facts.*Max Stack.*1/ : /item \(1\)/,
         "Core " + route + " content waited for optional article metadata");
       if (route === "overview") subject.nodes.content.replaceChildren(new Node("new-search-view"));
     } finally {finish(data.files[base + articleControl.path]);}
@@ -233,6 +233,31 @@ function fixture(count = 121) {
     else assert.match(flattened(subject.nodes.content).join(" "), /Community wiki articles/);
   }
   console.log("Core topic and entry content renders before optional article requests finish");
+
+  const codedSemantic = {facts: {_AmmoType: 5, nested: [{_SlotType: 4}]},
+    fact_labels: {"/_AmmoType": "7.62x54mm", "/nested/0/_SlotType": "Ammo"},
+    relationships: [{predicate: "coded-value", field: "/_AmmoType", targets: ["caliber"]},
+      {predicate: "coded-value", field: "/nested/0/_SlotType", targets: ["slot"]}]};
+  const codedRecord = {links: {caliber: {topic: "items", name: "Ammo type: 7.62x54mm"}, slot: {topic: "items", name: "Ammo"}}};
+  const readableFacts = subject.context.factsTable(codedSemantic.facts, {semantic: codedSemantic, record: codedRecord});
+  assert.ok(flattened(readableFacts).includes("Ammo Type"));
+  assert.ok(flattened(readableFacts).includes("7.62x54mm"));
+  assert.ok(!flattened(readableFacts).includes("5"));
+  const descendants = node => [node, ...node.children.flatMap(descendants)];
+  const codeLinks = descendants(readableFacts).filter(node => node.tag === "a");
+  assert.equal(codeLinks.length, 2);
+  assert.match(codeLinks[0].href, /entry\/caliber\//);
+  assert.ok(new URL(codeLinks[0].href).searchParams.has("snapshot"));
+  assert.ok(new URL(codeLinks[0].href).searchParams.has("release"));
+  const rawFacts = subject.context.factsTable(codedSemantic.facts);
+  assert.ok(flattened(rawFacts).includes("_AmmoType"));
+  assert.ok(flattened(rawFacts).includes("5"));
+  codedSemantic.fact_labels['/_AmmoType'] = 'Unresolved code (99)';
+  codedSemantic.relationships = [];
+  const unresolvedFacts = subject.context.factsTable(codedSemantic.facts, {semantic: codedSemantic, record: codedRecord});
+  assert.ok(flattened(unresolvedFacts).includes('Unresolved code (99)'));
+  assert.equal(descendants(unresolvedFacts).filter(node => node.tag === 'a').length, 0);
+  console.log('Readable enum labels, nested graph links, pinned routes and raw provenance passed');
 
   if (process.argv[2]) {
     const input = JSON.parse(fs.readFileSync(process.argv[2], "utf8")), root = path.resolve(input.root);

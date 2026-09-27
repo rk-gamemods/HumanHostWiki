@@ -51,6 +51,8 @@ def check(root, source):
             if semantic[field] != original[field]:
                 raise ValueError(f"Selected observation changed during normalization: {field}: {key}")
             assertions += 1
+        if semantic.get('fact_labels', {}) != original.get('fact_labels', {}):
+            raise ValueError('Readable coded labels changed during normalization')
         expected = hashlib.sha256((json.dumps(semantic, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()).hexdigest()
         if expected != row["revision_id"] or states[entity]["revision_id"] != expected:
             raise ValueError("Semantic revision hash or state differs")
