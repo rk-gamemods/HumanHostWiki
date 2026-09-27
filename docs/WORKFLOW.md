@@ -2,10 +2,14 @@
 
 Run these commands from the `HumanHostWiki` umbrella directory. Python 3.11+
 and Git are the foundation dependencies. Publication also uses the authenticated
-GitHub CLI. No Python packages are installed.
+GitHub CLI. Default extraction uses the standard library; optional named C# checks
+use the pinned packages described in [CURATED.md](CURATED.md).
 
-These are current foundation/development commands. The
-[target update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
+The public [wiki](https://rk-gamemods.github.io/HumanHost-Wiki/) and
+[hub repository](https://github.com/rk-gamemods/HumanHost-Wiki) are live.
+The [delivery acceptance](ACCEPTANCE.md) lists implemented requirements and
+finite evidence limitations. The
+[normal update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
 starts when an operator invokes the decompile command and completes supported work
 through publication, including capacity management, without intermediate input.
 The entrypoint now runs capture, registration, selected extraction, identity and
@@ -36,8 +40,9 @@ py -3 wiki.py map --check
 settings, pipeline order and any existing checkout identities. Absent topic
 repositories are reported as absent. Dirty repositories are reported as dirty;
 the command does not commit, clean or reset them. Unknown existing directories
-fail validation rather than being adopted. `plan` explicitly distinguishes
-implemented stages from unfinished gameplay interpretation and verification work.
+fail validation rather than being adopted. `plan` describes implemented stages
+and the scope of their checks. Run reports list detected content issues and actual
+execution failures; roadmap items do not keep a successful run open.
 
 Edit `project.json` to change repository declarations, then regenerate the map:
 
@@ -120,7 +125,7 @@ modified output is refused. An unrelated source commit reuses facts when every
 selected dependency is unchanged. Previously absent dependencies are rechecked.
 
 See [extraction contracts](EXTRACTION.md) for extension points and
-[implementation evidence](IMPLEMENTATION.md) for unfinished delivery gates.
+[acceptance checklist](ACCEPTANCE.md) for finite delivery evidence.
 
 Check selected real-source facts independently and measure an isolated fresh run:
 
@@ -155,8 +160,9 @@ corrections and rule ownership, see [identity contracts](IDENTITY.md).
 
 This command currently processes the current source commit. Older captured game
 builds without a catalog require explicit uncaptured status; current asset facts
-cannot establish what those builds contained. Historical registration remains
-unfinished. No identity run grants gameplay verification.
+cannot establish what those builds contained. Available real catalogs cover one
+Steam build; two-build fixture evidence is recorded in [ACCEPTANCE.md](ACCEPTANCE.md).
+No identity run grants gameplay verification.
 
 ## Build and inspect the selected-fact reader
 
@@ -302,8 +308,9 @@ reviewed mappings, revision reuse, removals, capture gaps and interrupted writes
 Publication tests cover independent topic completion, interrupted pushes, hub
 rollback, retained history and rejection of changed remote refs. Live publication
 and browser evidence are recorded in [IMPLEMENTATION.md](IMPLEMENTATION.md).
-These checks do not establish correctness of unimplemented gameplay adapters or
-real cross-build identity continuity. The ADR lists those remaining gates.
+These checks prove their declared scope. Real cross-build identity continuity
+requires another complete game catalog; fixtures do not substitute for that
+evidence. The [acceptance checklist](ACCEPTANCE.md) records the disposition.
 
 Git for Windows can mark synthetic test object files read-only. Test cleanup uses
 ordinary removal and reports any protected fixtures retained under

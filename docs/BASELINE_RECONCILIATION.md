@@ -226,25 +226,20 @@ in 53.760 seconds with zero exceptions and unchanged source/public commits and
 676,065,280 to 181,633,024 bytes. [Implementation evidence](IMPLEMENTATION.md)
 records the independent source/member/reader/release audits and remaining gates.
 
-## Remaining baseline interpretation and delivery
+## Baseline closure
 
-The original exception inventory is reconciled at the selected-field level. Before
-calling the first product complete, verify source-defined mechanics exposed by this
-review and complete the normal-run, source-fidelity and ADR acceptance checks.
-Concrete interpretation work includes:
+The original 193 content groups and five article issues are reconciled for the
+current capture. [BASELINE_INVENTORY.md](BASELINE_INVENTORY.md) accounts for every
+original group with its rule, selected output or explicit scope exclusion, and
+verification evidence. Unknown types/fields remain actionable exceptions.
 
-- Difficulty presets and ConfigData defaults, without treating the unused editor
-  copy as the active world configuration.
-- Solar and bicycle generator output, allocation/rounding, daylight and occlusion.
-- Train components added at runtime, which do not appear as captured prefab
-  components; their configuration and behavior still need source evidence.
-- Respawn penalties/placement, dungeon entrance lifecycle, corpse expiry and the
-  gameplay day/night boundary.
-- Fall-damage and root-motion conditions. `Crane_Time` has only its declaration
-  in the captured source; no timing unit or active crane behavior is established.
-
-These are authorized development work, not a queue requiring user selection.
-Guides remain deferred until the baseline interpretation and exception work is done.
+The earlier list of difficulty, generators, trains, respawn, corpses, fall damage
+and root-motion research is withdrawn as a completion gate. No failing original
+case justified that blanket expansion. A future investigation must identify a
+specific acceptance requirement and deterministic extractor/check defect.
+Optional guides and explanations are not prerequisites for closing this backlog.
+Full delivery evidence and historical-input limitations are recorded in the
+closed [acceptance checklist](ACCEPTANCE.md).
 
 ## Future classifier experiment
 

@@ -24,48 +24,30 @@ complete product.
   access patterns justify it. Avoid parallel tasks that duplicate large resident
   catalogs; bounded concurrency suits independent decompiler and deployment jobs.
 
-## Remaining completion gates
+## Delivery status
 
-The original 191 unsupported component classes, two relationship groups and five
-external article issues now have reviewed resolutions in the owning rules. Normal
-decompile runs and an unchanged repeat report zero unresolved content. See
-[baseline reconciliation](BASELINE_RECONCILIATION.md) for the source decisions
-and remaining source-defined gameplay interpretation. Historical checkpoints
-below that say the initial backlog awaits user direction are superseded. Initial
-interpretation and the remaining acceptance work stay authorized; a successful
-selected-fact reader alone does not complete the ADR.
+The implemented reference is public at https://rk-gamemods.github.io/HumanHost-Wiki/.
+Its hub repository is https://github.com/rk-gamemods/HumanHost-Wiki, with twelve
+topic repositories. The original 193 content groups and five article issues are
+reconciled for application 0.8.315, Steam build 25548639. The normal decompile
+command generates, validates and publishes selected content and reuses unchanged
+inputs. It does not invoke an LLM.
 
-The [external article integration](EXTERNAL_LINKS.md) now includes normal-update
-refresh, production routing, release storage and rendered backlinks. It has passed
-normal-entrypoint publication, independent projection/release audits, an unchanged
-repeat and live browser checks. Article accuracy and gameplay verification remain
-separate from those checks.
+[ACCEPTANCE.md](ACCEPTANCE.md) is the closed requirement-to-code-and-evidence
+checklist. [BASELINE_INVENTORY.md](BASELINE_INVENTORY.md) accounts for every
+original exception. Later development notes do not add completion gates.
+Historical checkpoints below retain their original results; their old "remaining"
+statements are superseded by the checklist. Runtime verification may be unknown.
+Optional mechanic explanations, guide authoring and additional infrastructure
+experiments are not implied work. Any further investigation must name an actual
+listed defect and result in a deterministic correction or check.
 
-- Extend the integrated runner through gameplay verification
-  without changing the operator workflow.
-- Extract and independently validate every registered gameplay topic. Account for
-  source objects locally without copying the whole index into wiki content.
-- Complete individual asset identities, real cross-build identity coverage and
-  dependency-based verification beyond the selected-observation identity stage.
-- Complete historical capture coverage, reader presentation of interpreted units
-  and conditions, and dedicated curated guides beyond the selected-fact reader.
-  Steam availability and captured application-version
-  evidence are implemented; gameplay freshness and page-check receipts remain.
-  Entry-attached authored checks are implemented under [CURATED.md](CURATED.md);
-  these establish only their declared data/code scope.
-- Complete capacity acceptance for live GitHub overflow and indivisible control
-  records. Storage allocation, bounded indexes and entrypoint rollover have
-  forced-threshold tests with retained historical links; see their checkpoints below.
-- Complete retention for failed preparation attempts and rebuildable caches.
-  Verified duplicate payloads from committed release staging are removed by the
-  normal update. Identical immutable reader files share storage while retaining
-  all candidate paths. Failed staging, unique obsolete cache content, diagnostic
-  journals and preparation indexes remain retained.
-- Run real initial generation and an unchanged repeat; measure time, bytes read,
-  output size and peak memory. Exercise changed/new/removed/unsupported records and
-  tool corrections, using real builds and focused fixtures for unavailable cases.
-- Review public content for source fidelity and private-input exclusion, verify
-  browser behavior and remote state, and audit every ADR acceptance requirement.
+The distinct-real-build history requirement has fixture proof and an explicit
+external-evidence limitation: available catalog captures cover one Steam build;
+older local decompilations lack catalogs. Current data cannot reconstruct them.
+Automatic capacity handling has forced-threshold real-Git fixture proof; the live
+inventory fits default budgets, so live overflow was not artificially triggered.
+Neither limitation is substituted with unrelated gameplay research.
 
 ## Current evidence
 

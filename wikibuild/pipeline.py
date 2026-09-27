@@ -163,15 +163,22 @@ def run(root, project, source, progress=None):
         if progress:
             progress(stage)
         metrics[stage] = reader_retention.run(root)
+        content_report = report(reports, previous["exceptions"] if previous else None)
+        remaining = []
+        if content_report["group_count"]:
+            remaining.append("content-exceptions")
+        if articles and (completed["external-articles"]["unresolved"] or not completed["external-articles"]["inventory_complete"]):
+            remaining.append("external-article-issues")
+        if project.get("publication", {}).get("enabled") and published["status"] != "published":
+            remaining.append("publish")
         result = {"schema_version": 1, "request_key": request_key,
                   "previous_run": previous["run_id"] if previous else None,
                   "source_commit": receipt["source_commit"], "snapshot_id": receipt["snapshot_id"],
                   "diff_base": previous["source_commit"] if previous else None,
                   "contracts": contracts, "completed": completed,
-                  "exceptions": report(reports, previous["exceptions"] if previous else None),
+                  "exceptions": content_report,
                   "status": "published" if published["status"] == "published" else "git-release-ready", "wiki_release": released["release_id"],
-                  "remaining": ["complete-gameplay-coverage", "gameplay-verification", "capacity-allocation"] +
-                  ([] if published["status"] == "published" else ["publish"])}
+                  "remaining": remaining}
         run_id = digest(json_bytes(result))
         result["run_id"] = run_id
         stage = "promote"
@@ -199,8 +206,8 @@ def run(root, project, source, progress=None):
 def operator_report(root, result):
     saved = read(root, result["run_id"])
     lines = [f"Wiki supported stages completed for {saved['snapshot_id']}.",
-             (f"Status: published at {saved['completed']['publish']['hub']}; gameplay verification remains unfinished."
-              if saved["status"] == "published" else "Status: local Git release ready; publication and gameplay verification remain unfinished."),
+             (f"Status: published at {saved['completed']['publish']['hub']}."
+              if saved["status"] == "published" else "Status: local Git release ready."),
              f"Git release: {saved['wiki_release']}",
              f"Report: {result['report']}", f"Reader: {result['reader']}",
              f"Unresolved content: {saved['exceptions']['group_count']} groups, {saved['exceptions']['occurrences']} occurrences."]

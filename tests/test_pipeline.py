@@ -52,6 +52,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('"MaxStack":19', facts)
         self.assertNotIn("DO NOT EXPORT", facts)
         self.assertIn("new-field", pipeline.operator_report(self.root, result))
+        self.assertEqual(result['remaining'], ['content-exceptions'])
 
     def test_repeat_keeps_same_receipt_pointer_and_reuses_all_stages(self):
         first = self.run_pipeline()
@@ -61,6 +62,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(pointer, (self.latest().read_bytes(), self.latest().stat().st_mtime_ns))
         self.assertTrue(all(value["reused"] for value in second["metrics"].values()))
         self.assertEqual(sum(value.get("source_bytes_read", 0) for value in second["metrics"].values()), 0)
+        self.assertEqual(first['remaining'], [])
+        self.assertEqual(second['remaining'], [])
+        self.assertFalse(pipeline.read(self.root, second['run_id'])['completed']['verify']['gameplay_verified'])
+        self.assertNotIn('unfinished', pipeline.operator_report(self.root, second))
 
     def test_authored_failure_reaches_operator_after_supported_stages_and_correction_has_new_baseline(self):
         first = self.run_pipeline()

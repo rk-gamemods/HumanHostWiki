@@ -79,7 +79,7 @@ def project_topic(candidate, repo, writer, projection):
     writer.add("site/reader.js", (Path(__file__).parent / "release_bootstrap.js").read_bytes().replace(b"\r\n", b"\n"))
     writer.add("site/reader.css", b"/* The release loader selects the versioned stylesheet. */\n")
     links = [f"# {repo['title']} reference", "", f"Release: `{release_id}`.", "",
-             "Selected extracted facts. Gameplay verification and complete coverage remain unfinished.", ""]
+             "Selected extracted facts. Runtime gameplay verification is unknown unless a scoped check is shown.", ""]
     links += [f"- [{name.removeprefix('reference/')}]({name.removeprefix('reference/')})" for name in reference_paths]
     writer.add("reference/index.md", ("\n".join(links) + "\n").encode())
     if "README.md" in writer.previous:

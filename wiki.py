@@ -19,7 +19,7 @@ def run(root, args):
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in workspace.repositories(root, project)]}
     if args.command == "plan":
-        return {"stages": project["pipeline"], "note": "Update runs registration, selected facts, identity history, rendering, coordinated Git release and configured Pages publication with a final exception report. The decompile wrapper invokes it after capture, including reuse. Full gameplay and historical coverage, verification and capacity allocation remain unfinished."}
+        return {"stages": project["pipeline"], "note": "The decompile command runs capture, selected extraction, identity history, rendering, capacity allocation, coordinated release and configured Pages publication. Reports distinguish unresolved content from execution failures. Verification is limited to recorded checks; roadmap items are not run failures. See docs/ACCEPTANCE.md for the delivery evidence."}
     if args.command == "check-lock":
         result = workspace.checkout_lock(root, project, check=True)
         return {"lock": "current", "repositories": len(result["repositories"])}

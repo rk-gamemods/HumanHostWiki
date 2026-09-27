@@ -76,39 +76,39 @@ They are not build dependencies. Semantic cycles and backlinks are expected.
 
 ```mermaid
 flowchart LR
-  detect["detect: partial"]
+  detect["detect: implemented"]
   capture["capture: external-existing"]
   detect --> capture
   register["register: implemented"]
   capture --> register
   external-articles["external-articles: implemented"]
   register --> external-articles
-  normalize["normalize: partial"]
+  normalize["normalize: implemented"]
   register --> normalize
-  identity["identity: partial"]
+  identity["identity: implemented"]
   normalize --> identity
-  project["project: partial"]
+  project["project: implemented"]
   identity --> project
   external-articles --> project
-  verify["verify: partial"]
+  verify["verify: implemented"]
   project --> verify
-  release["release: partial"]
+  release["release: implemented"]
   verify --> release
-  publish["publish: partial"]
+  publish["publish: implemented"]
   release --> publish
 ```
 
 | Stage | Owner | Implementation |
 | --- | --- | --- |
-| detect | decompile capture reuse and wikibuild/availability.py; Steam branch observations are independent of gameplay verification | partial |
+| detect | decompile capture reuse and wikibuild/availability.py; Steam branch observations are independent of gameplay verification | implemented |
 | capture | HumanHostMods/tools/Decompile-GameCode.ps1 | external-existing |
 | register | wikibuild/snapshots.py | implemented |
 | external-articles | wikibuild/external_links.py and mediawiki.py; bounded versioned article checks | implemented |
-| normalize | wikibuild/extraction.py and topic adapters | partial |
-| identity | wikibuild/identity.py, model.py and history.py | partial |
-| project | wikibuild/reader.py, curation.py, curated_rules.py, external_links.py, packs.py, pages.py and web/ | partial |
-| verify | reader artifact checks and independent tools/check_*.py; gameplay checks unfinished | partial |
-| release | wikibuild/release.py and git_transaction.py; selected-fact Git releases | partial |
-| publish | wikibuild/publication.py, publication_git.py and github_pages.py | partial |
+| normalize | wikibuild/extraction.py and topic adapters | implemented |
+| identity | wikibuild/identity.py, model.py and history.py | implemented |
+| project | wikibuild/reader.py, curation.py, curated_rules.py, external_links.py, packs.py, pages.py and web/ | implemented |
+| verify | reader artifact checks, declared claim checks and independent tools/check_*.py; runtime verification remains explicitly scoped | implemented |
+| release | wikibuild/release.py and git_transaction.py; selected-fact Git releases | implemented |
+| publish | wikibuild/publication.py, publication_git.py and github_pages.py | implemented |
 
 The navigation preview is an independent foundation build, not the publish stage above.

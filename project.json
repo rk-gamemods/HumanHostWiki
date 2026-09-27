@@ -94,15 +94,15 @@
     {"from": "technical-reference", "to": "items-equipment", "kind": "backs-game-entity"}
   ],
   "pipeline": [
-    {"id": "detect", "depends_on": [], "owner": "decompile capture reuse and wikibuild/availability.py; Steam branch observations are independent of gameplay verification", "status": "partial"},
+    {"id": "detect", "depends_on": [], "owner": "decompile capture reuse and wikibuild/availability.py; Steam branch observations are independent of gameplay verification", "status": "implemented"},
     {"id": "capture", "depends_on": ["detect"], "owner": "HumanHostMods/tools/Decompile-GameCode.ps1", "status": "external-existing"},
     {"id": "register", "depends_on": ["capture"], "owner": "wikibuild/snapshots.py", "status": "implemented"},
     {"id": "external-articles", "depends_on": ["register"], "owner": "wikibuild/external_links.py and mediawiki.py; bounded versioned article checks", "status": "implemented"},
-    {"id": "normalize", "depends_on": ["register"], "owner": "wikibuild/extraction.py and topic adapters", "status": "partial"},
-    {"id": "identity", "depends_on": ["normalize"], "owner": "wikibuild/identity.py, model.py and history.py", "status": "partial"},
-    {"id": "project", "depends_on": ["identity", "external-articles"], "owner": "wikibuild/reader.py, curation.py, curated_rules.py, external_links.py, packs.py, pages.py and web/", "status": "partial"},
-    {"id": "verify", "depends_on": ["project"], "owner": "reader artifact checks and independent tools/check_*.py; gameplay checks unfinished", "status": "partial"},
-    {"id": "release", "depends_on": ["verify"], "owner": "wikibuild/release.py and git_transaction.py; selected-fact Git releases", "status": "partial"},
-    {"id": "publish", "depends_on": ["release"], "owner": "wikibuild/publication.py, publication_git.py and github_pages.py", "status": "partial"}
+    {"id": "normalize", "depends_on": ["register"], "owner": "wikibuild/extraction.py and topic adapters", "status": "implemented"},
+    {"id": "identity", "depends_on": ["normalize"], "owner": "wikibuild/identity.py, model.py and history.py", "status": "implemented"},
+    {"id": "project", "depends_on": ["identity", "external-articles"], "owner": "wikibuild/reader.py, curation.py, curated_rules.py, external_links.py, packs.py, pages.py and web/", "status": "implemented"},
+    {"id": "verify", "depends_on": ["project"], "owner": "reader artifact checks, declared claim checks and independent tools/check_*.py; runtime verification remains explicitly scoped", "status": "implemented"},
+    {"id": "release", "depends_on": ["verify"], "owner": "wikibuild/release.py and git_transaction.py; selected-fact Git releases", "status": "implemented"},
+    {"id": "publish", "depends_on": ["release"], "owner": "wikibuild/publication.py, publication_git.py and github_pages.py", "status": "implemented"}
   ]
 }

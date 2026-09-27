@@ -16,6 +16,9 @@ relationships, with information for every captured game version.
   twelve topic repositories provide detail and links back to the hub.
 - Cover all known assets and systems. Group related records into readable pages;
   page count does not follow source-file or Unity-object count.
+  For this delivery, coverage is measured against the enumerated current capture
+  and its explicit extraction/cataloging decisions in [ACCEPTANCE.md](../ACCEPTANCE.md).
+  Additional mechanic explanations are optional prose, not an expanding inventory.
 - Read the existing `HumanHostCodebase` in place. Reuse the parent's
   `tools/Decompile-GameCode.ps1` for capture. Export useful text metadata, not
   graphical/audio payloads, raw source trees or duplicate analysis datasets.
@@ -62,23 +65,17 @@ Keep three records distinct:
 - `releases/`: immutable manifests for verified, coordinated wiki releases.
 
 Registration or a navigation preview cannot establish gameplay verification.
-The complete scope and implementation status are separate: the current foundation
-supports registry validation, local repository setup/locking, input registration,
-generated architecture maps and deterministic navigation previews.
-Selected facts in every topic are implemented with grouped exceptions and reuse.
-Gameplay coverage remains partial. Selected-observation identity matching and
-durable decisions are implemented; individual asset identities and historical
-coverage remain incomplete. A static reader supports grouped reference pages,
-search and snapshot-preserving navigation over normalized runs. Real older-build
-capture coverage remains unfinished. The integrated runner now
-connects capture to the supported stages and final exception reporting.
-Coordinated local Git releases now preserve exact child commits and browser-readable
-historical packs with interrupted-run recovery. GitHub provisioning and coordinated
-Pages publication are implemented and have published all thirteen sites. Coverage,
-gameplay verification and automatic capacity allocation remain incomplete.
-These development commands are
-diagnostic entrypoints, not the intended maintenance workflow. Current evidence
-and remaining completion gates are in [IMPLEMENTATION.md](../IMPLEMENTATION.md).
+The implemented pipeline provides selected facts across all topics, durable
+identity decisions, grouped/searchable historical readers, capacity allocation,
+coordinated Git/Pages publication and interrupted-run recovery. All thirteen
+logical sites are public. [ACCEPTANCE.md](../ACCEPTANCE.md) records finite proof
+for each requirement and distinguishes fixture proof from real-source evidence.
+In particular, distinct-real-build history evidence is unavailable; current
+captures and extractor corrections must not be described as different game builds.
+Unknown gameplay verification remains an honest evidence state, not a run failure.
+Development commands are diagnostic entrypoints; the normal decompile command
+is the maintenance workflow. Historical checkpoints are in
+[IMPLEMENTATION.md](../IMPLEMENTATION.md) and do not add completion requirements.
 
 ## 4. Data and provenance contracts
 
@@ -266,6 +263,12 @@ observation reuse, routing, release storage and reader matching. Its implementat
 evidence distinguishes fixture tests, live provider checks and publication checks.
 
 ## 8. Acceptance and delivery
+
+The closed requirement-to-code-and-evidence checklist is
+[ACCEPTANCE.md](../ACCEPTANCE.md). It preserves the requirements below, names
+the fixed current-capture inventory, and gives an explicit disposition for
+unavailable real historical inputs. Every further investigation must identify a
+listed defect and produce a deterministic correction or verification result.
 
 Required proof before full publication:
 
