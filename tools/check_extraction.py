@@ -48,6 +48,15 @@ def compare_selected(expected, actual, context):
     return 1
 
 
+def scene_prop_counts(entries, table):
+    """Independent aggregation from raw placement records, without adapter imports."""
+    valid = Counter(entry["protoRefIndex"] for entry in entries
+                    if isinstance(entry, dict) and type(entry.get("protoRefIndex")) is int
+                    and 0 <= entry["protoRefIndex"] < len(table))
+    return {"counts": [{"protoRefIndex": key, "count": valid[key]} for key in sorted(valid)],
+            "total_count": len(entries), "unresolved_count": len(entries) - sum(valid.values())}
+
+
 def check(root, source, complete=False):
     pointer = json.loads((root / ".local/extraction-latest.json").read_text())
     run = json.loads((root / f".local/extractions/runs/{pointer['run_id']}.json").read_text())
@@ -102,7 +111,15 @@ def check(root, source, complete=False):
                 raise ValueError(f"Loot rates differ: {row['source_id']}")
             checks += 1
         else:
-            checks += compare_selected(at(raw["fields"], row.get("source_field_base", "")), row["facts"], row["source_id"])
+            expected = at(raw["fields"], row.get("source_field_base", ""))
+            if row.get("component") == {"assembly": "Build_System", "class": "ScenePropSpawner"}:
+                expected = dict(expected)
+                for field, table in (("ScenePropsInfo", "PropsRefNoRepeat"), ("ScenePropsInfoBig", "PropsRefNoRepeatBig")):
+                    if field in row["facts"]:
+                        expected[field] = scene_prop_counts(raw["fields"][field], raw["fields"][table])
+                        if "/" + field not in row["evidence"][0]["fields"]:
+                            raise ValueError("Composition count lacks its source-array evidence")
+            checks += compare_selected(expected, row["facts"], row["source_id"])
         for evidence in row["evidence"]:
             if "record_sha256" in evidence:
                 if evidence["record_sha256"] != hashes[evidence["object"]]:

@@ -3,6 +3,54 @@
 from .schema import NUMBER as N, V2, V3, Ref, component, numbers
 
 SPECS = (
+    component("Build_System", "Build_System", "construction-rule", "construction", {
+        "Crane_Time": int, "_EmptyRotorBaseMass": N, "_longTrackBI_Name": str, "_shortTrackBI_Name": str,
+        "MechPlatformRef": Ref("mechanic-platform-prefab"), "_VehicleTopPrefab": Ref("vehicle-top-prefab"),
+        "_DoorUpShortCubeBI": Ref("door-support-building"),
+    }, """AllowRightClickBuild Build_TopInfo DamagedBIsRender EZ_Outline InRightClickDetectAround
+In_DiggerFallenCheck ItemName OnRoboBISmashFallContactCrane On_RightClickDelete_CarCoreBI
+PreviewBlue PreviewBlues PreviewIgnoresOverlap PreviewPrefabBI PreviewRed PreviewReds
+PreviewTransform PreviewWhite PreviewWhites Robops SpriteBlue SpriteRed TireMaterial
+_BeltPutBackSounds _BeltTakeOutSounds _BuildAlignText _BuildIndicatorPrefab _Green
+_InBuildingMode _InShowCarUI _MassCenterPrefab _NoItemStr _OnDelBI _OnStackAboveTerrain
+_OnStackUnderTerrain _PreviewArrowPrefab _PreviewResetAFX _PreviewResetTooltipPrefab _Red
+_Tool_Interact_Mgr _facesNow _lastStartTime _successDepoly _trainRailPreviewRef
+_trainRailPreviewTip _trainRailQ_ActiveTip _trainRailQ_DeActiveTip lastHitNormal lastHitPoint
+lastPlayerPos mr_Preview mr_TireArrow overlap""",
+       notes="Construction defaults and supporting prefab/track keys. Empty-rotor mass is used when the rotor building mass is zero. Preview state, player position and audiovisual bindings are omitted."),
+    component("Build_System", "Smash_Fallen_Manager", "construction-rule", "construction", {
+        **numbers("DeletePieceSeconds _FallenDisFurni _FallenDistance _PlaneAngleRange _ShardFallCreatureDamageMax _SliceSize _SliceSizeFall _TreeFallAttractZombieDis _TreeFallBaIDamage _TreeFallCreatureDamage"),
+        "_TreeLog_IconRefs": [Ref("tree-log-item")], "_TreeLog_Prefabs": [Ref("tree-log-prefab")],
+    }, """DelAfterThread_BigFallenTop InFallenCheckTops InSmashingTops _0bounceMat
+_BigWallFallCamShakeIntens _BigWallFallParticle _BigWall_ConcreteDebris _BigWall_Metal_Fall_SFX
+_BigWall_RockGlass_Fall_SFX _DefaultHitBloodVFX _Ground_Debris_Sets _HitParticleRecycle
+_InnerMatSets _MCS_CombieShards _MeleeDecalRecycle _OnWeaponBloodDecal _OnZoneHouseBIspawn
+_OnZoneSmash _PlanesParent _RangeDecalRecycle _ShatterTemplate_MC _ShatterTemplate_MF
+_ShatterTemplate_MR _ShatterTemplate_RB _StartMCScombineBIchilds _TreeFallCamShakeDuration
+_TreeFallCamShakeIntens _TreeHitGroundSFXs _TreeHitGroundVFX _attctZombies _hitNPC""",
+       notes="Fracture/support settings, debris lifetime in seconds, falling-tree damage and alert distance, maximum falling-shard damage and log item/prefab bindings. Runtime fracture results and visual debris are omitted."),
+    component("Build_System", "TopOnHit", "construction-rule", "construction", {
+        "DamageFactor": N, "ImmuneMinDamage": N,
+    }, """Col_topInfo_origin Col_top_Info HitSituation NeedCheckTops OnSmashing Smashed_BIs
+This_topInfo_origin This_top_Info _IsFromPlayer _hitBaIWallInterval _lastHitBaITimeForPushWall
+_lastRuntimeFractureTimeP _lastVeloWhenHitBaI _pressedWS lastOnHitFrame smashPoints""",
+       notes="Collision-damage multiplier and immunity threshold defaults. Final damage also depends on collision speed, mass and hit context; live collision results and participants are omitted."),
+    component("Terrain", "Terrain_Dig", "construction-rule", "construction", {
+        "_fallenDis": int, "addPull": N, "digPush": N, "_BlockModelRef": Ref("terrain-block-prefab"),
+    }, "On_Digger_TreeFall UI_Canvas _EnableDebug _FixTesseSeamPrefab _InLoadingData _TerraBlockDropMesh _cachedGridMover diggerBufferSize diggerMaster diggerMasterRuntime saveDataManagerObj testConnectCube testEmptyCube testSupportCube",
+       notes="Terrain support-check distance, surface-normal offsets for adding/removing terrain, and dropped-block prefab binding. Voxel data, debug geometry, work buffers and save state are omitted."),
+    component("Build_System", "SystemHouseManager", "construction-rule", "construction", {
+        **numbers("_DespawnBI_Dis _DespawnFurniBI_Dis _SpawnBI_Dis _SpawnFurniBI_Dis _disCheckFurniInterval _disCheckInterval"),
+    }, "All_SysBuildingTops InLoadingSystemHouse SysTopsDisCheck _MaxProcessTimePerFrame _despawnBI_Dis_Sqt _inSpawningFurni _spawnBI_Dis_Sqt repairedSysHouseBIs",
+       notes="House and furniture activation distances and polling intervals in seconds. These control streaming rather than destroyed-building regeneration."),
+    component("Build_System", "SystemHouseSpawner", "construction-rule", "construction", {
+        **numbers("_AroundHouseDisInterval _IndoorDisInterval"), "BIsAssetKey": [str],
+        "BIsInfo_Ref": Ref("house-layout"),
+    }, """BIsInfo DamagedTimePoint RepairedTimePoint SysHouseBelongChunk SysHouseBelongTerrainTop
+_aroundHouseDisInterSqt _furniBI_0_HP _furniBI_Refs _furniBI_Siblings _furniBIsInfo
+_unload_Already boundBox damagedBIsSibling initDamagedBIsCount load_FullHP_BIs_Already
+repairedBIsSibling sysHouseTopSibiling""",
+       notes="House part asset keys, shared layout binding and sampling-distance parameters. Transform geometry, spawned furniture caches, damage and repaired save state are omitted."),
     component("Sound_FX", "SoundTerrain_Sets", "construction-rule", "construction", {
         "_TextureSoundMatsName": [str],
     }, "_TextureParticleColors",

@@ -156,6 +156,7 @@ def run(root, source, receipt, extracted):
     unchanged_inputs = same_inputs(receipt, previous)
     assignments, decisions = identity.reconcile(descriptors, old, receipt["snapshot_id"], request_key,
                                                same_capture=unchanged_inputs, corrections=reviewed["mappings"])
+    supersessions = identity.reviewed_supersessions(descriptors, old, assignments, receipt["snapshot_id"], reviewed["mappings"])
     indexes = model.targets_index(model.rows(observations), assignments)
     issues, states, counts = Exceptions(), {}, Counter()
     staging = within(root, ".local/history/staging/" + uuid.uuid4().hex)
@@ -189,8 +190,8 @@ def run(root, source, receipt, extracted):
             states[entity] = state
             continue
         observation = state["descriptor"]["observation_key"]
-        replacement = current_by_observation.get(observation)
-        if replacement and decisions[observation]["status"] == "reviewed":
+        replacement = supersessions.get(entity) or current_by_observation.get(observation)
+        if entity in supersessions or (replacement and decisions[observation]["status"] == "reviewed"):
             status = "superseded"
         elif entity in ambiguous_old:
             status = "unresolved"
@@ -198,6 +199,11 @@ def run(root, source, receipt, extracted):
             status = model.absent_status(state, extracted["supported_kinds"], metadata)
         states[entity] = {**state, "status": status,
                           **({"superseded_by": replacement} if status == "superseded" else {})}
+        if status == "unresolved":
+            descriptor = state["descriptor"]
+            issues.add("unresolved-observation", descriptor["topic"], descriptor["kind"],
+                       "A prior observation is absent but its source object remains; review the extraction or identity change.",
+                       descriptor["source_id"])
         if status != state["status"]:
             counts[status] += 1
     with (staging / "state.jsonl").open("wb") as stream:

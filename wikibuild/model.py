@@ -24,6 +24,17 @@ TARGET_KINDS = {
     "gathered-item": {"item"},
     "inventory-template": {"loot-source"}, "player-crafting": {"workbench"},
     "terrain-material-table": {"construction-rule"},
+    "dungeon-entrance-prefab": {"asset"}, "dungeon-exit-prefab": {"asset"}, "dungeon-prefab": {"asset"},
+    "base-terrain-prefab": {"asset"}, "biome-terrain-prefab": {"asset"}, "bicycle-prefab": {"asset"},
+    "vehicle-top": {"vehicle"}, "generator-building": {"building-piece"}, "next-rail": {"vehicle-rule"},
+    "mechanic-platform-prefab": {"asset"}, "vehicle-top-prefab": {"asset"},
+    "door-support-building": {"building-piece"}, "tree-log-item": {"item"},
+    "tree-log-prefab": {"asset"}, "terrain-block-prefab": {"asset"}, "scene-prop-prefab": {"asset"},
+    "character-status": {"survival-rule"}, "movement-collider": {"ai-rule"},
+    "npc-animation-settings": {"ai-rule"}, "player-character-prefab": {"asset"},
+    "controller": {"ai-rule"}, "zombie-controller": {"ai-rule"},
+    "clock-module": {"time-rule"}, "weather-module": {"world-rule"},
+    "environment-configuration": {"world-rule"}, "environment-weather": {"world-rule"},
 }
 
 

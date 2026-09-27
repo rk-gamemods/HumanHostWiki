@@ -9,6 +9,23 @@ from wikibuild.exceptions import Exceptions
 
 
 class ModelTests(unittest.TestCase):
+    def test_spawn_prefab_resolves_creature_separately_from_its_controller(self):
+        from wikibuild.adapters.components import BY_CLASS
+        rows = []
+        for source, key in (("bundle#2", ("AI", "Zombie_Agent")), ("bundle#3", ("Creature", "Zombie_Input"))):
+            row = observation(source=source)
+            row.update(kind=BY_CLASS[key].kind, game_objects=["bundle#9"])
+            rows.append(row)
+        assignments = {row["observation_key"]: row["source_id"] for row in rows}
+        indexes = model.targets_index(rows, assignments)
+        source = observation()
+        source["relationships"] = [{"predicate": "spawns-prefab", "target_source_id": "bundle#9"}]
+        issues = Exceptions()
+        semantic, resolved = model.relationships(source, indexes, {}, issues)
+        self.assertEqual(["bundle#2"], semantic[0]["targets"])
+        self.assertEqual("resolved", resolved[0]["status"])
+        self.assertEqual(0, issues.report()["group_count"])
+
     def project(self, row, indexes, metadata=None, blob="a"):
         issues = Exceptions()
         projected = model.project(row, "e-source", (*indexes, {}), metadata or {},

@@ -44,6 +44,15 @@ observation, target wiki entity (or `new`), reviewer and reason. Conflicting or
 incompatible mappings are failures. A correction produces a new run and preserves
 earlier decisions. The normal run never invokes an LLM to resolve candidates.
 
+A reviewed mapping may list `supersedes` entity keys when correcting a component's
+kind within the same captured snapshot. Each retired key must identify the exact
+same source object and assembly/class, have a different kind, and no longer have
+a current observation. Different objects, captures, active entities, duplicate
+claims and conflicting replacements fail before promotion. The retired record
+keeps its history and points to the replacement. This is an extractor correction,
+not evidence that the game removed content. Unresolved absent observations are
+included in the exception report even when all current relationships resolve.
+
 Required proof covers unchanged repeats, source-ID changes, renames, reused IDs,
 additions/removals, ambiguous splits/merges, extraction corrections, missing capture
 scope, reviewed mappings, writer exclusion, modified outputs and interruption

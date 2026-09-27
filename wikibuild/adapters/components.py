@@ -8,7 +8,7 @@ class names or copy unrecognized field bags.
 from collections import Counter
 import itertools
 
-from . import acquisition, biomes, combat, construction, controls, crafting, creatures, equipment, inventory, spawning, survival, technical, traps, vehicles, world
+from . import acquisition, biomes, characters, combat, construction, controls, crafting, creatures, environment, equipment, inventory, navigation, spawning, survival, technical, traps, vehicles, world
 from .items_loot import observation
 from .entries import expand, english_labels
 from .catalog_policy import category as classify
@@ -18,7 +18,7 @@ from ..storage import ContractError, digest, json_bytes
 NAME = "component-contracts"
 VERSION = 1
 INPUTS = ("Catalog/views/object-index.jsonl",)
-SPECS = tuple(spec for module in (acquisition, biomes, combat, construction, controls, crafting, creatures, equipment, inventory, spawning, survival, technical, traps, vehicles, world)
+SPECS = tuple(spec for module in (acquisition, biomes, characters, combat, construction, controls, crafting, creatures, environment, equipment, inventory, navigation, spawning, survival, technical, traps, vehicles, world)
               for spec in module.SPECS)
 BY_CLASS = {(spec.assembly, spec.name): spec for spec in SPECS}
 KINDS = tuple(sorted({spec.kind for spec in SPECS} | {"component", "asset", "unclassified", "recipe", "status-effect"}))
@@ -70,6 +70,24 @@ def prepare(source, issues):
                                    "index": INPUTS[0], "index_sha256": source.dependencies[INPUTS[0]]["sha256"]}}
 
 
+def record_chunks(identities, locations, byte_limit=2 * 1024 * 1024, count_limit=128):
+    """Bound decoded batches by input size; an oversized record runs alone."""
+    chunk, total = [], 0
+    for identity in identities:
+        size = locations[identity].get("bytes")
+        # Unknown sizes are isolated. The source reader owns offset/hash/size
+        # validation; this planner never substitutes metadata for that check.
+        if type(size) is not int or size < 1:
+            size = byte_limit
+        if chunk and (len(chunk) >= count_limit or total + size > byte_limit):
+            yield chunk
+            chunk, total = [], 0
+        chunk.append(identity)
+        total += size
+    if chunk:
+        yield chunk
+
+
 def selected_records(source):
     # Keep at most 128 raw records resident. Group by shard so legacy snapshots
     # without offsets require a single stream for each relevant shard.
@@ -77,11 +95,11 @@ def selected_records(source):
     for path, group in itertools.groupby(ids, source.object_path):
         wanted = list(group)
         if all(identity in source.locations for identity in wanted):
-            for start in range(0, len(wanted), 128):
-                chunk = wanted[start:start + 128]
+            for chunk in record_chunks(wanted, source.locations):
                 rows = source.objects(chunk)
                 for identity in chunk:
                     yield identity, rows.get(identity)
+                del rows
         else:
             wanted_set = set(wanted)
             for row in source.records(path):

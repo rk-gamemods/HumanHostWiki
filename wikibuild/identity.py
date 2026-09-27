@@ -152,3 +152,29 @@ def reconcile(current, previous, snapshot, request_key, same_capture=False, corr
         decisions[key] = {"status": "ambiguous" if candidates else "new", "rule": "retain-unresolved-candidates" if candidates else "first-observation",
                           "confidence": "unresolved" if candidates else "new", "candidates": candidates}
     return assignments, decisions
+
+
+def reviewed_supersessions(current, previous, assignments, snapshot, corrections):
+    """Retire exact reviewed reclassifications without treating them as game removals."""
+    result = {}
+    active = set(assignments.values())
+    for correction in corrections:
+        if correction.get("snapshot_id") != snapshot:
+            continue
+        retired = correction.get("supersedes", [])
+        if not isinstance(retired, list):
+            raise ContractError("Invalid reviewed supersession list")
+        key = correction["observation_key"]
+        current_row, target = current[key], assignments[key]
+        for entity in retired:
+            if not isinstance(entity, str) or entity not in previous or entity in result or entity in active:
+                raise ContractError("Reviewed supersession names an absent, duplicate or active entity")
+            state = previous[entity]
+            old = state["descriptor"]
+            if (state["last_seen"] != snapshot or old["summary"] or current_row["summary"]
+                    or old["kind"] == current_row["kind"] or not all(current_row["component"])
+                    or any(old[field] != current_row[field] for field in ("source_id", "source_object", "component"))
+                    or (state["status"] == "superseded" and state.get("superseded_by") != target)):
+                raise ContractError("Reviewed supersession must reclassify the same captured component")
+            result[entity] = target
+    return result

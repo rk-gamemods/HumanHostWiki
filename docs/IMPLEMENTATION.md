@@ -1025,6 +1025,67 @@ the exact default-time marker and seven weapon references in the published
 release, with no browser console errors. Evidence is retained in
 `.local/baseline-combat-render-*`.
 
+### Initial component backlog reconciliation checkpoint
+
+All 191 initially unsupported classes now have explicit source-reviewed contracts.
+The two initial relationship groups and five article issues were already resolved;
+the complete selected-field pass now reports zero content exceptions. All 22
+configured external articles are populated. This reconciles the original backlog
+at the captured-field level, without declaring complete gameplay interpretation.
+[Baseline reconciliation](BASELINE_RECONCILIATION.md) records the decisions and
+the remaining source-defined mechanics.
+
+The final class batch covers world/dungeon settings, streaming and composition,
+vehicle/controller parameters, navigation, environment modules and reviewed
+technical exclusions. Seventy-seven intermediate controller identities have
+explicit same-capture supersessions; their original decisions remain intact.
+Unresolved absent observations now reach the operator's exception report.
+
+Scene-prop composition is aggregated by prefab index, with totals and unresolved
+counts. Selected records fell from 129,010,537 to 45,108,743 bytes. The independent
+source audit passed 365,969 assertions over 22,111 selected records, 2,725 prefab
+identities and 527 technical type summaries. Identity audit passed 318,439 assertions
+over 25,363 current observations. Reader candidate
+`7c4321986c2e914a3b4344905c8a827b9b7ce2db16c5d390184be20f806a83ed`
+passed 374,901 assertions over 41,655 retained observations; it contains 1,918 files,
+151,683,613 bytes and a largest pack of 514,644 bytes.
+
+The normal decompile command published release
+`4ad92f64ed9390922318e102097e776e7a6a8d0880213a3ee6c46936be0b2bb5`
+through pipeline `9b4d8ba2b881672c9f79410bda4b0640d61d295d0dc9bdb6aef2a4015b3cae88`
+with zero unresolved content. The full 291-test suite passed in 702.039 seconds.
+Subsequent composition/batch changes passed six configuration tests and 16 component
+tests. Composition tests prove conservation, explicit invalid-index counts,
+order-independent output and bounded evidence; batch tests prove byte/count bounds
+and oversized-record isolation. Byte-bounded batching then published release
+`42edecbf810d13ee478c1883f309cd6eed5781c31f07139bad0f47089572cb1f`
+through pipeline `f6f39503174df3a023e7c284ce568bc9e4bb2a3162bfb30cbec34391309e4a2c`.
+Its reader `f146eeca1bb43f5328b5f78d5449babb68a57086e4def82d8e6597f72596478f`
+passed the same 374,901 assertions. Release audit verified all 13 repositories,
+4,431 owned files, 409,756,545 owned bytes and 247 retained configurations.
+An unchanged update passed in 15.512 seconds, preserving all 13 child commits
+and 4,529 file hashes/timestamps. All stages reused prior results. Public SceneProps
+and Z_Boss_01 pages showed the compact composition and corrected controller links
+without console warnings or errors; this browser check used release `4ad92f64`,
+whose selected payload is byte-identical to the batching-only successor.
+Registry, map, checkout-lock and whitespace checks passed. Evidence is retained
+in `.local/baseline-bounded-*` and `.local/baseline-composition-*`.
+
+An isolated cold extraction took 19.574 seconds and peaked at 676,261,888 Python
+working-set bytes including the subsequent identity stage. Limiting ordinary
+component batches to 2 MiB/128 records preserved the exact selected-output hash
+`f843aca7527f64766e85cd6d5cf98fee9da4a2548d930bd118d4148bec5c29dc`;
+the next cold run took 13.620 seconds, but peak memory remained 676,065,280 bytes.
+Unchanged extraction took 0.128 seconds with zero source reads; unchanged identity
+took 0.202 seconds. These are measured runs, not a controlled latency comparison.
+
+Targeted profiling located the peak in a single 43,408,929-byte
+`Terrain_Loader_Manager` raw record. Its four excluded corner-fade arrays contain
+many coordinate objects. Byte-bounded batching cannot fix a single decoded record.
+Selective field reading remains required memory work; raw geometry stays local.
+Diagnostic evidence is in `.local/baseline-memory-profile.jsonl`, and benchmark
+results are in `.local/baseline-bounded-extraction-benchmark.json`.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters

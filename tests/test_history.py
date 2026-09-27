@@ -165,6 +165,43 @@ class HistoryTests(unittest.TestCase):
         next_run, _ = self.run_history()
         self.assertEqual(1, sum(state["status"] == "superseded" for state in history.load_state(self.root, next_run).values()))
 
+    def test_reviewed_reclassification_retires_only_exact_component_and_repeats(self):
+        old_row = {**observation(), "component": {"assembly": "Creature", "class": "Zombie_Input"}}
+        self.set_input([old_row])
+        first, _ = self.run_history()
+        original = next(iter(history.load_state(self.root, first)))
+        receipt = self.receipt
+        new_row = {**old_row, "kind": "ai-rule", "observation_key": "new-controller"}
+        self.set_input([new_row])
+        self.receipt = receipt  # Extractor correction, same captured source.
+        self.extracted.update(snapshot_id=receipt["snapshot_id"], source_commit=receipt["source_commit"])
+        second, _ = self.run_history()
+        self.assertEqual(1, second["exceptions"]["occurrences"])
+        self.assertEqual("unresolved-observation", second["exceptions"]["groups"][0]["code"])
+        current = next(key for key, value in history.load_state(self.root, second).items() if value["status"] == "present")
+        correction = {"snapshot_id": receipt["snapshot_id"], "observation_key": "new-controller",
+                      "entity_key": current, "reviewer": "fixture", "reason": "Corrected controller category",
+                      "supersedes": [original]}
+        (self.root / "identity/corrections.json").write_bytes(json_bytes({"schema_version": 1, "mappings": [correction]}))
+        fixed, _ = self.run_history()
+        retired = history.load_state(self.root, fixed)[original]
+        self.assertEqual("superseded", retired["status"])
+        self.assertEqual(current, retired["superseded_by"])
+        self.assertEqual(0, fixed["exceptions"]["group_count"])
+        self.assertEqual(fixed, self.run_history()[0])
+        with patch("wikibuild.history.contract", return_value="changed-matcher"):
+            rerun, _ = self.run_history()
+        self.assertEqual("superseded", history.load_state(self.root, rerun)[original]["status"])
+        self.assertEqual(first, history.read(self.root, first["run_id"]))
+
+    def test_reviewed_reclassification_rejects_different_source_component(self):
+        descriptor = identity.describe({**observation(), "component": {"assembly": "A", "class": "C"}}, {})
+        current = {**descriptor, "kind": "ai-rule", "source_id": "bundle#different"}
+        previous = {"old": {"descriptor": descriptor, "last_seen": "snapshot", "status": "unresolved"}}
+        with self.assertRaisesRegex(ContractError, "same captured component"):
+            identity.reviewed_supersessions({"new": current}, previous, {"new": "target"}, "snapshot",
+                [{"snapshot_id": "snapshot", "observation_key": "new", "supersedes": ["old"]}])
+
 
 if __name__ == "__main__":
     unittest.main()

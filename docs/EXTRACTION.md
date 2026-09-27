@@ -11,12 +11,16 @@ articles. Every published fact must come from an explicit field contract.
 | `wikibuild/source.py` | Pinned Git reads, verified byte ranges, dependencies and old-snapshot fallback |
 | `wikibuild/adapters/components.py` | One index pass, bounded record batches and technical type summaries |
 | `wikibuild/adapters/catalog_policy.py` | Explicit infrastructure accounting and payload omissions |
-| `wikibuild/adapters/technical.py` | Reviewed field exclusions with new-field detection; summary output only |
+| `wikibuild/adapters/technical.py` | Reviewed technical exclusions and selected operating defaults, with field drift detection |
 | `wikibuild/adapters/prefabs.py` | Individual identities for GameObjects referenced by selected domain relationships |
 | `wikibuild/adapters/acquisition.py` | Merchant stock/pricing and context-specific inventory templates |
 | `wikibuild/adapters/inventory.py` | Item-quality, upgrade, slot restrictions and initial-character configuration |
 | `wikibuild/adapters/combat.py` | Damage, attack timing, ammunition modifiers and combat preset links |
-| `wikibuild/adapters/controls.py` | Serialized key defaults and action bindings |
+| `wikibuild/adapters/controls.py` | Serialized key/action bindings and camera control defaults |
+| `wikibuild/adapters/characters.py` | Player/NPC controller, physical movement and corpse defaults |
+| `wikibuild/adapters/animation.py` | Shared timing selection with exact default markers; no clips/callbacks |
+| `wikibuild/adapters/navigation.py` | Map exploration, marker visibility and reviewed map UI exclusions |
+| `wikibuild/adapters/environment.py` | Enviro module bindings and environment targets, separate from game weather rules |
 | `wikibuild/adapters/schema.py` | Nested types, field selection, nulls, references and grouped exceptions |
 | Topic files in `wikibuild/adapters/` | Selected fields, known omissions and domain relationships |
 | `wikibuild/adapters/entries.py` | Recipe/skill/status and biome stock entries from selected nested definitions |
@@ -28,6 +32,13 @@ the existing object index. It creates no duplicate record file. The reader uses
 those ranges only after hashing their bytes. Local differences fall back to pinned
 Git data; disagreement between the pinned index hash and pinned record is a failure.
 Snapshots without range metadata remain readable through streaming Git.
+
+Component reads group at most 128 records and 2 MiB of encoded input per batch.
+An oversized or unknown-size record is isolated, and the prior decoded batch is
+released before reading another. This bounds ordinary batches, not the memory
+needed to decode a single very large record. A current terrain-loader record still
+contains large excluded corner-coordinate arrays; selective field reads remain a
+measured memory optimization to complete.
 
 ## Adding or correcting a contract
 
@@ -62,6 +73,13 @@ Reviewed technical contracts read the component through the same bounded selecto
 as gameplay contracts, but emit only the existing type/count summary. A new field
 still raises an exception. These decisions account for serialized fields without
 claiming that every method's behavior has been interpreted.
+
+Scene-prop composition uses an explicit `IndexCounts` contract. It counts valid
+`protoRefIndex` values against the named prefab table and emits sorted counts,
+total placements and unresolved placements. Unknown fields and invalid indices
+still produce exceptions. Source-array locators and raw-record hashes prove the
+derivation; individual placement rows and geometry are not wiki content. The
+independent checker recomputes these counts directly from the pinned raw records.
 
 `NumberWithSentinel` permits only explicitly named catalog-encoded float markers
 on opted-in fields. Animancer timing uses `{"float":"nan"}` for default behavior;

@@ -1,12 +1,13 @@
-"""Reviewed presentation and infrastructure fields, with drift detection.
+"""Selected operating defaults and reviewed technical fields, with drift detection.
 
 Each exact class still goes through Selection: newly captured fields are logged.
-Only its type/count summary is emitted. No private telemetry, visual settings or
-per-instance empty records are exported. These decisions concern serialized
+Reviewed presentation classes emit only a type/count summary; operating defaults
+have explicit selections. No private telemetry, visual settings or empty
+per-instance records are exported. These decisions concern serialized
 fields; they do not claim to explain every method in the class.
 """
 
-from .schema import component, fields
+from .schema import NUMBER as N, V3, Ref, component, fields
 
 
 def reviewed(assembly, name, omitted, reason, inspected=None):
@@ -15,6 +16,144 @@ def reviewed(assembly, name, omitted, reason, inspected=None):
 
 
 SPECS = (
+    component("Optimize", "MeshCombineStudio.MeshCombiner", "configuration", "technical-reference", {
+        "addMeshColliders": int, "addMeshCollidersInRange": int,
+        "addMeshCollidersBounds": {"m_Center": V3, "m_Extent": V3},
+        "physicsMaterial": Ref("collision-material"),
+    }, """_Top_Build _isZoneHouseChildMCS _origLodSize _sysHouseBIlodGroup activeOriginal
+addMeshCollidersList backFaceBounds backFaceDirection backFaceRotation backFaceT backFaceTriangleMode
+cellCount cellOffset cellSize combineConditionSettings combineInRuntime combineMode combineOnStart
+combineSwapKey combined combinedActive combined_MRs computeDepthToArray copyBakedLighting
+deleteFilesFromSaveFolder disableOverlappingNonCombineGO drawGizmos drawMeshBounds
+excludeBackfaceRemovalTag excludeOverlapRemovalTag excludeSingleMeshes foundColliders
+foundCombineConditions foundLodGroups foundLodObjects foundObjects instantiatePrefab
+instantiatePrefabValid isCombining jobSettings jobSettingsFoldout lodGroupLayer lodGroupsSettings
+lodParentHolders makeMeshesUnreadable maxSurfaceHeight meshSaveSettingsFoldout mrDisabledCount
+newDrawCalls newTotalColorChannels newTotalNormalChannels newTotalTangentChannels newTotalTriangles
+newTotalUv2Channels newTotalUv3Channels newTotalUv4Channels newTotalUvChannels newTotalVertices
+noColliders oldPosition oldScale orginalObjectsHideFlags originalDrawCalls originalLODGroups
+originalMeshRenderers originalTotalColorChannels originalTotalNormalChannels originalTotalTangentChannels
+originalTotalTriangles originalTotalUv2Channels originalTotalUv3Channels originalTotalUv4Channels
+originalTotalUvChannels originalTotalVertices outputSettingsFoldout overlapLayerMask overlappingCollidersGO
+overlappingNonCombineGO rebakeLighting rebakeLightingMode removeBackFaceTriangles removeOriginalMeshReference
+removeOverlappingTriangles removeSamePositionTriangles removeTrianglesBelowSurface
+reportFoundObjectsNotOnOverlapLayerMask runtimeSettingsFoldout saveMeshesFolder scaleInLightmap
+searchOptions surfaceLayerMask totalMeshCombineJobs unitySettingsFoldout useCombineSwapKey
+useCustomInstantiatePrefab useExcludeBackfaceRemovalTag useExcludeOverlapRemovalTag useOriginalObjectsHideFlags
+useVertexOutputLimit usedRemoveOriginalMeshRederences validCopyBakedLighting validRebakeLighting
+vertexOutputLimit voxelizeLayer weldIncludeNormals weldSnapSize weldSnapVertices weldVertices""",
+       notes="Optional generated-mesh collision settings. AddMeshColliders applies the material; the range flag restricts creation to the bounds. Mesh payloads, save paths, rendering/triangle optimization, statistics and live state are omitted. These settings alone do not establish collision geometry."),
+    reviewed("Creature", "Char_GPUI_Render", "GPUI_AnimData GPUI_proto _DeadPoseSet _GPUI_Crowd_Prefab _NoHead_BodyPrefab _capColTrigger _swichToGPUI_Time npcInput startTimePoint",
+             "Animated/GPU character representation bindings and transition state. Character, spawn, corpse HP and animation timing defaults have dedicated contracts."),
+    reviewed("Creature", "Char_GPUI_Render_Mgr", "",
+             "Runtime GPU prototype-to-animation-instance registry; no captured settings."),
+    reviewed("Creature", "GPUI_Dead_Pose_Set", "_DeadPosesCols_Down _DeadPosesCols_Side _DeadPosesCols_Up _DeadPoses_FaceDown _DeadPoses_FaceSide _DeadPoses_FaceUp",
+             "Corpse pose clips and matching collider geometry; corpse HP/expiry are defined separately."),
+    reviewed("Creature", "Ladder_Func", "_SoundObj",
+             "Ladder contact service with a material/audio binding; movement locking and release are code-defined."),
+    reviewed("Creature", "MLSpace.BodyColliderScript", "Collider ParentObject _dismembered _goreBone _lastHitFrame index m_ParentRagdollManager",
+             "Ragdoll part indices, collider/bone bindings and live dismemberment state; no independent damage parameters."),
+    reviewed("Creature", "PlayerBodyCollider", "Collider ParentObject _dismembered _goreBone _lastHitFrame index m_ParentRagdollManager",
+             "Player ragdoll collider bindings and mutable state. Collision fall damage is calculated by OnCollisionEnter rather than these serialized fields."),
+    reviewed("Creature", "RootMotion_Handler", "_controller _ragDollMgr",
+             "Controller/ragdoll service bindings; OnAnimatorMove derives movement from animation, posture and controller state."),
+    reviewed("Hand_Tools", "Bullet_Impact", "_BulletRender _BulletRigid _BulletSphereCol _belongCharBase _belongToolInter _bulletDetectDis _gunRange _initVelocity _origPos _shootRangeSeconds",
+             "Pooled bullet bindings and shot-derived runtime values. Weapon_Range initializes detection distance and flight values; weapon defaults have a separate contract."),
+    reviewed("G_Save", "G_Config_Setter", """On_SelectChar _CorpseDespawnTime_S _DayLength_S
+_DeathDrop_SF _Difficulty_SF _Game24H_S _Horde_Interval_S _Horde_Z_Num_S _IndoorZ_Num_S
+_LootInterval_S _LootSpawn_S _MaxCorpseCount_S _OutdoorZ_Num_S _WorldSeed_IF _XP_S
+_Z_Anger_SF _Z_DmgBlock_S _Z_DmgCreature_S _Z_Frenzy_SF _Z_Mutant_S _Z_Respawn_S _Z_RunType_SF""",
+             "World-configuration UI bindings; difficulty preset values are code-defined in Click_Difficulty_Preset, not values stored in these widget references."),
+    reviewed("G_Save", "G_Save_Editor_Setter", "OnSaveSetterValidate",
+             "Editor configuration holder; the captured source does not read _ConfigEditor. Its values are not asserted to be active new-game defaults.",
+             {"_ConfigEditor": fields({}, "_CorpseDespawnTime _DayLengthFactor _DeadBagDropType _DifficultyIndex _ExpFactor _Game24H_Minutes _Horde_IntervalF _Horde_Z_NumF _InitTalentEngName _InitTalentLv _Loot_Rate_Total _MaxCorpseCount _OutdoorZ_NumF _PlayerCharIndex _Refresh_Loot_Days _SysHouseZ_NumF _TerraWorldSeed _Z_Anger _Z_DmgBlockF _Z_DmgCreatureF _Z_Frenzy _Z_MoveType _Z_Mutant_F _Z_RespawnGameHour")}),
+    reviewed("Global_Funcs", "Global_Update", "",
+             "Per-frame, fixed-step and interval callback dispatcher; no captured settings."),
+    reviewed("Build_System", "Build_Event_Center", """Before_BI_Spawn On_BI_Created
+On_BI_Disabled On_BI_FromPool On_BI_MR_Hide On_BI_MR_Show On_Before_Repair_Deploy
+On_CarBI_HP_Minus On_CarCore_Smashed On_CarHit_BaI On_CarHit_Creature On_CarHit_Scene
+On_Car_Active On_Car_BuildMode On_Car_Spawned On_Delete_Build On_Empty_Hands
+On_FinishSavingAllChunkBuildings On_Finish_World_Back On_FinishedFallenCheck
+On_GetOff_MainSeat On_GetOn_MainSeat On_Groups_Fallen On_Hand_Item On_Loaded_Car
+On_Platform_Down On_RightClick_Build On_RightClick_Build_DetectAround On_Scene_PropBI_Spawned
+On_Shards_Smashed On_SysGrass_FadeIn On_SysGrass_StartFadeOut On_TerraResource_BI_Loaded
+On_TerraTop_Destroyed On_Tree_Need_Fall""", "Construction event bus; serialized listener bindings are not domain definitions."),
+    reviewed("Build_System", "Car_Icon_Handler", "_RoboFileName _TitleLanguageText",
+             "Saved vehicle map-icon lifecycle and localized title binding; save filenames are excluded."),
+    reviewed("Build_System", "CheckFallen", "InSpreadingConnect Parts_Groups Shards_CoreNow _smashPoints needRunAgainRoboTopFallenCheck topInfo",
+             "Runtime support/connectivity traversal; fall-distance defaults are read from Smash_Fallen_Manager."),
+    reviewed("Build_System", "GrassSpawnManager", "loaded_GrassSpawners",
+             "Registry of loaded grass services and dispatch of deleted-grass saves."),
+    reviewed("Build_System", "GrassSpawner", "_inRegistGrass _inUnregistGrass _terraTop _terrain",
+             "Terrain bindings and live registration flags; loads and applies saved grass removals."),
+    reviewed("Build_System", "TerrainTreeSpawner", "belongTerrain belongTerrainCol originTreeIndexs",
+             "Terrain bindings and mutable tree-index cache rebuilt from TerrainData; no independent species distribution settings."),
+    reviewed("Build_System", "Init", """AimDot_Icon Delete_Icon EZ_Outline EventCenter
+SmashFallenManager _ImpostorShaderName _OnTerraDestroy _OnTerraStart _OnWorldPullBackForBI
+_cachedGridMover _npcSpawnInAsync build_System carCore_floatText chunkMgr scenePropManager
+systemHouseManager terrainLoaderInLoading terrainTreeManager world_Origin_Neutralized""",
+             "Construction service wiring, UI bindings and live world-origin/loading state."),
+    reviewed("Build_System", "RotorOnHit", "",
+             "Collision callback forwarding to the vehicle TopOnHit component; no serialized damage defaults."),
+    reviewed("Build_System", "SaveLoad_Chunk", """IsDirty NeedDelSaveFileRoboNames
+NeedSaveBuilding Save_LastProgressTime Save_ProgressCount _InterObjsChunkFile _inSaving
+_isDisabled _sysHouseSpawners _terrain _treeSpawner disToTerraBoundsSqt thisChunkIsLoaded
+thisChunkSysHouseLoaded""", "Chunk save/load bindings and mutable progress/dirty state; filenames and saved world contents are excluded."),
+    reviewed("Terrain", "Terrain_NPC_Script", "_terraTop saveLoadChunk terrain",
+             "Terrain population-service bindings; respawn timing is read from world configuration and saved population state."),
+    reviewed("Equipment", "Equipment_Mgr", "On_ChainArmor_Smash _armorChainSmashEndColor _armorChainSmashStartColor",
+             "Armor visual-effect colors and callbacks. Durability and effect duration enter as method arguments from gameplay components."),
+    reviewed("Hand_Tools", "Bullets_Topinfo_Updator", "Bullets_Topinfo",
+             "Mutable projectile vehicle registry; the update removes destroyed instances and has no serialized ballistic definition."),
+    reviewed("Hand_Tools", "Special_Bow_Aim_LoPos", "",
+             "Character-specific bow pose offsets; projectile flight and damage are configured separately.",
+             {"_specialAimLoPos": [fields({}, "CharName BowAimLoPos3rd BowPosture BowAimX BowAimX_C BowAimY")]}),
+    reviewed("Build_System", "SysHouse_BIs_Info", "",
+             "Shared house-piece placement geometry and wall markers. House asset keys and activation parameters are selected from SystemHouseSpawner.",
+             {"BIsInfo": [fields({}, "isWall localPos localRot localScale")]}),
+    reviewed("Build_System", "ChunkSaveLoad_Manager", """InLoadingChunks InLoadingRoboTopsCount
+InLoading_Some_Chunks InSavineChunks LastSaveDeadlineAbortTime MaxProcessTime_PerFrame
+OnDisiable_Chunk OnTerraInRange OnTerraSysHouseFarAway On_GetOrigDoorRot On_RestoreInterObj
+On_TerraTop_Destroy _TempCarCompassPOI _allChunksList _allChunksWithDisabled _callBackDoorOrigRot
+_forceSaveRobo _inAutoOpenCloseDoors _inSavingData chunkPrefab""",
+             "Chunk persistence scheduling, per-frame work budget, service bindings and live save queues; no world content definitions."),
+    component("SaveData", "SaveDataManager", "configuration", "technical-reference", {
+        "_AutoSaveInterval": N, "_AutoSaveIntervalEditor": N,
+    }, "FinishedSaveDiggerVoxel On_Save_BeforeQuit _note lastSaveTimePoint save_playerData save_weatherData",
+       notes="Autosave interval defaults in seconds; _Start selects the editor interval only when Application.isEditor. Save contents, live progress and timestamps are omitted."),
+    component("GameSettings", "GameSettings", "configuration", "technical-reference", {
+        "Language": int, "_PlayerHurtEach": int, "_DamageCreatureF": N, "_DamageBlockF": N,
+    }, """AO_AutoAjust FPS_text OnGI_Changed OnLodBiasChanged OnResChanged RAM_text VRAM_text
+_AdaptiveGI _BigResTooltip _CreateWorldLanHelper _DLSS _DLSS_enabled _GI_On _HDcam
+_H_Trace _H_TraceAO _IsWorldScene _LoadingImageTop _MaxBudgetMbRate _MinBudgetMB
+_NatureRenderCamSet _OnGameSetChanged _OnLanguageChanged _StreamingMipBudget
+_TexStrm_MaxLevelReduct _TotalTexRate _WhiteCursor _currTerraLod _grassGPUIPrefebMgr
+_rainDropActive _resFactor globalVolume incrementalGCseconds lastPlayerPos
+maxDisUpdateStaticShadow maxShadowDistanceSqt updateShadowCamAngle updateShadowLightAngle useStaticShadow""",
+       notes="Serialized language and player-friendly-fire defaults. The two damage-factor fields have no uses in the captured source and are not asserted to change damage. Rendering, performance and live player state are omitted."),
+    reviewed("GameSettings", "Slot_Hover", "_BackgroundIMG _TextLanguage _TooltipText",
+             "Settings tooltip and hover-highlight widget bindings."),
+    reviewed("SaveData", "Save_Player_Data", "_BedIconTitle _DeadBagIconTitle _GameSettings _PlayerMgr",
+             "Save/load service references and map-label bindings. Player save contents remain local and are not wiki facts."),
+    reviewed("SaveData", "Save_Weather_Data", "_WeatherController",
+             "Weather save/load service binding; saved clock, weather, wetness and transition state are excluded."),
+    reviewed("Car", "CarCodingPanel_Control", "",
+             "Vehicle coding-panel buttons forward actions to the active vehicle; no serialized definitions."),
+    reviewed("Car", "Car_BuildMode_Switch", "carControl topInfo",
+             "Vehicle build-mode service bindings; no independent serialized mode limits."),
+    reviewed("Car", "Car_Coding", "_carControl _top_Info",
+             "Vehicle scripting service bindings; player-authored programs and runtime evaluation are not catalog facts."),
+    reviewed("Car", "Car_Funs", "topInfo",
+             "Vehicle command service binding; behavior is implemented in source rather than serialized settings."),
+    reviewed("Car", "Code_Translator", "CtrlZ_Mode InSavingCode Origin_Text RichText TopInfo_SavedCode _inputField scrollBar top_Info",
+             "Vehicle code editor widgets, undo/save flags and player-authored source; no program text is exported."),
+    reviewed("Car", "Car_Mgr", "_Brakes _Engine_Acce_Loop _Engine_Off _Engine_On _Tire_On_Ground _TrainBrakes _TrainCouple _TrainIcon _Train_On_Tracks",
+             "Captured fields bind vehicle audio/icons. Solar generation scheduling is code-defined in Begin_Generate_Power, not represented by these fields."),
+    reviewed("Car", "Train_Bootstrap", "",
+             "Runtime train component setup; Start adds the rail driver, rail layer and build-mode handler. Their code-defined defaults are not serialized on this marker."),
+    reviewed("Car", "Main_Seat_Info", "_HeadIK_TargetLoPos",
+             "Character seat-pose lookup and animation targets; no seat capacity or control limits.",
+             {"_Ik_Target_Info": [fields({}, "CharName _CharLoPos _Hip_ikTarget_LoPos _Hip_ikTarget_LoEuler _Chest_ikTarget_LoPos _Chest_ikTarget_LoEuler _Hand_L_ikTarget_LoPos _Hand_L_ikTarget_LoEuler _Hand_R_ikTarget_LoPos _Hand_R_ikTarget_LoEuler _FootL_ikTarget_LoPos _FootL_ikTarget_LoEuler _FootR_ikTarget_LoPos _FootR_ikTarget_LoEuler")]}),
     reviewed("Build_System", "Battle_Info", """Belong_Group Contacts_SiblingIndex FatherBI
 FatherBISysHouseIndex Is_Fallen MaxSize ShardsConnected Smashed _BI_Particle_Color
 _RFG _fracturedRoot _rigidBody _soundMatName isDoorAxisBaI lastOnHitTime localPos

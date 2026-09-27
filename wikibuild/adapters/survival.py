@@ -1,6 +1,6 @@
 """Skill definitions, progression and survival defaults."""
 
-from .schema import NUMBER as N, Ref, component, fields, numbers
+from .schema import NUMBER as N, V2, Ref, component, fields, numbers
 
 SKILL_DATA = fields({
     "_name": Ref("localized-name"), "_instruct": Ref("localized-description"),
@@ -8,6 +8,13 @@ SKILL_DATA = fields({
 }, "icon")
 SKILL = fields({"_class": Ref("skill-class"), "_skill": SKILL_DATA})
 SPECS = (
+    component("Player", "Player_Respawner", "survival-rule", "skills-survival", {
+        "_RespawnWithinDeadPos": V2, "_Dead_Bag_Ref_Name": str,
+    }, """GetDeadBagBIkey GetDeadBagColumnNumber On_Destroy_DeadBag On_PlayerDied_Bag_Spawned
+On_PlayerRespawn_AI _Bed_Sprite _DeadBag_SmashSFXs _DeadBag_SmashVFX _DeadBag_Sprite
+_Dead_Frame _Dead_Text _PlayerInput _Top_Build _deadBagBIkey _deadBagColumnNumber
+_particleRecycle _respawnPos _sleepingBagBIkey _sleepingBagMapIcon _useF_HitBI _worldPulledBackVector""",
+       notes="Serialized death-bag prefab key and random respawn distance scale bounds. Player_Respawn multiplies a point inside the unit circle by a sampled scale, so the lower bound is not a guaranteed minimum distance. Saved respawn positions and bag identities are omitted."),
     component("Creature", "All_Skills_Set", "skill", "skills-survival", {
         "_CraftSkills": [SKILL], "_FightSkills": [SKILL], "_SurviveSkills": [SKILL],
     }),

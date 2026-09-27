@@ -1,14 +1,7 @@
 """Body/material damage factors and serialized melee/ranged weapon settings."""
 
-from .schema import NUMBER as N, V3, NumberWithSentinel, Ref, component, fields, numbers
-
-# Animancer uses NaN for default start/speed/end timing. Preserve the catalog's
-# exact marker without allowing arbitrary dictionaries or non-finite JSON.
-ANIMATION_NUMBER = NumberWithSentinel(frozenset({"nan"}))
-ANIMATION_TRANSITION = fields({
-    "_FadeDuration": N, "_Speed": ANIMATION_NUMBER, "_NormalizedStartTime": ANIMATION_NUMBER,
-    "_Events": fields({"_NormalizedTimes": [ANIMATION_NUMBER]}, "_Callbacks _Names"),
-}, "_Clip")
+from .schema import NUMBER as N, V3, Ref, component, fields, numbers
+from .animation import ANIMATION_TRANSITION
 
 COMMON = {
     **numbers("_Damage _DamageType _BladeHitProb _HitDownProb _HitFlyForce _DismemberBody _BlowHead _DuraCostPerAttack _DigGetDirtBlock _RepairDis _RepairNoiseDis _RepairValue _repairType _PushBodyDis _HitReactAmplitude"),
@@ -20,6 +13,10 @@ _lastHitIsScene _playerInput _reShotDis _soundMgr _thisToolSlot _toolMgr _tracer
 _weaponRenders layer_Creature layer_Ragdoll mask_2_8_9_10_14 mask_HitFinal mask_HitNoBI"""
 
 SPECS = (
+    component("Hand_Tools", "Arrow_Impact", "combat-rule", "combat", {
+        **numbers("_ArrowDamage _ArrowSpeed _flyGravityScale"), "_weaponHitSetName": str,
+    }, "_BowBoxCol _BowRigid _BowSphereCol _arrowIconGUID _belongCharBase _belongToolInter _bowDetectDis _flyTrail _hitCharCol _origForce _trailWidth _weaponHitSet",
+       notes="Arrow prefab damage multiplier, base speed, gravity scale and material-hit preset key. Bow draw and range modifiers change the runtime values; these are not final shot damage or speed. Shooter state and trail rendering are omitted."),
     component("Hand_Tools", "Melee_Anim_Sets", "combat-rule", "combat", {
         **numbers("_AnimSpeed _NPC_AttkEndRate _SwingReDirect_AnimLengthRate _SwingReDirect_3rd_Rate _LengthRate_ForFixInterval _BounceEndSeconds _BounceEndSeconds_Aim _3rdAimLerpIdle_Rate _KeepCheckSeconds _KeepCheckSeconds_1stNoAim"),
         **dict.fromkeys("_HasShieldAnim _IsNpcHitDownAnim _HasFootAnimation".split(), int),

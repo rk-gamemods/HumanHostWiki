@@ -1,6 +1,7 @@
 """Small explicit field contracts. Unsupported values never become facts."""
 
 from dataclasses import dataclass
+from collections import Counter
 import math
 import re
 
@@ -21,6 +22,13 @@ class Ref:
 class NumberWithSentinel:
     """Opt-in to exact catalog-encoded float markers used by a source contract."""
     markers: frozenset
+
+
+@dataclass(frozen=True)
+class IndexCounts:
+    """Composition counts from explicit prototype indices, without placement rows."""
+    table: str
+    excluded: str
 
 
 @dataclass(frozen=True)
@@ -66,6 +74,30 @@ class Selection:
         self.issues.add(code, self.spec.topic, pattern, message, self.record["id"])
 
     def select(self, value, schema, path=""):
+        if isinstance(schema, IndexCounts):
+            table = self.record.get("fields", {}).get(schema.table)
+            if not isinstance(value, list) or not isinstance(table, list):
+                return self.invalid(path)
+            counts, unresolved = Counter(), 0
+            entry_schema = fields({"protoRefIndex": int}, schema.excluded)
+            for index, entry in enumerate(value):
+                evidence_start = len(self.evidence)
+                selected = self.select(entry, entry_schema, f"{path}/{index}")
+                # One source-array locator plus the raw-record hash proves the
+                # derivation. Repeated placement locators add no catalog facts.
+                del self.evidence[evidence_start:]
+                key = selected.get("protoRefIndex") if selected is not OMIT else None
+                if key is None:
+                    unresolved += 1
+                elif not 0 <= key < len(table):
+                    unresolved += 1
+                    self.issue("prototype-index-range", f"{path}/{index}/protoRefIndex",
+                               "A placement index is outside its prototype table; other counts were retained.")
+                else:
+                    counts[key] += 1
+            self.evidence.append(path)
+            return {"counts": [{"protoRefIndex": key, "count": count} for key, count in sorted(counts.items())],
+                    "total_count": len(value), "unresolved_count": unresolved}
         if isinstance(schema, dict):
             schema = Fields(schema)
         if isinstance(schema, Fields):

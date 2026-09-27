@@ -31,6 +31,28 @@ class CatalogFixture:
 
 
 class ComponentTests(unittest.TestCase):
+    def test_record_chunks_bound_bytes_and_count_without_losing_oversized_records(self):
+        sizes = {"a": {"bytes": 7}, "b": {"bytes": 4}, "c": {"bytes": 12},
+                 "d": {"bytes": 2}, "e": {}, "f": {"bytes": 2}}
+        chunks = list(components.record_chunks(list(sizes), sizes, byte_limit=10, count_limit=2))
+        self.assertEqual([["a"], ["b"], ["c"], ["d"], ["e"], ["f"]], chunks)
+        tiny = {str(i): {"bytes": 1} for i in range(5)}
+        self.assertEqual([["0", "1"], ["2", "3"], ["4"]],
+                         list(components.record_chunks(list(tiny), tiny, byte_limit=10, count_limit=2)))
+
+    def test_component_reads_use_byte_bounded_batches_and_preserve_source_order(self):
+        source = CatalogFixture([], {"fixture#1": {"id": "fixture#1"}, "fixture#2": {"id": "fixture#2"}})
+        source.catalog = {"selected": dict.fromkeys(source.data)}
+        source.locations = {identity: {"bytes": 2 * 1024 * 1024} for identity in source.data}
+        calls = []
+        original = source.objects
+        def bounded(identities):
+            calls.append(list(identities))
+            return original(identities)
+        source.objects = bounded
+        self.assertEqual(list(source.data.items()), list(components.selected_records(source)))
+        self.assertEqual([["fixture#1"], ["fixture#2"]], calls)
+
     def test_nested_recipe_selects_quantities_and_evidenced_targets_only(self):
         record = {"id": "fixture#1", "references": [
             {"field": "/_CraftItemsData/0/perIconData/0/iconRef", "guid": "abc", "status": "resolved", "targets": ["fixture#9"]},

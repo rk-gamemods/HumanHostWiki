@@ -152,13 +152,91 @@ The 28 technical decisions retain only type summaries and explicit field names:
 | UI / Craft_Slot, Craft_Window_Handler | Crafting widgets and close callbacks; no recipe quantities |
 | Use_F / Interact_SFX, Use_F | Audio marker and interaction UI/audio/save bindings. This accounts for captured fields, not all code-defined interaction mechanics |
 
-## Remaining work
+## World, vehicle, character and environment review
 
-The latest source reconciliation in this checkpoint has 88 unsupported component
-groups, covering 7,735 occurrences, and no relationship exceptions. All 88 groups
-remain authorized initial-delivery work. They are not deferred for user selection.
-Complete their evidence review and code corrections, then verify the full normal
-update, unchanged repeat, public reader and remaining ADR acceptance gates.
+The final 88 initially unsupported classes now have explicit contracts. The initial
+191-class inventory has no unreviewed entries. Their serialized fields were reviewed
+against the captured declarations and relevant methods; this does not claim that
+every method is a complete gameplay explanation.
+
+| Area / classes | Source evidence and selected scope |
+| --- | --- |
+| Terrain / SFE_Mgr, SFE_Player_Enter_Handler, SFE_Exit_Trigger, Terrain_Loader_Manager | Dungeon placement and entry/exit configuration; ordered terrain layers and streaming dimensions. SFE zombie spacing/probability fields have no uses in the captured source and are labeled accordingly |
+| Global_Infos, World_Map_Mgr, Weather_Controller | Vertical bounds, exploration radius/spacing, display-time offset and initial weather/clock defaults. Local paths, player state, explored pixels and renderer state are omitted |
+| Player_Respawner | Respawn-distance settings and dropped-bag lookup. Random.insideUnitCircle is not normalized here, so the bounds do not establish an annulus or minimum radius |
+| BicycleController, LockBicycleController, Bicycle_Glue | Movement/curve/friction parameters for the moving bicycle; only active rotation settings for the stationary subclass, whose FixedUpdate is empty. Rider skeletal geometry and recorded rides are omitted |
+| Car_Control, Solar_Generator, Train_Rail | Steering limit and owner, solar building reference, rail connection tolerances. Fuel output is code-defined and remains separate from these bindings |
+| Terrain_Data_Top, TerrainTreeManager, ScenePropManager, ScenePropSpawner | Terrain-data bindings, streaming distances and prop counts grouped by prefab index. Activation timers do not claim renewable-resource respawn. Individual placement rows, object geometry, decal data and live pools are omitted |
+| SystemHouseManager, SystemHouseSpawner, Build_System | House streaming settings and building/layout bindings; crane, rotor, track and mechanic-platform defaults. Save identifiers, preview widgets and instantiated geometry are omitted |
+| Smash_Fallen_Manager, TopOnHit, Terrain_Dig | Collapse distances, damage limits, tree-log references, collision modifiers and terrain dig displacement/support settings. Debris payloads and live voxel/fracture buffers are omitted |
+| Arrow_Impact | Base arrow damage, speed, gravity and hit-set name. Bow draw and runtime code modify the final result; per-shot Bullet_Impact values remain excluded |
+| Player_Input, Zombie_Input, NPC_Anims_Settings | Movement, jump, stamina, faction/status links and selected interaction/transition timing. Clip payloads, skeletal bindings, input state and player positions are omitted |
+| Player_Mgr, CMF.Mover, My_Ragdoll_Hum, GPUI_Dead_Body_Mgr | Initial prefab/position candidates, movement collider/sensor settings, hit/get-up settings and corpse HP/display ranges. Template start positions are not saved player positions |
+| CamController, SaveDataManager, GameSettings | Camera controls, autosave intervals and difficulty defaults. The captured damage-factor fields have no source uses and are not claimed as active multipliers |
+| CompassPro, CompassProPOI, CompassProFogVolume | Discovery distances, visibility modes and map fog settings. Mutable marker text, IDs, saved visits and presentation payloads are omitted |
+| EnviroConfiguration, EnviroManager, EnviroWeatherModule, EnviroWeatherType | Time/weather module bindings and environment/lightning targets. Enviro's solar-time threshold is distinct from Creature_Mgr's gameplay daytime rule; module targets are conditional on active modules |
+| MeshCombineStudio.MeshCombiner | Optional generated-mesh collider settings and material binding. Meshes, save paths, rendering statistics and triangle optimization state are omitted |
+
+Remaining technical decisions have exact class/field exclusions in the owning
+adapters: save-service bindings, vehicle scripting/editor/runtime services,
+construction events/loaders/spawners, staged editor settings, collider/bone and
+root-motion bindings, GPU character rendering, compass UI callbacks, and Enviro
+lighting/sky/quality payloads. Nested reviewed settings retain new-field detection.
+Source-defined behavior such as PlayerBodyCollider fall damage is not inferred from
+its otherwise technical serialized bindings.
+
+Selecting Zombie_Input initially made 74 spawn links ambiguous with Zombie_Agent.
+Controller records now use `ai-rule`, while Zombie_Agent owns `creature` records.
+The 77 intermediate player/zombie controller identities are explicitly superseded
+by reviewed same-capture replacements in `identity/corrections.json`. Original
+decisions remain intact. Regression tests prove unambiguous spawn resolution and
+reject a replacement involving a different captured component.
+
+Extraction `cd54ca59f14035593b494bca60654caeccdf23b96191c6457c9b788a14b6ba8e`
+and identity `29665c3f3b2ee02ee45dec0427773c2f25efbafdfaba2cf4e4cbf32ba2646ac5`
+report zero exception groups. The latter contains 25,363 current observations and
+77 explicit supersessions. The independent identity audit passed 318,439 assertions.
+The normal decompile command completed pipeline
+`5a4f20562e3b8e569011a552cc8a91dd4df09cf62a5554b77b5100e5ac534645`
+and published release `1e7dec1c476ee75a57e39e1bdaba063ac8adbe8a7185f59e015e07ea26be1b4d`
+with zero content exceptions and all 22 external articles populated.
+
+A size review then found that repeated scene-prop placement indices dominated
+the selected output. The deterministic contract now aggregates composition by
+prototype index, preserving totals and explicit unresolved counts while omitting
+placement order and geometry. Extraction size fell from 129,010,537 to 45,108,743
+bytes; scene-prop records fell from 87,449,520 to 3,547,726 bytes. Its tests prove
+count conservation, order-independent output, bounded evidence and continued
+exception reporting. Extraction `d794ed2cb9cb8f95c2d1f09617ee3aa9e767336f778e606f6dd632410d83ef0b`
+and identity `828963cd4a10da921b686a6f6eaafe7c6166a27dcf3ff40ade9e6c04218bb227`
+still report zero exception groups. The normal decompile published this composition
+change as release `4ad92f64ed9390922318e102097e776e7a6a8d0880213a3ee6c46936be0b2bb5`.
+Byte-bounded input batching subsequently preserved identical selected output and
+published release `42edecbf810d13ee478c1883f309cd6eed5781c31f07139bad0f47089572cb1f`.
+An unchanged update passed in 15.512 seconds, preserving 13 child commits and
+4,529 file hashes/timestamps. The final release audit passed across all 13
+repositories. Live SceneProps and Z_Boss_01 pages displayed composition totals,
+controller values and working related-record links without browser console errors.
+
+## Remaining baseline interpretation and delivery
+
+The original exception inventory is reconciled at the selected-field level. Before
+calling the first product complete, verify source-defined mechanics exposed by this
+review and complete the normal-run, source-fidelity and ADR acceptance checks.
+Concrete interpretation work includes:
+
+- Difficulty presets and ConfigData defaults, without treating the unused editor
+  copy as the active world configuration.
+- Solar and bicycle generator output, allocation/rounding, daylight and occlusion.
+- Train components added at runtime, which do not appear as captured prefab
+  components; their configuration and behavior still need source evidence.
+- Respawn penalties/placement, dungeon entrance lifecycle, corpse expiry and the
+  gameplay day/night boundary.
+- Fall-damage and root-motion conditions. `Crane_Time` has only its declaration
+  in the captured source; no timing unit or active crane behavior is established.
+
+These are authorized development work, not a queue requiring user selection.
+Guides remain deferred until the baseline interpretation and exception work is done.
 
 ## Future classifier experiment
 
