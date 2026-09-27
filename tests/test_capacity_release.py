@@ -95,7 +95,8 @@ class CapacityReleaseTests(unittest.TestCase):
 
     def test_storage_failure_keeps_all_fronts_unpublished_then_resumes(self):
         result, _ = self.run_release()
-        identity = result["capacity"]["new_repositories"][0]
+        identity = next(repo["id"] for repo in physical.repositories(self.project, result["physical"])
+                        if repo["role"] == "partition" and repo["id"] in result["capacity"]["new_repositories"])
         self.host.fail_name = result["repositories"][identity]["github_name"]
         with self.assertRaisesRegex(ContractError, "Storage publication failed"):
             publication.run(self.root, self.project, result, host=self.host)

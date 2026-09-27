@@ -53,6 +53,7 @@ class Partition:
     site_bytes: int
     history_bytes: int
     sealed: bool = False
+    entrypoint: bool = False
 
     @property
     def path(self):
@@ -90,14 +91,14 @@ class Plan:
         return {"plan_id": digest(json_bytes(payload)), **payload}
 
 
-def partition(topic, ordinal, *, site_bytes=0, history_bytes=0, sealed=False):
+def partition(topic, ordinal, *, site_bytes=0, history_bytes=0, sealed=False, entrypoint=False):
     if type(ordinal) is not int or ordinal < 0:
         raise ContractError("Partition ordinal must be a nonnegative integer")
     suffix = f"-part-{ordinal:04d}" if ordinal else ""
     name = topic.github_name + (f"-Part-{ordinal:04d}" if ordinal else "")
     if len(name) > 100:
         raise ContractError("Configured repository name leaves no room for a partition suffix")
-    return Partition(topic.id + suffix, topic.id, ordinal, name, site_bytes, history_bytes, sealed)
+    return Partition(topic.id + suffix, topic.id, ordinal, name, site_bytes, history_bytes, sealed, entrypoint)
 
 
 def artifact_check(value, topics):
@@ -140,9 +141,10 @@ def allocate(topics, partitions, stored, requested, budgets=None):
         if item.topic not in owners or item.id in physical:
             raise ContractError("Partition has unknown or duplicate ownership")
         expected = partition(owners[item.topic], item.ordinal, site_bytes=item.site_bytes,
-                             history_bytes=item.history_bytes, sealed=item.sealed)
+                             history_bytes=item.history_bytes, sealed=item.sealed, entrypoint=item.entrypoint)
         if (item != expected or item.github_name.casefold() in names or
-                type(item.sealed) is not bool or any(type(size) is not int or size < 0
+                type(item.sealed) is not bool or type(item.entrypoint) is not bool or
+                (item.ordinal == 0 and item.entrypoint) or any(type(size) is not int or size < 0
                                                     for size in (item.site_bytes, item.history_bytes))):
             raise ContractError(f"Invalid physical partition: {item.id}")
         physical[item.id] = item
@@ -207,7 +209,7 @@ def allocate(topics, partitions, stored, requested, budgets=None):
         for identity in groups[value.topic]:
             item = physical[identity]
             history_growth = 0 if value.sha256 in blob_sizes[identity] else value.bytes
-            if (not item.sealed and item.site_bytes + site_growth <= budgets.site_bytes - budgets.site_reserve_bytes
+            if (not item.sealed and not item.entrypoint and item.site_bytes + site_growth <= budgets.site_bytes - budgets.site_reserve_bytes
                     and item.history_bytes + history_growth <= budgets.history_bytes - budgets.history_reserve_bytes):
                 selected = item
                 break

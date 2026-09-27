@@ -98,7 +98,8 @@ def read(root, project):
         state = registry[repo["id"]] if registry else {"ordinal": 0, "sealed": False}
         site_bytes = sum(meta["bytes"] for name, meta in owner["files"].items() if name.startswith("site/"))
         partitions.append(capacity.partition(owners[logical], state["ordinal"], site_bytes=site_bytes,
-                                               history_bytes=measured["history_bytes"], sealed=state["sealed"]))
+                                               history_bytes=measured["history_bytes"], sealed=state["sealed"],
+                                               entrypoint=state.get("entrypoint", False)))
         selected = owner.get("capacity_objects", [name for name in owner["files"] if capacity.OBJECT.fullmatch(name)])
         if len(selected) != len(set(selected)):
             raise ContractError("Duplicate capacity object in output ownership")

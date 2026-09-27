@@ -22,7 +22,7 @@ def handler(root, manifest):
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            parts = unquote(urlsplit(self.path).path).strip('/').split('/', 1)
+            parts = unquote(urlsplit(self.path).path).lstrip('/').split('/', 1)
             if parts[0] not in routes:
                 self.send_error(404)
                 return
@@ -37,7 +37,7 @@ def handler(root, manifest):
                 return
             status = 200
             if not path.is_file():
-                if name.startswith('entry/'):
+                if name.startswith(('entry/', 'groups/')) and name.endswith('index.html'):
                     path, status = base / '404.html', 404
                 else:
                     self.send_error(404)

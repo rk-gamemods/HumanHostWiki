@@ -207,8 +207,10 @@ owner, appear in the release manifest and checkout lock, and publish before thei
 dependent entrypoints. Optional byte limits and reserves live in
 `project.json.capacity`; no separate allocation command is needed for maintenance.
 Oversized snapshot pack-reference lists, release capture lists and ownership manifests
-split automatically. Full entrypoint rollover and indivisible control records remain
-unfinished; those cases fail before promotion if their budgets are exceeded.
+split automatically. Full entrypoints roll into new physical repositories while
+preserving the original topic URLs and historical files. Indivisible control records
+remain unfinished and fail before promotion if their budgets are exceeded. Live
+GitHub overflow acceptance is still pending; forced-threshold tests use a host adapter.
 
 ## Publish or resume a release
 

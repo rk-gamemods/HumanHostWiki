@@ -14,7 +14,8 @@ def budgets(project):
 
 
 def registry(partitions):
-    return {part.id: {"topic": part.topic, "ordinal": part.ordinal, "sealed": part.sealed}
+    return {part.id: {"topic": part.topic, "ordinal": part.ordinal, "sealed": part.sealed,
+                      **({"entrypoint": True} if part.entrypoint else {})}
             for part in sorted(partitions, key=lambda part: part.id)}
 
 
@@ -26,7 +27,9 @@ def repositories(project, allocated=None):
     result, names = [], set()
     for identity, record in sorted(allocated.items()):
         owner = logical.get(record.get("topic"))
-        if owner is None or type(record.get("sealed")) is not bool:
+        if (owner is None or type(record.get("sealed")) is not bool or
+                type(record.get("entrypoint", False)) is not bool or
+                (record.get("ordinal") == 0 and record.get("entrypoint"))):
             raise ContractError("Physical repository has unknown logical ownership")
         part = capacity.partition(capacity.Topic(owner["id"], owner["github_name"]), record.get("ordinal"))
         if part.id != identity or part.github_name.casefold() in names:
@@ -35,11 +38,13 @@ def repositories(project, allocated=None):
         if part.ordinal == 0:
             result.append(dict(owner))
         else:
+            front = record.get("entrypoint", False)
             result.append({"id": part.id, "path": part.path, "github_name": part.github_name,
-                           "role": "partition", "logical_topic": part.topic, "ordinal": part.ordinal,
-                           "title": f"{owner['title']} storage {part.ordinal}", "owns": [],
-                           "coverage": f"Immutable reference objects owned by {owner['title']}"})
-    if {repo["id"] for repo in result if repo["role"] != "partition"} != set(logical):
+                           "role": "entrypoint" if front else "partition", "logical_topic": part.topic, "ordinal": part.ordinal,
+                           "title": owner["title"] if front else f"{owner['title']} storage {part.ordinal}",
+                           "owns": owner["owns"] if front else [],
+                           "coverage": owner["coverage"] if front else f"Immutable reference objects owned by {owner['title']}"})
+    if {repo["id"] for repo in result if repo["role"] in {"topic", "hub"}} != set(logical):
         raise ContractError("Physical registry omits a logical entrypoint")
     return result
 

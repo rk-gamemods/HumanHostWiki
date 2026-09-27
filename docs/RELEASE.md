@@ -76,9 +76,14 @@ The [capacity contract](CAPACITY.md) owns physical partition allocation, staging
 registry membership and prepared-size checks. Storage partitions install and commit
 before dependent logical topics. The release manifest and checkout lock pin every
 physical repository while the public route map retains logical topic ownership.
+`release_prepare.py` builds and measures proposals before the coordinator saves a
+journal. A full entrypoint rolls according to [CAPACITY.md](CAPACITY.md); its
+successor installation and the retiring front's final update share that journal.
+The manifest's `entrypoints` map selects active physical fronts, while `routes`
+continues to name the original topic URLs.
 
 Operational staging remains under `.local/rs/` for recovery and inspection. It is
-not published. Entrypoint rollover, indivisible control metadata and post-success staging
+not published. Indivisible control metadata and post-success staging
 retention still need implementation; historical public records are retained.
 
 ## Validation and preview

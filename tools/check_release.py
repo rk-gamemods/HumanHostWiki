@@ -78,7 +78,7 @@ def check(root):
         counts["ownership_pages"] += len(metadata_pages)
         assert owner["repository_id"] == identity
         logical = manifest.get("physical", {}).get(identity, {}).get("topic", identity)
-        if identity == logical:
+        if identity == manifest.get("entrypoints", {}).get(logical, logical):
             assert owner["release_id"] == release_id
         files = owner["files"]
         assert sha(canonical(files)) == record["files_sha256"]
@@ -123,8 +123,16 @@ def check(root):
 
     def configuration(topic, name):
         value = json.loads(public(topic, name))
-        expected = value["release_id"]
-        for depth in range(4):
+        expected = None
+        seen = set()
+        for depth in range(64):
+            if value.get("kind") == "wiki-entrypoint-successor":
+                target = value["target"] + ("reader.json" if name == "reader.json" else name)
+                assert target not in seen and value["topic"] == topic
+                seen.add(target)
+                value = json.loads(public(topic, target))
+                continue
+            expected = expected or value["release_id"]
             if value.get("kind") != "wiki-release-reference":
                 assert value["release_id"] == expected
                 return expand(value, lambda ref: json.loads(public(topic, ref)))
@@ -134,10 +142,15 @@ def check(root):
     configs = {}
     for topic in manifest["routes"]:
         config = configuration(topic, "reader.json")
-        assert config == configuration(topic, "releases/" + release_id + ".json")
+        front = manifest.get("entrypoints", {}).get(topic, topic)
+        front_base = f"https://{owner_name}.github.io/{manifest['repositories'][front]['github_name']}/"
+        assert config == configuration(topic, front_base + "releases/" + release_id + ".json")
         original = read(candidate / topic / "reader.json")
-        assert {k: v for k, v in config.items() if k not in {"release_id", "runtime", "snapshots", "publication"}} == {
+        assert {k: v for k, v in config.items() if k not in {"release_id", "runtime", "snapshots", "publication", "entrypoints"}} == {
             k: v for k, v in original.items() if k != "publication"}
+        if "entrypoints" in config:
+            assert config["entrypoints"] == {t: f"https://{owner_name}.github.io/{manifest['repositories'][identity]['github_name']}/"
+                                             for t, identity in manifest["entrypoints"].items()}
         assert config["candidate_id"] == candidate_id and config["release_id"] == release_id
         assert {t["id"]: t["base"] for t in config["topics"]} == manifest["routes"]
         configs[topic] = config
@@ -162,12 +175,18 @@ def check(root):
         elif relative in {"reader.js", "reader.css"}:
             assert public(topic, config["runtime"][Path(relative).suffix[1:]]) == data
         elif relative.startswith("reference/"):
-            path = contained(root, manifest["repositories"][topic]["path"])
+            front = manifest.get("entrypoints", {}).get(topic, topic)
+            path = contained(root, manifest["repositories"][front]["path"])
             assert contained(path, relative).read_bytes() == data.replace(("release=" + candidate_id).encode(), ("release=" + release_id).encode())
         elif relative.startswith("data/"):
             assert locations[(topic, "site/" + relative)].read_bytes() == data
         else:
-            assert public(topic, relative) == data
+            front = manifest.get("entrypoints", {}).get(topic, topic)
+            front_base = f"https://{owner_name}.github.io/{manifest['repositories'][front]['github_name']}/"
+            if front != topic and relative.endswith(".html"):
+                from urllib.parse import urlsplit
+                data = data.replace(urlsplit(manifest["routes"][topic]).path.encode(), urlsplit(front_base).path.encode())
+            assert public(topic, front_base + relative) == data
         counts["candidate_files"] += 1
     # Full configs have one allocated location. Front stubs do not count as
     # duplicate configurations and must resolve to the same pinned bytes above.

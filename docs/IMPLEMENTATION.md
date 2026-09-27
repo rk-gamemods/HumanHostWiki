@@ -35,9 +35,9 @@ complete product.
 - Complete historical capture coverage, reader presentation of interpreted units
   and conditions, authored-claim checks and useful external backlinks beyond the
   selected-fact reader. Add verified freshness inputs and page-check receipts.
-- Implement automatic capacity allocation with forced-threshold tests and retained
-  historical links. Public repository provisioning and coordinated Pages publication
-  are implemented; see the publication checkpoint below.
+- Complete capacity acceptance for live GitHub overflow and indivisible control
+  records. Storage allocation, bounded indexes and entrypoint rollover have
+  forced-threshold tests with retained historical links; see their checkpoints below.
 - Run real initial generation and an unchanged repeat; measure time, bytes read,
   output size and peak memory. Exercise changed/new/removed/unsupported records and
   tool corrections, using real builds and focused fixtures for unavailable cases.
@@ -517,6 +517,42 @@ their results. This does not measure zero total I/O. The final
 (27,087 occurrences), with no execution failure or exception investigation.
 The two captured inputs still belong to Steam build 25548639; cross-build
 acceptance, current-game freshness and complete gameplay verification remain open.
+
+### Entrypoint rollover checkpoint
+
+Topic and hub fronts now roll into further physical repositories when their
+prepared site or Git history would consume reserved headroom. Stable logical
+URLs retain historical files and a successor record. The active front map is
+recorded in the release; new fronts verify before their predecessors select them.
+The owning contracts are [CAPACITY.md](CAPACITY.md) and
+[PUBLICATION.md](PUBLICATION.md). Preparation is owned by `release_prepare.py`;
+pure front selection and publication ordering are owned by `entrypoints.py`.
+
+The focused suite passed three tests in 65.980 seconds. It used measured real Git
+histories to force all three fixture topics through two rollovers over four
+releases. It verified interrupted installation, exact commit recovery, retained
+historical configurations, publication failure, hub rollback at both the original
+and replacement repository, and frozen retired fronts. A separate pure test
+verified that successor naming skips another configured topic's identity. The host
+adapter performs real local Git operations without contacting GitHub.
+
+Fifteen production-loader scenarios passed in Node.js, including historical
+selection, successor cycles and namespace checks, current hub coordination and
+direct visits to a replacement front. A rendered local synthetic preview also
+passed canonical hub/topic navigation, group and entry links, direct replacement
+entry access and a pre-rollover historical release/snapshot URL. The preview
+builder is `.local/entrypoint_preview.py`; these fixtures are not public game data.
+The browser check found and fixed a preview-server trailing-slash bug. Its focused
+HTTP test also verifies missing-group HTML fallback and unchanged JSON bytes.
+
+The final broad run passed 188 tests in 504.453 seconds, including the preview
+HTTP regression. Its log is `.local/entrypoint-final-tests.log`. Registry validation,
+the generated map, all thirteen child locks and the staged whitespace check passed.
+An intermediate broad run passed 186 tests in 472.198 seconds. Before that, a
+storage-failure test selected the first created repository, which can now be an
+entrypoint. Its selector was corrected to choose a storage role, and the focused
+test passed. Protected synthetic Git fixtures remain retained without overriding
+file protections. The live repositories have not exercised capacity rollover yet.
 
 ## Deferred classifier experiments
 

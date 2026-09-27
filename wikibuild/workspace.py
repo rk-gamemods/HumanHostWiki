@@ -9,7 +9,7 @@ from .storage import ContractError, digest, git, json_bytes, within, write_chang
 
 def marker(repo):
     value = {"schema_version": 1, "repository_id": repo["id"], "role": repo["role"]}
-    if repo["role"] == "partition":
+    if repo["role"] in {"partition", "entrypoint"}:
         value.update(logical_topic=repo["logical_topic"], ordinal=repo["ordinal"])
     return value
 

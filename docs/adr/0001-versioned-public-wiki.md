@@ -161,6 +161,10 @@ the configured namespace. It updates registry locks, indexes and routes together
 preserving historical links and coverage without deleting snapshots or rewriting
 history. Physical partitions retain their logical topic owner. Full history
 partitions remain readable while new writes roll into another partition.
+The release manifest distinguishes stable logical routes from active physical
+entrypoints. A retired entrypoint retains its historical files and a successor
+record; new mutable pages live in its replacement. Publish and verify the replacement
+before selecting it, and retain enough configured headroom for the retiring update.
 Configure headroom below the checked platform limits (2026-09-26):
 [100 MiB per Git file, warnings above 50 MiB](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)
 and [1 GB per Pages site](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits).

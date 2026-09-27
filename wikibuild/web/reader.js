@@ -2,6 +2,7 @@
 
 // All imported text is rendered through textContent. No game text becomes HTML.
 const siteBase = globalThis.humanHostReader ? new URL(globalThis.humanHostReader.base) : new URL(".", document.currentScript.src);
+const routeBase = globalThis.humanHostReader?.routeBase ? new URL(globalThis.humanHostReader.routeBase) : siteBase;
 const resolveURL = globalThis.humanHostReader?.resolve || ((value, base) => new URL(value, base));
 const params = new URLSearchParams(location.search);
 const content = document.getElementById("content");
@@ -376,7 +377,7 @@ async function start() {
   for (const official of config.official_links) {document.getElementById("credits").append(link(official.title, official.url), document.createTextNode(" · "));}
   document.getElementById("search-form").addEventListener("submit", event => {event.preventDefault(); search(document.getElementById("search").value).catch(failure);});
   status();
-  const path = decodeURIComponent(location.pathname.slice(siteBase.pathname.length));
+  const path = decodeURIComponent(location.pathname.slice(routeBase.pathname.length));
   const entry = /^entry\/(e-[0-9a-f]{32})\/?$/.exec(path);
   const group = /^groups\/([a-z][a-z0-9-]*)\/(?:index\.html)?$/.exec(path);
   if (entry) await showEntry(entry[1]);

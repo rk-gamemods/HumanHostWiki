@@ -4,13 +4,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from pathlib import Path
 
-from . import github_pages, ownership, physical, publication_git, release
+from . import entrypoints, github_pages, ownership, physical, publication_git, release
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 
 def contract():
     return {name: digest((Path(__file__).parent / name).read_bytes().replace(b"\r\n", b"\n"))
-            for name in ("publication.py", "publication_git.py", "github_pages.py", "ownership.py", "physical.py")}
+            for name in ("publication.py", "publication_git.py", "github_pages.py", "ownership.py", "entrypoints.py", "physical.py")}
 
 
 def save(path, payload):
@@ -126,11 +126,15 @@ def prepare(root, project, manifest, host):
                         "old_main": old_main, "old_pages": old_pages,
                         "main": record["commit"], "pages": target, "tree": tree,
                         "files": files, "checks": checks, "verified": False}
-    hub_path = within(root, plans["hub"]["path"])
-    fallback_tree, fallback_files = ((previous["repositories"]["hub"]["tree"], previous["repositories"]["hub"]["files"])
-                                     if previous else publication_git.unavailable(hub_path))
+    fronts = manifest.get("entrypoints", {repo["id"]: repo["id"] for repo in project["repositories"]})
+    prior_fronts = previous.get("entrypoints", {topic: topic for topic in fronts}) if previous else {topic: topic for topic in fronts}
+    control, groups = entrypoints.publication_groups(repositories, fronts, prior_fronts)
+    hub_path = within(root, plans[control]["path"])
+    fallback_tree, fallback_files = ((previous["repositories"][control]["tree"], previous["repositories"][control]["files"])
+                                     if previous and control in previous["repositories"] else publication_git.unavailable(hub_path))
     return {"schema_version": 1, "release_id": manifest["release_id"], "owner": project["github_owner"],
             "contract": contract(), "phase": "topics", "repositories": plans,
+            "hub_control": control, "entrypoints": fronts, "groups": groups,
             "fallback": {"tree": fallback_tree, "files": fallback_files}, "rollback": None}
 
 
@@ -149,7 +153,7 @@ def health(plan):
 
 
 def rollback(root, state, path, host):
-    hub = state["repositories"]["hub"]
+    hub = state["repositories"][state.get("hub_control", "hub")]
     repo = within(root, hub["path"])
     if state["rollback"] is None:
         target = publication_git.commit(repo, state["fallback"]["tree"], hub["pages"],
@@ -170,7 +174,7 @@ def resume(root, state, path, host, workers):
     if state["phase"] == "rolling-back":
         rollback(root, state, path, host)
     if state["phase"] == "rolled-back":
-        hub = state["repositories"]["hub"]
+        hub = state["repositories"][state.get("hub_control", "hub")]
         hub["old_pages"] = state["rollback"]
         hub["pages"] = publication_git.commit(within(root, hub["path"]), hub["tree"], hub["old_pages"],
                                                f"Retry wiki release {state['release_id']}")
@@ -189,9 +193,11 @@ def resume(root, state, path, host, workers):
             host.verify(plan["base"], health(plan))
     # Storage is a dependency of every topic/front that references its bytes.
     # Complete independent workers within each phase before advertising the next.
-    for storage in (True, False):
-        topics = [plan for topic, plan in state["repositories"].items() if topic != "hub" and not plan["verified"]
-                  and (plan.get("role") == "partition") == storage]
+    groups = state.get("groups") or [[topic for topic, plan in state["repositories"].items()
+                                      if topic != "hub" and (plan.get("role") == "partition") == storage]
+                                     for storage in (True, False)]
+    for rank, identities in enumerate(groups):
+        topics = [state["repositories"][topic] for topic in identities if not state["repositories"][topic]["verified"]]
         errors = []
         with ThreadPoolExecutor(max_workers=workers) as pool:
             pending = {pool.submit(deploy, root, plan, host): plan for plan in topics}
@@ -204,8 +210,8 @@ def resume(root, state, path, host, workers):
                 except Exception as exc:
                     errors.append(f"{plan['name']}: {exc}")
         if errors:
-            raise ContractError(("Storage" if storage else "Topic") + " publication failed; hub unchanged: " + "; ".join(errors))
-    hub = state["repositories"]["hub"]
+            raise ContractError(("Storage" if rank == 0 else "Topic") + " publication failed; hub unchanged: " + "; ".join(errors))
+    hub = state["repositories"][state.get("hub_control", "hub")]
     if not hub["verified"]:
         state["phase"] = "hub"
         save(path, state)
@@ -224,7 +230,9 @@ def resume(root, state, path, host, workers):
                 rollback(root, state, path, host)
             raise
     result = {"schema_version": 1, "release_id": state["release_id"], "contract": state["contract"],
-              "status": "published", "repositories": state["repositories"], "hub": hub["base"]}
+              "status": "published", "repositories": state["repositories"], "hub": state["repositories"]["hub"]["base"],
+              "entrypoints": state.get("entrypoints", {topic: topic for topic, plan in state["repositories"].items()
+                                                      if plan.get("role") != "partition"})}
     receipt = within(root, f"publications/{state['release_id']}.json")
     if receipt.exists() and load(receipt) != result:
         raise ContractError("Immutable publication receipt differs")

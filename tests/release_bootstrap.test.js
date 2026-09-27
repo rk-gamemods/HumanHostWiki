@@ -70,5 +70,50 @@ async function run(files, requested = identity, localBase = base) {
   assert.equal(result.context.humanHostReader.config.release_id, identity);
   assert.equal(result.scripts[0].src, local + "Wiki-items-Part-0001/runtime/reader.js");
   assert.equal(result.context.humanHostReader.resolve(target).href, target.replace(origin, local));
-  console.log("6 release loader scenarios passed");
+  const replacement = origin + "Wiki-items-Part-0002/";
+  const successor = target => encode({schema_version: 1, kind: "wiki-entrypoint-successor",
+    topic: "items", hub: origin + "Wiki-hub/", target, since_release: nextIdentity});
+  // Exact historical content wins before consulting a successor.
+  result = await run({[base + "releases/" + identity + ".json"]: data,
+    [base + "reader.json"]: successor(replacement)});
+  assert.equal(result.calls.length, 1);
+  assert.equal(result.context.humanHostReader.config.release_id, identity);
+  // A new explicit release can be found through a frozen canonical front.
+  result = await run({[base + "reader.json"]: successor(replacement),
+    [replacement + "releases/" + nextIdentity + ".json"]: encode(config(nextIdentity))}, nextIdentity);
+  assert.equal(result.context.humanHostReader.config.release_id, nextIdentity);
+  assert.equal(result.context.humanHostReader.base, base);
+  assert.equal(result.context.humanHostReader.routeBase, base);
+  // Current selection uses the hub's direct map, including when the topic
+  // successor is already published and the hub still selects the old release.
+  result = await run({[base + "reader.json"]: successor(replacement),
+    [origin + "Wiki-hub/reader.json"]: encode({release_id: identity}),
+    [base + "releases/" + identity + ".json"]: data}, null);
+  assert.equal(result.context.humanHostReader.config.release_id, identity);
+  assert.ok(!result.calls.some(url => url.startsWith(replacement)));
+  result = await run({[base + "reader.json"]: successor(replacement),
+    [origin + "Wiki-hub/reader.json"]: encode({release_id: nextIdentity, entrypoints: {items: replacement}}),
+    [replacement + "releases/" + nextIdentity + ".json"]: encode(config(nextIdentity))}, null);
+  assert.equal(result.context.humanHostReader.config.release_id, nextIdentity);
+  // Direct visits use the physical path for routing and the canonical path for data.
+  result = await run({[replacement + "releases/" + identity + ".json"]: data}, identity, replacement);
+  assert.equal(result.context.humanHostReader.base, base);
+  assert.equal(result.context.humanHostReader.routeBase, replacement);
+  assert.equal(result.elements.stylesheet.href, base + "runtime/reader.css");
+  result = await run({[base + "reader.json"]: successor(replacement),
+    [replacement + "reader.json"]: successor(base)}, nextIdentity);
+  assert.match(result.elements.content.textContent, /cycle/);
+  result = await run({[base + "reader.json"]: successor("https://elsewhere.invalid/")}, nextIdentity);
+  assert.match(result.elements.content.textContent, /namespace/);
+  result = await run({[base + "reader.json"]: successor(replacement),
+    [replacement + "reader.json"]: encode(config(nextIdentity))}, identity);
+  assert.match(result.elements.content.textContent, /unavailable/);
+  // Hub rollover follows its own successor before choosing a coordinated release.
+  const hub = origin + "Wiki-hub/", nextHub = origin + "Wiki-hub-Part-0001/";
+  result = await run({[base + "reader.json"]: successor(replacement),
+    [hub + "reader.json"]: encode({schema_version: 1, kind: "wiki-entrypoint-successor", topic: "hub", hub, target: nextHub, since_release: nextIdentity}),
+    [nextHub + "reader.json"]: encode({release_id: nextIdentity, topic: "hub", entrypoints: {items: replacement}}),
+    [replacement + "releases/" + nextIdentity + ".json"]: encode(config(nextIdentity))}, null);
+  assert.equal(result.context.humanHostReader.config.release_id, nextIdentity);
+  console.log("15 release loader scenarios passed");
 })().catch(error => { console.error(error); process.exitCode = 1; });

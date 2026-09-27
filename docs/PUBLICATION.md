@@ -49,6 +49,13 @@ fast-forward only; unexpected remote edits fail without overwriting them.
 
 Allocated storage sites verify before dependent topic entrypoints are pushed.
 Within each phase, independent workers finish even if another worker fails.
+Replacement topic fronts verify before the successor records that select them.
+For hub rollover, the new hub front verifies before the retiring hub publishes
+its successor record. That retiring hub is the selection point for the transaction;
+otherwise the active hub is the selection point. The publication journal records
+this identity and the dependency groups, so retry and rollback address the same
+repository even after the active map changes. Older pending journals retain their
+original hub behavior.
 The [capacity contract](CAPACITY.md) owns physical identities and size checks.
 An earlier pending publication is completed before preparing a newer deployment;
 if this changes the prepared Pages parent, its exact history is checked again.
@@ -58,7 +65,7 @@ the hub's selection, so preparing a newer topic does not advertise an incomplete
 release. Explicit historical release links continue to load their pinned content.
 
 If the new hub fails verification, a new commit restores the previous validated
-hub tree. On the first publication, the fallback is an explicit unavailable page.
+tree at that selection point. On the first publication, the fallback is an explicit unavailable page.
 No force push or history rewrite is used. A rollback interruption is recorded and
 completed on retry before attempting the new hub again.
 

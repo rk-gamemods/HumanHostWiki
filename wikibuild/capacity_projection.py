@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 from . import capacity, capture_catalog, reader, release_content, shard_index
-from .storage import ContractError, digest, within
+from .storage import ContractError, digest, json_bytes, within
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,7 @@ class Projection:
     phase_ids: tuple[str, ...]
     payloads: dict[str, Payload]
     configurations: dict[str, dict]
+    entrypoints: dict[str, str]
 
     def writes(self):
         """Yield one verified new payload at a time; never read reused pack bytes."""
@@ -47,7 +48,7 @@ class Projection:
                 yield placement, self.payloads[placement.artifact.key].read()
 
 
-def build(candidate, release_id, github_owner, partitions, stored=(), budgets=None):
+def build(candidate, release_id, github_owner, partitions, stored=(), budgets=None, *, entrypoints=None):
     """Plan leaves, then indexes, then release configurations. No writes or Git calls.
 
     Caller holds the workspace writer lock and provides a committed inventory.
@@ -64,6 +65,9 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
     bases = {topic.id: f"https://{github_owner}.github.io/{topic.github_name}/" for topic in topics}
     if manifest["inputs"]["bases"] != bases:
         raise ContractError("Candidate routes differ from the capacity publication namespace")
+    entrypoints = entrypoints or bases
+    if set(entrypoints) != set(bases):
+        raise ContractError("Entrypoint coverage differs from logical topics")
     physical = tuple(partitions)
     prior = tuple(stored)
     # Validate the complete supplied inventory, including duplicates, before
@@ -176,6 +180,12 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
         runtime = {extension: reference(topic, name, meta["sha256"], meta["bytes"])
                    for extension, (name, meta) in runtimes[topic].items()}
         release_data[topic] = release_content.configuration(verified(source, metadata), release_id, resolved, runtime)
+        if entrypoints != bases:
+            value = json.loads(release_data[topic])
+            if "entrypoint-rollover-v1" not in value.get("features", []):
+                raise ContractError("Reader runtime does not support entrypoint rollover; regenerate the candidate")
+            value["entrypoints"] = entrypoints
+            release_data[topic] = json_bytes(value)
     release_data = capture_catalog.compact(release_data, (budgets or capacity.Budgets()).file_bytes, metadata_objects)
     releases = [add(topic, f"site/releases/{release_id}.json", data=data) for topic, data in sorted(release_data.items())]
     allocate(releases)
@@ -186,4 +196,4 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
                                           "sha256": artifact.sha256, "bytes": artifact.bytes}
     return Projection(manifest["candidate_id"], release_id, physical, tuple(created),
                       tuple(located[key] for key in sorted(wanted)), tuple(sorted(reused)),
-                      tuple(phases), payloads, configurations)
+                      tuple(phases), payloads, configurations, entrypoints)

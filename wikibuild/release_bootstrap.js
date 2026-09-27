@@ -17,7 +17,7 @@
     }
     return url;
   }
-  async function read(url) {
+  async function read(url, missing = false) {
     url = resolve(url);
     let expected = null, identity = null;
     const seen = new Set();
@@ -25,6 +25,7 @@
       if (seen.has(url.href)) throw new Error("Release reference cycle");
       seen.add(url.href);
       const response = await fetch(url, {cache: "no-cache"});
+      if (missing && !expected && response.status === 404) return null;
       if (!response.ok) throw new Error(`Release unavailable: HTTP ${response.status}`);
       const bytes = await response.arrayBuffer();
       if (expected) {
@@ -42,19 +43,66 @@
     }
     throw new Error("Release reference depth exceeded");
   }
-  let config = await read(new URL(requested ? `releases/${requested}.json` : "reader.json", base));
+  function successor(value, current) {
+    if (value.schema_version !== 1 || value.kind !== "wiki-entrypoint-successor" ||
+        typeof value.topic !== "string" || typeof value.target !== "string" || typeof value.hub !== "string" ||
+        !/^[0-9a-f]{64}$/.test(value.since_release)) throw new Error("Invalid entrypoint successor");
+    const target = resolve(value.target, current);
+    if (target.origin !== base.origin || !target.pathname.endsWith("/") || target.search || target.hash || target.username || target.password) throw new Error("Entrypoint successor leaves the configured namespace");
+    return target;
+  }
+  async function entrypoint(start, selected = null, coordinate = false) {
+    let current = resolve(start);
+    let topic = null;
+    const seen = new Set();
+    for (let depth = 0; depth < 64; depth++) {
+      if (seen.has(current.href)) throw new Error("Entrypoint successor cycle");
+      seen.add(current.href);
+      if (selected) {
+        const value = await read(new URL(`releases/${selected}.json`, current), true);
+        if (value) {
+          if (topic && value.topic !== topic) throw new Error("Entrypoint topic differs");
+          return value;
+        }
+      }
+      const value = await read(new URL("reader.json", current));
+      if (value.kind !== "wiki-entrypoint-successor") {
+        if (selected) throw new Error("Requested release is unavailable in this entrypoint history");
+        if (topic && value.topic !== topic) throw new Error("Entrypoint topic differs");
+        return value;
+      }
+      const next = successor(value, current);
+      if (topic && value.topic !== topic) throw new Error("Entrypoint topic differs");
+      topic = value.topic;
+      // Current topic reads use the hub's direct active-front map. They need
+      // not traverse each retired topic generation before coordination.
+      if (coordinate && value.topic !== "hub") return value;
+      current = next;
+    }
+    throw new Error("Entrypoint successor depth exceeded");
+  }
+  let config = await entrypoint(base, requested, !requested);
   if (!requested && config.topic !== "hub") {
-    const hub = config.topics.find(topic => topic.id === "hub");
-    const coordinated = await read(new URL("reader.json", new URL(hub.base, location.origin)));
+    const hub = config.kind === "wiki-entrypoint-successor" ? config.hub : config.topics.find(topic => topic.id === "hub").base;
+    const hubURL = resolve(hub, new URL(location.origin));
+    if (hubURL.origin !== base.origin) throw new Error("Hub leaves the configured namespace");
+    const coordinated = await entrypoint(hubURL);
     if (!/^[0-9a-f]{64}$/.test(coordinated.release_id)) throw new Error("No coordinated release is available");
-    config = await read(new URL(`releases/${coordinated.release_id}.json`, base));
+    const front = resolve(coordinated.entrypoints?.[config.topic] || base);
+    if (front.origin !== base.origin) throw new Error("Coordinated entrypoint leaves the configured namespace");
+    const topic = config.topic;
+    config = await entrypoint(front, coordinated.release_id);
+    if (config.topic !== topic) throw new Error("Coordinated topic differs");
     if (config.release_id !== coordinated.release_id) throw new Error("Coordinated release identity differs");
   }
   if (requested && requested !== config.release_id) throw new Error("Release identity differs");
-  globalThis.humanHostReader = {config, base: base.href, resolve};
-  document.querySelector('link[rel="stylesheet"]').href = resolve(config.runtime.css).href;
+  const logical = resolve(config.topics.find(topic => topic.id === config.topic).base, new URL(location.origin));
+  if (logical.origin !== base.origin) throw new Error("Logical topic leaves the configured namespace");
+  const relative = (value, root = logical) => resolve(value, root);
+  globalThis.humanHostReader = {config, base: logical.href, routeBase: base.href, resolve: relative};
+  document.querySelector('link[rel="stylesheet"]').href = relative(config.runtime.css).href;
   const script = document.createElement("script");
-  script.src = resolve(config.runtime.js).href;
+  script.src = relative(config.runtime.js).href;
   script.onerror = () => {document.getElementById("status").textContent = "The selected release runtime could not be loaded.";};
   document.head.append(script);
 })().catch(error => {

@@ -90,7 +90,7 @@ the new runtime continues to read earlier flat configurations.
 
 `wikibuild/physical.py` derives the physical registry from configured topic names.
 `project.json` retains logical ownership; each release's `physical` map records
-allocated repository IDs, logical topics, ordinals and sealed state. The checkout
+allocated repository IDs, logical topics, ordinals, entrypoint roles and sealed state. The checkout
 lock includes all those repositories. Commands inspecting workspace state resolve
 this map through the current immutable release manifest.
 
@@ -122,17 +122,40 @@ budget check leaves the prior release selected and reports an execution failure.
 Configure byte limits and reserves through the optional `project.json.capacity`
 object, using the field names in `capacity.Budgets`.
 
-Mutable entrypoints still need bounded storage and rollover. Oversized fixed
-control metadata still fails before promotion, including indivisible snapshot
-metadata, capture records and ownership records.
-Full immutable storage partitions remain readable,
-but a full logical entrypoint still requires the unfinished rollover path. These
-limitations keep complete automatic capacity acceptance open.
+`wikibuild/entrypoints.py` selects one active entrypoint per topic. Ordinal zero
+starts as the active front; later fronts use the same physical naming sequence as
+storage partitions and an explicit entrypoint role. The release manifest records
+the active map separately from stable logical routes. New fronts receive mutable
+shells and reference pages; immutable allocation skips them.
+
+`wikibuild/release_prepare.py` measures the complete proposed source and Pages
+histories before promotion. An active front must leave the configured site/history
+reserve available. When it exceeds that allowance, preparation seals the old front,
+creates a successor and recomputes object placement. Each topic can roll once per
+proposal; a new front that cannot fit is an execution failure, not an endless
+sequence of empty repositories. The old front's final successor transition must
+fit within the hard budgets. Reserve settings therefore need room for that transition.
+Rejected proposals remain local staging; only a fully validated proposal receives
+the pending journal and reaches installation.
+
+A retired front keeps its historical files and a small `wiki-entrypoint-successor`
+record in `reader.json`. Its files and commits freeze on later releases. Canonical
+topic URLs remain unchanged. Exact release lookup checks local history before
+following a successor; a missing release never substitutes current facts. Current
+topic reads use the coordinated hub's active-front map to avoid traversing each
+retired topic. Hub discovery follows its successor chain, with cycle, namespace,
+topic and depth checks. A chain exceeding 64 fronts fails explicitly. Data paths
+retain the logical base, while direct visits to a replacement front use its own
+path for route parsing. Candidates declare `entrypoint-rollover-v1`.
+
+Oversized fixed control metadata still fails before promotion, including indivisible
+snapshot metadata, capture records and ownership records. These cases and live
+overflow validation keep complete automatic capacity acceptance open.
 
 Forced-threshold integration tests cover new local repositories, installation
 interruption, publication dependency order/failure, retained historical URLs and
 no-op replay. They use real Git objects and a deterministic host adapter. Real
-GitHub overflow provisioning and entrypoint rollover remain acceptance gaps.
+GitHub overflow provisioning remains an acceptance gap.
 
 ## Current validation
 
@@ -189,3 +212,10 @@ outside edits and historical reads after the current checkout drops old metadata
 `tools/audit_ownership.py` independently expands the receipt for release auditing
 and repeat measurements. The capacity-release suite also covers paged ownership
 across two coordinated releases and host-adapter publications.
+
+`tests/test_entrypoints.py` uses measured real Git history sizes to force topic and
+hub rollover. It checks installation interruption, exact retry commits, independent
+historical audits, successor-before-selector publication, dependency failure, hub
+rollback and frozen retired fronts. Loader tests cover historical lookup and direct
+replacement routes. `tests/test_serve_release.py` checks local directory routes and
+HTML fallback while preserving JSON bytes and missing-release failures.
