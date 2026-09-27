@@ -28,6 +28,7 @@ class Source:
             if kind == b"blob" and mode in {b"100644", b"100755"}:
                 self.blobs[name.decode("utf-8")] = {"git_blob": oid.decode(), "bytes": int(size)}
         self.dependencies = {}
+        self.locations = {}
         self.bytes_read = 0
         self._active = False
         self.process = None
@@ -131,9 +132,38 @@ class Source:
             if path not in self.blobs:
                 self.dependencies[path] = {"missing": True}
                 continue
+            remaining = set(wanted)
+            local = (self.path / path).resolve()
+            if local.is_relative_to(self.path) and local.is_file():
+                with local.open("rb") as handle:
+                    for identity in sorted(wanted):
+                        location = self.locations.get(identity)
+                        if not location:
+                            continue
+                        offset, size = location.get("offset"), location.get("bytes")
+                        if type(offset) is not int or type(size) is not int or offset < 0 or size < 1 or offset + size > self.blobs[path]["bytes"]:
+                            raise ContractError(f"Invalid source record location: {identity}")
+                        handle.seek(offset)
+                        data = handle.read(size)
+                        self.bytes_read += len(data)
+                        if hashlib.sha256(data).hexdigest() != location.get("sha256"):
+                            # A historical commit or different line endings may
+                            # need the immutable blob. Never accept stale ranges.
+                            continue
+                        try:
+                            row = json.loads(data)
+                        except (ValueError, UnicodeError) as exc:
+                            raise ContractError(f"Malformed source record location: {identity}") from exc
+                        if not isinstance(row, dict) or row.get("id") != identity:
+                            raise ContractError(f"Source record location identity mismatch: {identity}")
+                        result[identity] = row
+                        remaining.remove(identity)
+                        self.dependencies[path] = {**self.blobs[path], "access": "verified-record-ranges"}
+            if not remaining:
+                continue
             for row in self.records(path):
                 identity = row.get("id")
-                if identity in wanted:
+                if identity in remaining:
                     if identity in result:
                         raise ContractError(f"Duplicate source object: {identity}")
                     result[identity] = row

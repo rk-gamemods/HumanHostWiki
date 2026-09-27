@@ -1,6 +1,7 @@
 """Small real Git fixtures prove selection, repeatability and promotion boundaries."""
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -207,6 +208,38 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual(self.item["id"], list(source.records(items_loot.INPUTS[0]))[0]["id"])
             with self.assertRaisesRegex(ContractError, "Missing"):
                 source.json("../outside")
+
+    def record_location(self):
+        data = (self.source / "Catalog/objects/fixture.assets.jsonl").read_bytes().splitlines(keepends=True)[0]
+        return {"offset": 0, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+    def test_reader_reads_only_verified_record_range(self):
+        location = self.record_location()
+        with Source(self.source, self.receipt["source_commit"]) as source:
+            source.locations["fixture.assets#2"] = location
+            records = source.objects(["fixture.assets#2"])
+            self.assertEqual("Canned beans", records["fixture.assets#2"]["fields"]["_Infos"][1]["_ItemName"])
+            self.assertEqual(location["bytes"], source.bytes_read)
+            self.assertEqual("verified-record-ranges", source.dependencies["Catalog/objects/fixture.assets.jsonl"]["access"])
+
+    def test_stale_local_range_falls_back_to_pinned_blob(self):
+        location = self.record_location()
+        self.put("Catalog/objects/fixture.assets.jsonl", [{"id": "fixture.assets#2", "fields": {"changed": True}}])
+        with Source(self.source, self.receipt["source_commit"]) as source:
+            source.locations["fixture.assets#2"] = location
+            records = source.objects(["fixture.assets#2", "fixture.assets#999"])
+            self.assertIn("_Infos", records["fixture.assets#2"]["fields"])
+            self.assertEqual(2, len(records))
+            self.assertIn("sha256", source.dependencies["Catalog/objects/fixture.assets.jsonl"])
+
+    def test_invalid_range_or_wrong_identity_is_rejected(self):
+        for location in [{**self.record_location(), "offset": -1},
+                         {**self.record_location(), "bytes": 10 ** 12},
+                         {**self.record_location(), "offset": False}, self.record_location()]:
+            with self.subTest(location=location), Source(self.source, self.receipt["source_commit"]) as source:
+                source.locations["fixture.assets#999"] = location
+                with self.assertRaisesRegex(ContractError, "location"):
+                    source.objects(["fixture.assets#999"])
 
     def test_grouping_is_bounded_and_independent_of_record_order(self):
         reports = []
