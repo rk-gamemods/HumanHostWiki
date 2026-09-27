@@ -73,7 +73,7 @@ They are not build dependencies. Semantic cycles and backlinks are expected.
 
 ```mermaid
 flowchart LR
-  detect["detect: planned"]
+  detect["detect: partial"]
   capture["capture: external-existing"]
   detect --> capture
   register["register: implemented"]
@@ -94,7 +94,7 @@ flowchart LR
 
 | Stage | Owner | Implementation |
 | --- | --- | --- |
-| detect | operator-invoked decompile pipeline | planned |
+| detect | decompile capture reuse and wikibuild/pipeline.py; available-build checks unfinished | partial |
 | capture | HumanHostMods/tools/Decompile-GameCode.ps1 | external-existing |
 | register | wikibuild/snapshots.py | implemented |
 | normalize | wikibuild/extraction.py and topic adapters | partial |

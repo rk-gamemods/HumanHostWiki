@@ -1,0 +1,87 @@
+{
+  "catalog_generator": {
+    "decompiler": "ilspycmd: 11.0.0.9375",
+    "packages": {
+      "TypeTreeGeneratorAPI": "0.0.10",
+      "UnityPy": "1.25.3",
+      "attrs": "26.1.0",
+      "brotli": "1.2.0",
+      "fsspec": "2026.9.0",
+      "lz4": "4.4.5",
+      "tpk_ar": "0.2.4"
+    },
+    "python": "3.13.7",
+    "schema": 1,
+    "tool_hash_normalization": "CRLF to LF",
+    "tools": {
+      "Decompile-GameCode.ps1": "776f21242641af6dd854c66f12875580dd69a9367408ed5d35caafb8df685726",
+      "Read-GameBundle.ps1": "8aaefe81f78a595b91c37e184e2727845dbfe6d118831d7e92323e6507b7673b",
+      "game_catalog/addressables.py": "0cd8a19e9f455952b4e5e9262dcd5e056e359dddbe9a6bd023c3c61a76ea7eda",
+      "game_catalog/bundles.py": "bce2b3f7ded62535d4cac9ac4426cf2f1e5af250aff495f525512767913c0c95",
+      "game_catalog/catalog.py": "bbef567a82ee1f538ca370d111d5a822c57f466e808e72e32c7a04e6fff995e8",
+      "game_catalog/refresh.py": "6e20443cbe0c8bae76efd8e5b0db6fac3d3f5aa8fe257bdc97652907a59e79ad",
+      "game_catalog/requirements.txt": "023f305f3dc32dd74c130e0eb23cb70a64179af192b425ec803cd6721a0c1e65",
+      "game_catalog/schemas.py": "22f0fdec7a57d19a6bb083ec0a5369633ce9b2be6c5cbce1609ad9816a175461",
+      "game_catalog/snapshot.py": "86f911f38a4bc24f8b39fa7cd741af1d84b652bdfe1f9cd81cb12677746aa4dd",
+      "game_catalog/views.py": "c9462be3c591697c0a9575464d3c18df976fefd690939ead48b69cc9be61bd46"
+    }
+  },
+  "catalog_metadata_sha256": {
+    "Catalog/coverage.json": "fd9f1ca769dd3cc7295d659a7528bac852f03ee48e437eb7ab7b1b67b94f678d",
+    "Catalog/generator.json": "bb8134013aa9fe29d2a8ce40e9cecce66723b6146bc8ca98dd532d6e91602ad1",
+    "Catalog/steam-build.json": "552e488c84a0789f3ee729c7944aa75c7b83f76a56cef5b363222a36b4c8d8e9"
+  },
+  "coverage": {
+    "decode_gaps": [
+      {
+        "id": "resources.assets#2471",
+        "reason": "Editor-only declaring assembly is absent from the shipped player; no reconstructable field layout",
+        "script": {
+          "assembly": "Assembly-CSharp-Editor",
+          "class": "MVoxelizer.MVEditor.MeshVoxelizerPreset",
+          "target": "resources.assets#723"
+        }
+      },
+      {
+        "id": "resources.assets#2482",
+        "reason": "Editor-only declaring assembly is absent from the shipped player; no reconstructable field layout",
+        "script": {
+          "assembly": "GPUInstancer.Editor",
+          "class": "GPUInstancer.GPUInstancerPathLocator",
+          "target": "resources.assets#722"
+        }
+      },
+      {
+        "id": "resources.assets#2484",
+        "reason": "Editor-only declaring assembly is absent from the shipped player; no reconstructable field layout",
+        "script": {
+          "assembly": "GPUInstancer.Editor",
+          "class": "GPUInstancer.GPUIPackageImporterImportedData",
+          "target": "resources.assets#724"
+        }
+      }
+    ],
+    "objects": 414343
+  },
+  "game_version": null,
+  "game_version_status": "not-recorded-by-source-generator",
+  "input_inventory_git_blob": "1184f9cfdddd5f6448411e38187fc9ac68a37088",
+  "latest_available_game_build": null,
+  "metadata_hash_normalization": "canonical sorted UTF-8 JSON with LF",
+  "schema_version": 1,
+  "snapshot_id": "build-25548639-a7d9406a5bfb",
+  "source_commit": "a7d9406a5bfbf46a18e81c8b3edd5ea51f947ed1",
+  "status": "input-registered",
+  "steam": {
+    "app_id": "2393970",
+    "branch": "public",
+    "build_id": "25548639",
+    "installed_depots": {
+      "2393972": {
+        "manifest": "8060226703539543058",
+        "size": "53522231159"
+      }
+    }
+  },
+  "wiki_verification": "not-performed"
+}

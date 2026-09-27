@@ -66,6 +66,22 @@ class ReaderTests(unittest.TestCase):
     def index(self, site, topic, run):
         return json.loads((site / topic / "snapshots" / f"{run['snapshot_id']}.json").read_text())
 
+    def test_short_cache_name_keeps_full_identity_and_rejects_prefix_collision(self):
+        site, result = self.build()
+        self.assertEqual(site.name, result["candidate_id"][:24])
+        collision = result["candidate_id"][:24] + "f" * 40
+        self.assertNotEqual(collision, result["candidate_id"])
+        self.assertEqual(site, reader.candidate_path(self.root / ".local", collision))
+        with self.assertRaisesRegex(ContractError, "does not match requested"):
+            reader.verify(site, collision)
+        self.assertTrue(self.build()[1]["reused"])
+
+    def test_existing_full_hash_cache_location_remains_resolvable(self):
+        candidate = "a" * 64
+        legacy = self.root / ".local/readers" / candidate
+        legacy.mkdir(parents=True)
+        self.assertEqual(reader.candidate_path(self.root / ".local", candidate), legacy)
+
     def test_versions_keep_facts_removal_provenance_and_cross_topic_routes(self):
         site, _ = self.build()
         latest = self.index(site, "items", self.new)

@@ -27,8 +27,8 @@ complete product.
 
 ## Remaining completion gates
 
-- Integrate the decompile entrypoint, verified capture reuse, durable run receipts,
-  separate failure reports and final unresolved-content report.
+- Extend the integrated local runner through gameplay verification, coordinated
+  release and publication without changing the operator workflow.
 - Extract and independently validate every registered gameplay topic. Account for
   source objects locally without copying the whole index into wiki content.
 - Complete individual asset identities, real cross-build identity coverage and
@@ -170,6 +170,53 @@ complete product.
   routes after a whole group disappears. The complete wiki suite passed 92 tests.
   Registry/map/lock checks and JavaScript syntax validation also passed. The final
   real candidate passed the independent check and an immediate unchanged repeat.
+
+### Integrated runner checkpoint
+
+The decompile wrapper invokes `wiki.py update --operator-report` after successful
+full capture, including unchanged capture. The runner completes the supported
+local stages and writes one deterministic exception report. Execution failures
+have separate receipts and preserve the previous overall success. Request
+receipts retain the last successful comparison baseline across skipped or failed
+captures. Source-only and partial diagnostic exports explicitly skip the wiki.
+
+Ten integration tests exercise actual extraction, identity and rendering over
+small committed source fixtures: supported changes with unknown fields, unchanged
+reuse, corrupted artifacts, dirty source, older-request rejection, interrupted
+promotion, changed request baselines, concurrent writer rejection and recovery
+across failed/skipped captures. The wrapper has seven
+isolated PowerShell handoff cases. These establish local orchestration, not public
+release or complete gameplay coverage. See [the runner contract](PIPELINE.md).
+
+Integration testing exposed Windows path overflow after moving a reader candidate
+from staging to its longer final directory. New cache directory names use 24
+hexadecimal hash characters; manifests and pointers retain and validate the full
+256-bit identity. A prefix collision fails validation. Existing full-hash paths
+remain readable. The builder checks final Windows path lengths before writing.
+
+The real wrapper run captured source commit
+`a7d9406a5bfbf46a18e81c8b3edd5ea51f947ed1` for Steam build 25548639. Only
+`Catalog/generator.json` changed. Identity classified all 8,146 selected
+observations as unchanged in an extractor correction. The combined report has
+193 unresolved groups and 27,087 occurrences; these did not block reader output.
+This is a second capture revision of the same game build, not proof of real
+cross-build historical coverage.
+
+Independent checks passed: extraction (2,231 assertions), identity (101,032),
+and reader (146,632 across 16,292 observations in the two selected snapshots).
+Reader output contains 602 files totaling 46,383,400 bytes, with a largest data
+pack of 457,933 bytes. The full 100-test suite passed before four additional
+focused regression tests were added; the final reader and pipeline suites also
+passed (14 and 10 tests). Parent catalog tests passed (21), and the mod solution
+built with zero warnings and errors.
+
+A real repeat of the normal command reused capture and wiki artifacts, preserving
+source Git HEAD, all four success pointers' bytes/timestamps and reader file
+timestamps. The final measured repeat took 36.195 seconds including installed-input
+hashing; wiki-only reuse took 0.866 seconds and read no selected source bytes.
+Python peak working set for that wiki-only repeat was 27,017,216 bytes; capture,
+Git and PowerShell memory are excluded. The request-baseline guard also passed
+its focused corruption regression.
 
 ## Deferred classifier experiments
 

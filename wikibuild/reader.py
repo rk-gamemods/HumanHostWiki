@@ -15,6 +15,14 @@ DEFAULT_PACK_BYTES = 512 * 1024
 ENTITY = re.compile(r"^e-[0-9a-f]{32}$")
 
 
+def candidate_path(cache_root, candidate_id):
+    """Short cache names avoid Windows path overflow; manifests retain full IDs."""
+    if not re.fullmatch(r"[0-9a-f]{64}", candidate_id):
+        raise ContractError("Invalid reader candidate identity")
+    legacy = within(cache_root, f"readers/{candidate_id}")
+    return legacy if legacy.exists() else within(cache_root, f"readers/{candidate_id[:24]}")
+
+
 def contract():
     folder = Path(__file__).parent
     paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py")]
@@ -211,7 +219,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     cache_root = Path(cache_root).resolve() if cache_root else within(root, ".local")
     if not cache_root.is_relative_to(within(root, ".local")):
         raise ContractError("Reader cache must remain inside the owning .local directory")
-    destination = within(cache_root, f"readers/{candidate_id}")
+    destination = candidate_path(cache_root, candidate_id)
     pointer = within(cache_root, "reader-latest.json")
     if destination.exists():
         manifest = verify(destination, candidate_id)
@@ -230,6 +238,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         # The directory is private, new staging. Its final rename is the atomic
         # boundary; per-file temporary suffixes add I/O and exceed Windows paths.
         target = within(stage, name)
+        if os.name == "nt" and max(len(str(target)), len(str(within(destination, name)))) >= 260:
+            raise ContractError("Reader output exceeds Windows path capacity; use a shorter wiki checkout path")
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("xb") as stream:
             stream.write(data)

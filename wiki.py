@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from wikibuild import extraction, history, manifest, navigation, reader, snapshots, workspace
+from wikibuild import extraction, history, manifest, navigation, pipeline, reader, snapshots, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 
@@ -19,7 +19,7 @@ def run(root, args):
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in project["repositories"]]}
     if args.command == "plan":
-        return {"stages": project["pipeline"], "note": "Registration, selected facts, identity history and the static reader are implemented with partial coverage. Build renders the architecture preview; reader projects selected gameplay facts. Full historical capture coverage, verification and publication remain unfinished."}
+        return {"stages": project["pipeline"], "note": "Update runs registration, selected facts, identity history and the local static reader with a final exception report. The decompile wrapper invokes it after capture, including reuse. Full gameplay and historical coverage, verification and publication remain unfinished."}
     if args.command == "check-lock":
         result = workspace.checkout_lock(root, project, check=True)
         return {"lock": "current", "repositories": len(result["repositories"])}
@@ -34,6 +34,9 @@ def run(root, args):
             changed = write_changed(output, data)
         return {"map": str(output), "changed": changed}
     with writer_lock(root):
+        if args.command == "update":
+            source = Path(args.source) if args.source else root / project["source"]["default_path"]
+            return pipeline.run(root, project, source, progress=lambda stage: print(f"Wiki: {stage}", file=sys.stderr, flush=True))
         if args.command == "lock":
             result = workspace.checkout_lock(root, project)
             return {"lock": result["kind"], "repositories": len(result["repositories"])}
@@ -75,13 +78,19 @@ def main():
     build = sub.add_parser("build", help="Build a local architecture/navigation preview, not gameplay articles")
     build.add_argument("--snapshot", help="Registered snapshot ID for the preview provenance banner")
     sub.add_parser("reader", help="Project normalized snapshots to a static reader candidate; does not publish")
+    update = sub.add_parser("update", help="Run supported wiki stages and report unresolved content")
+    update.add_argument("--source", help="Captured local codebase; default from project.json")
+    update.add_argument("--operator-report", action="store_true", help="Print the grouped exception list after supported stages finish")
     args = parser.parse_args()
     try:
         result = run(Path(__file__).resolve().parent, args)
     except (ContractError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-    sys.stdout.buffer.write(json_bytes(result))
+    if args.command == "update" and args.operator_report:
+        sys.stdout.buffer.write(pipeline.operator_report(Path(__file__).resolve().parent, result).encode("utf-8"))
+    else:
+        sys.stdout.buffer.write(json_bytes(result))
     return 0
 
 

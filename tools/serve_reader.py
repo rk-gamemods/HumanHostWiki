@@ -36,7 +36,7 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     candidate = args.candidate or json.loads((root / ".local/reader-latest.json").read_text())["candidate_id"]
-    site = within(root, f".local/readers/{candidate}")
+    site = reader.candidate_path(within(root, ".local"), candidate)
     reader.verify(site, candidate)
     with ThreadingHTTPServer(("127.0.0.1", args.port), partial(Handler, directory=str(site))) as server:
         print(f"READY http://127.0.0.1:{server.server_port}/hub/ candidate={candidate}", flush=True)

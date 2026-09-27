@@ -29,6 +29,8 @@ def main():
     root = Path(__file__).resolve().parents[1]
     candidate_id = read(root / ".local/reader-latest.json")["candidate_id"]
     site = root / ".local/readers" / candidate_id
+    if not site.exists():
+        site = root / ".local/readers" / candidate_id[:24]
     manifest = read(site / "candidate.json")
     inputs = manifest["inputs"]
     canonical = (json.dumps(inputs, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()

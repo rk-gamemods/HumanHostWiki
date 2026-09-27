@@ -7,7 +7,9 @@ These are current foundation/development commands. The
 [target update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
 starts when an operator invokes the decompile command and completes supported work
 through publication, including capacity management, without intermediate input.
-That integration is not implemented yet. At completion the operator presents
+The entrypoint now runs capture, registration, selected extraction, identity and
+the validated local reader. Release and publication remain unfinished. The
+[runner contract](PIPELINE.md) defines receipts and recovery. At completion the operator presents
 unresolved wiki exceptions and requests direction; execution failures are separate.
 The manual examples below are foundation diagnostics, not extra maintenance steps.
 
@@ -75,15 +77,16 @@ remote, dirty snapshot, wrong game or unsupported catalog schema. The resulting
 small `snapshots/<snapshot-id>.json` is an **input receipt**, not a wiki release.
 An unchanged repeat leaves the receipt bytes unchanged.
 
-To capture newly installed game files, use the parent's existing command first:
+To capture newly installed game files and run supported wiki work:
 
 ```powershell
 pwsh -NoProfile -File ../tools/Decompile-GameCode.ps1
-py -3 wiki.py refresh
 ```
 
-That separate capture may be expensive and follows the parent's recovery rules.
-The wiki command never invokes it implicitly. The current source generator does
+Capture may be expensive and follows the parent's recovery rules. The wrapper
+also invokes wiki processing when capture is unchanged. The wiki commands never
+invoke capture implicitly. To rerun only wiki processing against the existing
+capture, use `py -3 wiki.py update --operator-report`. The current source generator does
 not provide the game's display version, so the receipt records it as unknown.
 
 ## Extract selected facts
@@ -199,6 +202,10 @@ directory so earlier previews remain available.
 
 ## Failure and recovery
 
+- **Pipeline execution failure:** inspect the reported `.local/pipeline/failures/`
+  receipt. It lists completed stages and the failing stage separately from content
+  exceptions. Repair the execution problem and rerun the same command. The prior
+  pipeline success and prepared stage artifacts remain available.
 - **Another writer:** the OS lock releases when the process exits. Do not delete
   the persistent lock file to bypass a live writer.
 - **Dirty source/child:** inspect its Git status and resolve useful work in that

@@ -42,7 +42,7 @@
     {"from": "technical-reference", "to": "items-equipment", "kind": "backs-game-entity"}
   ],
   "pipeline": [
-    {"id": "detect", "depends_on": [], "owner": "operator-invoked decompile pipeline", "status": "planned"},
+    {"id": "detect", "depends_on": [], "owner": "decompile capture reuse and wikibuild/pipeline.py; available-build checks unfinished", "status": "partial"},
     {"id": "capture", "depends_on": ["detect"], "owner": "HumanHostMods/tools/Decompile-GameCode.ps1", "status": "external-existing"},
     {"id": "register", "depends_on": ["capture"], "owner": "wikibuild/snapshots.py", "status": "implemented"},
     {"id": "normalize", "depends_on": ["register"], "owner": "wikibuild/extraction.py and topic adapters", "status": "partial"},

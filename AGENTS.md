@@ -37,6 +37,9 @@ remain unfinished; see `docs/IMPLEMENTATION.md` for completion evidence and
 `docs/EXTRACTION.md` for adapter ownership and extension rules. Identity matching,
 semantic revisions and recovery are owned by `docs/IDENTITY.md`.
 Static rendering, browser behavior and pack ownership are in `docs/READER.md`.
+The decompile handoff and local stage runner are implemented in `docs/PIPELINE.md`;
+release and publication remain unfinished. Keep content exceptions separate from
+execution failures when reporting a run.
 Never call a registered snapshot a verified wiki release or an empty topic a
 completed catalog. Keep implementation status accurate in the workflow document.
 
