@@ -763,6 +763,17 @@ bytes and still prove index splitting and rollover. One earlier run also detecte
 an implementation edit during release preparation; the passing full run used
 frozen implementation files. The failed-attempt log remains retained.
 
+The final correction is included in implementation commit `da221dd` and published
+release `7a3c1abc5752db31b2560fac7258e4b4ce5c9581eb634473097f1940995c69b9`.
+The final unchanged repeat took 9.374 seconds, preserving all 13 child HEADs and
+1,037 files. The source audit and browser check passed again; the Git-release
+audit checked 156 retained configurations. Final receipts are
+`.local/curation-final-repeat.json`, `.local/curation-final-source-audit.json`,
+`.local/curation-final-reader-audit.json`, `.local/curation-final-release-audit.json`
+and `.local/curation-final-publication.log`. The cached explanation check reused
+the same receipt with zero model/code reads, 0.049 seconds and 43,457 peak
+Python-allocated bytes. Protected synthetic Git fixtures remain retained.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters
