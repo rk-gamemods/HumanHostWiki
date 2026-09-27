@@ -453,6 +453,24 @@ against the retained real release `19db4c5f`, covering 732 owned files and
 52 historical configurations. Protected synthetic Git fixtures were retained
 by ordinary test cleanup rather than having their file protections changed.
 
+The normal update from `7c61782` published
+[release ababd1f9](../releases/ababd1f9054c631ececa6977cd73300a20380c4a4a21af8c3d586412de05b54c.json)
+across all thirteen sites. Its independent audit passed for 758 owned files
+(47,846,817 bytes), 589 candidate files and 65 retained configurations across five
+wiki releases. The real two-capture configuration remains flat, so live publication
+establishes compatibility, not live overflow. Browser checks searched for Crude Axe,
+opened its entry, selected the earlier capture and returned through its history link
+while retaining the new release identity. Both captures belong to Steam build
+25548639; they do not establish cross-build acceptance.
+
+The unchanged `tools/benchmark_release.py` run passed in 8.330 seconds and preserved
+all thirteen child commits and 779 checked files, including timestamps. Its receipt
+is `.local/capture-catalog-live-repeat.json`. Normalize and identity reused their
+results with zero selected-source bytes read; project, release and publish also
+reused their results. This is not a claim of zero total I/O. The final
+`.local/capture-catalog-operator-report.txt` lists 193 unchanged exception groups
+(27,087 occurrences), with no execution failure or exception investigation.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters
