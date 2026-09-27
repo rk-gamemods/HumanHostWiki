@@ -377,10 +377,11 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         for file in web.iterdir():
             output(f"{topic}/{file.name}", file.read_bytes().replace(b"\r\n", b"\n"))
         output(f"{topic}/.nojekyll", b"")
-        content = pages.shell(repo["title"], bases[topic])
+        content = pages.shell(repo["title"], bases[topic], project.get("project", "Unofficial game reference"))
         output(f"{topic}/index.html", content)
         output(f"{topic}/404.html", content)
         output(f"{topic}/reader.json", packs.compact({"schema_version": 1, "candidate_id": candidate_id,
+               "project": project.get("project", "Unofficial game reference"),
                "features": ["shard-directories-v1", "paged-captures-v1", "entrypoint-rollover-v1"],
                "availability": inputs["availability"],
                "external_articles": views.get(topic),

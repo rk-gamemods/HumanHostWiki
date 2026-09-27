@@ -39,7 +39,7 @@ def provision(root, project, host):
         path = within(root, f".local/publication/remotes/{repo['id']}.json")
         name = repo["github_name"]
         full_name = project["github_owner"] + "/" + name
-        description = f"Human Host community wiki: {repo['title']}. Generated reference with explicit coverage gaps."
+        description = f"Unofficial community reference for Human Host: {repo['title']}. Not affiliated with Virtual Matrix Studio."
         intent = load(path) if path.exists() else None
         remote = host.repository(name)
         if intent is None:

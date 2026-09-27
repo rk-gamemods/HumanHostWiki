@@ -24,7 +24,7 @@ def repositories(root, project, allocated=None):
 
 def seed_readme(repo):
     return (f"# {repo['title']}\n\n{repo['coverage']}.\n\n"
-            "This repository is initialized for Human Host Wiki. Topic content is not generated yet.\n"
+            "Unofficial community reference for Human Host, not affiliated with or endorsed by Virtual Matrix Studio. Topic content is not generated yet.\n"
             "The umbrella's `project.json` owns its identity, routing and shared build contracts.\n\n"
             "## Ownership\n\n" + ", ".join(f"`{kind}`" for kind in repo["owns"]) + "\n").encode()
 

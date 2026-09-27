@@ -310,7 +310,7 @@ async function showEntry(key) {
   }
   const article = element("article");
   article.append(element("p", record.kind.replaceAll("-", " "), "eyebrow"), element("h2", record.name));
-  document.title = `${record.name} | Human Host Wiki`;
+  document.title = `${record.name} | ${config.project || "Unofficial game reference"}`;
   const stamps = element("dl", undefined, "stamps");
   for (const [label, value] of [["Snapshot", snapshot], ["Status", record.status], ["Last substantive change", record.last_changed], ["Last data check", record.last_data_checked], ["Last gameplay verification", record.last_verified || "Not performed"]]) {
     stamps.append(element("dt", label), element("dd", value || "Not recorded"));

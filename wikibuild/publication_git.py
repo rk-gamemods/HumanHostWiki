@@ -16,7 +16,7 @@ def commit(path, tree, parent, message):
 
 
 def unavailable(path):
-    data = b"<!doctype html><html lang=en><meta charset=utf-8><title>Human Host Wiki</title><h1>Human Host Wiki</h1><p>No validated public release is available. Publication is being retried.</p></html>\n"
+    data = b"<!doctype html><html lang=en><meta charset=utf-8><title>Unofficial game reference</title><h1>Unofficial game reference</h1><p>Not affiliated with or endorsed by Virtual Matrix Studio.</p><p>No validated public release is available. Publication is being retried.</p></html>\n"
     blob = command(path, "hash-object", "-w", "--stdin", data=data).decode().strip()
     entries = b"".join(f"100644 blob {blob}\t{name}\n".encode() for name in ("404.html", "index.html"))
     tree = command(path, "mktree", data=entries).decode().strip()

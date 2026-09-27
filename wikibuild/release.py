@@ -84,6 +84,7 @@ def project_topic(candidate, repo, writer, projection):
     writer.add("reference/index.md", ("\n".join(links) + "\n").encode())
     if "README.md" in writer.previous:
         writer.add("README.md", (f"# {repo['title']}\n\n{repo['coverage']}.\n\n"
+            "Unofficial community reference for Human Host. Not affiliated with or endorsed by Virtual Matrix Studio.\n\n"
             "Browse the [generated reference](reference/index.md). Coverage is partial; "
             "serialized facts are not runtime-verified gameplay claims.\n\n"
             f"Current prepared release: `{release_id}`. Publication is tracked separately by the hub.\n\n"
