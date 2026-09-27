@@ -1,15 +1,15 @@
 """Coordinate immutable reader releases across independently owned Git repositories."""
 
+from dataclasses import asdict
 import json
 from pathlib import Path
 import re
 import uuid
 
-from . import extraction, git_transaction, reader, release_content, workspace
+from . import capacity_projection, extraction, git_transaction, physical, publication_git, reader, release_output, release_partitions, workspace
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
-OWNER_FILE = ".wiki-output.json"
-IMMUTABLE = ("site/data/", "site/objects/", "site/releases/", "site/runtime/")
+OWNER_FILE = release_output.OWNER_FILE
 
 
 def immutable(path, value):
@@ -22,7 +22,9 @@ def immutable(path, value):
 def contract():
     folder = Path(__file__).parent
     return {name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
-            for name in ("release.py", "release_content.py", "git_transaction.py", "release_bootstrap.js", "workspace.py")}
+            for name in ("release.py", "release_content.py", "release_output.py", "release_partitions.py",
+                         "capacity.py", "capacity_inventory.py", "capacity_projection.py", "physical.py",
+                         "git_transaction.py", "publication_git.py", "release_bootstrap.js", "workspace.py")}
 
 
 def bases(project):
@@ -30,33 +32,11 @@ def bases(project):
             for repo in project["repositories"]}
 
 
-def owned(path):
-    marker = path / OWNER_FILE
-    files = {}
-    if marker.exists():
-        data = json.loads(marker.read_text(encoding="utf-8"))
-        if data.get("schema_version") != 1 or data.get("kind") != "generated-wiki-output":
-            raise ContractError(f"Unknown generated-output ownership: {path}")
-        files = data["files"]
-    for folder in ("site", "reference"):
-        base = path / folder
-        if base.is_symlink():
-            raise ContractError(f"Generated directory is a symbolic link: {base}")
-        if base.exists():
-            for entry in base.rglob("*"):
-                if entry.is_symlink() or (entry.is_file() and entry.relative_to(path).as_posix() not in files):
-                    raise ContractError(f"Unknown file in generated namespace: {entry}")
-    for name, record in files.items():
-        if name != "README.md" and not name.startswith(("site/", "reference/")):
-            raise ContractError(f"Generated ownership escapes site/reference: {name}")
-        target = within(path, name)
-        if not target.is_file() or target.stat().st_size != record["bytes"] or extraction.file_hash(target) != record["sha256"]:
-            raise ContractError(f"Modified or missing owned output: {target}")
-    return files
+owned = release_output.owned
 
 
 def preflight(root, project):
-    for repo in project["repositories"]:
+    for repo in workspace.repositories(root, project):
         state = workspace.inspect(root, repo)
         if state["state"] != "clean":
             raise ContractError(f"Release destination {repo['id']} is {state['state']}")
@@ -64,84 +44,43 @@ def preflight(root, project):
         owned(path)
 
 
-def project_topic(candidate, repo, destination, stage, release_id):
-    previous = owned(destination)
-    readme = destination / "README.md"
-    if "README.md" not in previous and readme.is_file() and readme.read_bytes() == workspace.seed_readme(repo):
-        # Adopt only the exact generator-owned seed. Preserve authored READMEs.
-        previous["README.md"] = {"sha256": extraction.file_hash(readme), "bytes": readme.stat().st_size}
-    output, changes = dict(previous), {}
+def project_topic(candidate, repo, writer, projection):
+    """Write mutable entrypoints around the already located immutable objects."""
     topic = candidate / repo["id"]
-
-    def add(name, data):
-        record = {"sha256": digest(data), "bytes": len(data)}
-        prior = previous.get(name)
-        if name.startswith(IMMUTABLE) and prior and record != prior:
-            raise ContractError(f"Immutable public object differs: {name}")
-        output[name] = record
-        if prior == record:
-            return
-        target = within(destination, name)
-        if prior is None and target.exists():
-            raise ContractError(f"Refusing to adopt an unknown generated file: {target}")
-        staged = within(stage, name)
-        staged.parent.mkdir(parents=True, exist_ok=True)
-        staged.write_bytes(data)
-        changes[name] = {"old": prior["sha256"] if prior else None, "new": record["sha256"], "bytes": len(data)}
-
-    config = json.loads((topic / "reader.json").read_text(encoding="utf-8"))
-    snapshot_refs, runtime_refs = {}, {}
+    release_id = projection.release_id
+    config_key = repo["id"] + f"/site/releases/{release_id}.json"
+    configuration = projection.payloads[config_key].read()
+    config_ref = projection.configurations[repo["id"]]
+    if config_ref["path"].startswith("https://"):
+        configuration = json_bytes({"schema_version": 1, "kind": "wiki-release-reference",
+                                    "release_id": release_id, "target": config_ref})
+        writer.add(f"site/releases/{release_id}.json", configuration)
+    writer.add("site/reader.json", configuration)
     reference_paths = []
     for source in sorted(topic.rglob("*")):
         if not source.is_file():
             continue
         name = source.relative_to(topic).as_posix()
-        data = source.read_bytes()
-        if re.fullmatch(r"data/[0-9a-f]{64}\.json", name):
-            add("site/" + name, data)
-        elif re.fullmatch(r"snapshots/build-[0-9]+-[0-9a-f]{12}\.json", name):
-            data = release_content.snapshot(data, lambda path, sha, size: path)
-            target = "objects/" + digest(data) + ".json"
-            add("site/" + target, data)
-            snapshot_refs[source.stem] = {"path": target, "sha256": digest(data), "bytes": len(data)}
-        elif name in {"reader.js", "reader.css"}:
-            target = f"runtime/{digest(data)}/{name}"
-            add("site/" + target, data)
-            runtime_refs[source.suffix[1:]] = target
-        elif name.startswith("reference/") and source.suffix == ".md":
-            add(name, data.replace(("release=" + config["candidate_id"]).encode(), ("release=" + release_id).encode()))
+        if name.startswith("reference/") and source.suffix == ".md":
+            data = source.read_bytes().replace(("release=" + projection.candidate_id).encode(),
+                                               ("release=" + release_id).encode())
+            writer.add(name, data)
             reference_paths.append(name)
         elif name in {"index.html", "404.html", ".nojekyll"} or re.fullmatch(r"groups/[a-z][a-z0-9-]*/index\.html", name):
-            add("site/" + name, data)
-        elif name != "reader.json":
-            raise ContractError(f"Unexpected reader output for release: {name}")
-    configuration = release_content.configuration((topic / "reader.json").read_bytes(), release_id,
-                                                   snapshot_refs, runtime_refs)
-    add(f"site/releases/{release_id}.json", configuration)
-    add("site/reader.json", configuration)
-    add("site/reader.js", (Path(__file__).parent / "release_bootstrap.js").read_bytes().replace(b"\r\n", b"\n"))
-    add("site/reader.css", b"/* The release loader selects the versioned stylesheet. */\n")
+            writer.add("site/" + name, source.read_bytes())
+    writer.add("site/reader.js", (Path(__file__).parent / "release_bootstrap.js").read_bytes().replace(b"\r\n", b"\n"))
+    writer.add("site/reader.css", b"/* The release loader selects the versioned stylesheet. */\n")
     links = [f"# {repo['title']} reference", "", f"Release: `{release_id}`.", "",
              "Selected extracted facts. Gameplay verification and complete coverage remain unfinished.", ""]
     links += [f"- [{name.removeprefix('reference/')}]({name.removeprefix('reference/')})" for name in reference_paths]
-    add("reference/index.md", ("\n".join(links) + "\n").encode())
-    if "README.md" in previous:
-        add("README.md", (f"# {repo['title']}\n\n{repo['coverage']}.\n\n"
+    writer.add("reference/index.md", ("\n".join(links) + "\n").encode())
+    if "README.md" in writer.previous:
+        writer.add("README.md", (f"# {repo['title']}\n\n{repo['coverage']}.\n\n"
             "Browse the [generated reference](reference/index.md). Coverage is partial; "
             "serialized facts are not runtime-verified gameplay claims.\n\n"
             f"Current prepared release: `{release_id}`. Publication is tracked separately by the hub.\n\n"
             "Generated files are recorded in `.wiki-output.json`. Put authored explanations outside "
             "the generated `site/` and `reference/` directories.\n").encode())
-    marker = json_bytes({"schema_version": 1, "kind": "generated-wiki-output", "release_id": release_id,
-                         "repository_id": repo["id"], "files": output})
-    target = destination / OWNER_FILE
-    (stage / OWNER_FILE).write_bytes(marker)
-    changes[OWNER_FILE] = {"old": extraction.file_hash(target) if target.exists() else None,
-                           "new": digest(marker), "bytes": len(marker)}
-    return changes, {"files_sha256": digest(json_bytes(output)), "file_count": len(output),
-                     "site_bytes": sum(record["bytes"] for name, record in output.items() if name.startswith("site/")),
-                     "output_bytes": sum(record["bytes"] for record in output.values()),
-                     "ownership_sha256": digest(marker)}
 
 
 def read(root, release_id):
@@ -170,7 +109,9 @@ def verify(root, value, *, check_checkout=True):
 
 def resume(root, journal):
     stage = within(root, journal["stage"])
-    for repo in journal["project"]["repositories"]:
+    for entry in journal.get("new_repositories", []):
+        release_partitions.install(root, entry)
+    for repo in physical.repositories(journal["project"], journal["result"].get("physical")):
         workspace.inspect(root, repo)
         item = journal["plans"][repo["id"]]
         git_transaction.validate(within(root, item["path"]), item["git"])
@@ -180,7 +121,7 @@ def resume(root, journal):
     result = journal["result"]
     verify(root, result)
     immutable(within(root, f"releases/{result['release_id']}.json"), result)
-    workspace.checkout_lock(root, journal["project"])
+    workspace.checkout_lock(root, journal["project"], allocated=journal["result"].get("physical"))
     write_changed(within(root, "releases/latest.json"), json_bytes({"release_id": result["release_id"]}))
     # Keep the journal for diagnosis. A completed pointer is safe to replay.
     write_changed(within(root, ".local/releases/pending.json"), json_bytes({"stage": journal["stage"], "complete": True}))
@@ -211,29 +152,69 @@ def run(root, project, candidate):
         return result, {"reused": True}
     preflight(root, project)
     workspace.checkout_lock(root, project, check=True)
+    from . import capacity_inventory, publication
+    inventory = capacity_inventory.read(root, project)
+    limits = physical.budgets(project)
+    projection = capacity_projection.build(Path(candidate["path"]), release_id, project["github_owner"],
+                                           inventory.partitions, inventory.stored, limits)
+    registry = physical.registry(projection.partitions)
+    ordered = sorted(physical.repositories(project, registry),
+                     key=lambda repo: (repo["role"] == "hub", repo["role"] != "partition", repo["id"]))
+    logical = {repo["id"]: repo for repo in project["repositories"]}
+    previous = publication.published(root)
     stage = within(root, ".local/rs/" + uuid.uuid4().hex[:12])
     stage.mkdir(parents=True)
-    plans, repositories = {}, {}
-    ordered = sorted(project["repositories"], key=lambda repo: (repo["role"] == "hub", repo["id"]))
+    plans, repositories, writers, destinations, new_repositories = {}, {}, {}, {}, []
     for repo in ordered:
-        target, prepared = within(root, repo["path"]), stage / repo["id"]
+        target = within(root, repo["path"])
+        if repo["id"] in projection.created:
+            target, entry = release_partitions.seed(root, stage, repo, logical[repo["logical_topic"]])
+            new_repositories.append(entry)
+        prepared = stage / repo["id"]
         prepared.mkdir()
-        changes, summary = project_topic(Path(candidate["path"]), repo, target, prepared, release_id)
-        commit = git_transaction.prepare(target, prepared, changes, f"Update wiki reference {release_id[:12]}")
+        destinations[repo["id"]] = target
+        writers[repo["id"]] = release_output.Writer(target, prepared, repo, release_id)
+    for placement, data in projection.writes():
+        writers[placement.partition].add(placement.artifact.path, data, allocated=True)
+    for repo in ordered:
+        writer, target = writers[repo["id"]], destinations[repo["id"]]
+        if repo["role"] == "partition":
+            release_partitions.landing(writer, project, repo)
+        else:
+            project_topic(Path(candidate["path"]), repo, writer, projection)
+        changes, summary = writer.finish()
+        if any(meta["bytes"] > limits.file_bytes for meta in changes.values()):
+            raise ContractError(f"Generated control file exceeds the configured file budget: {repo['id']}")
+        commit = git_transaction.prepare(target, stage / repo["id"], changes, f"Update wiki reference {release_id[:12]}")
+        prior = previous["repositories"].get(repo["id"]) if previous else None
+        old_pages = prior["pages"] if prior else None
+        site_tree = git(target, "rev-parse", commit["commit"] + ":site")
+        pages = (old_pages if prior and prior["tree"] == site_tree else
+                 publication_git.commit(target, site_tree, old_pages, f"Publish wiki release {release_id}"))
+        measured = capacity_inventory.history_size(target, [commit["commit"], pages])
+        if changes and (summary["site_bytes"] > limits.site_bytes or measured["history_bytes"] > limits.history_bytes):
+            raise ContractError(f"Prepared repository exceeds capacity after control files and Git history: {repo['id']}")
+        git(target, "update-ref", f"refs/wiki-releases/{release_id}/source", commit["commit"])
+        git(target, "update-ref", f"refs/wiki-releases/{release_id}/pages", pages)
         plans[repo["id"]] = {"path": repo["path"], "git": commit}
         repositories[repo["id"]] = {"path": repo["path"], "github_name": repo["github_name"],
-                                     "commit": commit["commit"], "tree": commit["tree"], **summary}
+                                     "commit": commit["commit"], "tree": commit["tree"], **summary,
+                                     "pages": pages, "pages_parent": old_pages,
+                                     "history_bytes": measured["history_bytes"]}
     if contract() != inputs["contract"]:
         raise ContractError("Release rules changed during preparation")
     reader.verify(Path(candidate["path"]), candidate["candidate_id"])
     result = {"schema_version": 1, "release_id": release_id, "inputs": inputs,
               "reader_candidate": candidate["candidate_id"], "versions": manifest["versions"],
-              "routes": manifest["inputs"]["bases"], "repositories": repositories,
+              "routes": manifest["inputs"]["bases"], "repositories": repositories, "physical": registry,
+              "capacity": {"budgets": asdict(limits), "phases": list(projection.phase_ids),
+                           "new_repositories": list(projection.created), "prepared_sizes_checked": True},
               "status": "git-release-committed", "publication": "not-published",
               "validation": {"reader_artifacts": "passed", "gameplay_verification": "not-performed", "coverage": "partial"}}
     result["manifest_sha256"] = digest(json_bytes(result))
     journal = {"stage": stage.relative_to(root).as_posix(), "project": project,
-               "order": [repo["id"] for repo in ordered], "plans": plans, "result": result}
+               "order": [repo["id"] for repo in ordered], "plans": plans, "result": result,
+               "new_repositories": new_repositories}
     immutable(stage / "plan.json", journal)
     write_changed(pending, json_bytes({"stage": journal["stage"], "sha256": digest(json_bytes(journal)), "complete": False}))
     return resume(root, journal), {"reused": False}

@@ -47,7 +47,12 @@ detects accidental modification. Prepared Pages objects have local Git refs so
 ordinary Git maintenance cannot discard an interrupted attempt. Pushes are
 fast-forward only; unexpected remote edits fail without overwriting them.
 
-Independent topics finish even if another topic fails. The hub remains at its
+Allocated storage sites verify before dependent topic entrypoints are pushed.
+Within each phase, independent workers finish even if another worker fails.
+The [capacity contract](CAPACITY.md) owns physical identities and size checks.
+An earlier pending publication is completed before preparing a newer deployment;
+if this changes the prepared Pages parent, its exact history is checked again.
+The hub remains at its
 previous release until every topic verifies. Direct topic landing pages consult
 the hub's selection, so preparing a newer topic does not advertise an incomplete
 release. Explicit historical release links continue to load their pinned content.
@@ -60,7 +65,8 @@ completed on retry before attempting the new hub again.
 After success, `publications/<release-id>.json` records remote identities, commits,
 expected public bytes and validation completion. `publications/latest.json` advances
 last. These receipts are distinct from local `releases/` manifests. Repeating an
-unchanged run verifies current remote refs and small reader pointers, reusing prior
+unchanged run verifies current remote refs and small reader pointers or storage
+landing pages, reusing prior
 immutable-file checks. A changed release downloads only new/changed files and the
 entry shells; unchanged packs retain their earlier verification evidence.
 

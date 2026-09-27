@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from . import extraction, history, publication, reader, release, snapshots
+from . import extraction, history, physical, publication, reader, release, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -96,7 +96,8 @@ def run(root, project, source, progress=None):
         stage = "project"
         if progress:
             progress(stage)
-        projected = reader.build(root, project, bases=release.bases(project))
+        projected = reader.build(root, project, bases=release.bases(project),
+                                 max_pack_bytes=min(reader.DEFAULT_PACK_BYTES, physical.budgets(project).file_bytes))
         completed[stage] = {"candidate_id": projected["candidate_id"], "bytes": projected["bytes"]}
         metrics[stage] = {"reused": projected["reused"]}
         stage = "verify"

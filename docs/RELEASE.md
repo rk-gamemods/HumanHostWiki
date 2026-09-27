@@ -56,9 +56,14 @@ scope. Before that boundary, the previous coordinated release remains selected.
 Partial child commits can survive an interruption; retry recognizes and reuses
 their exact identities. Publication has a [separate pointer and recovery contract](PUBLICATION.md).
 
+The [capacity contract](CAPACITY.md) owns physical partition allocation, staging,
+registry membership and prepared-size checks. Storage partitions install and commit
+before dependent logical topics. The release manifest and checkout lock pin every
+physical repository while the public route map retains logical topic ownership.
+
 Operational staging remains under `.local/rs/` for recovery and inspection. It is
-not published. Capacity allocation and post-success staging retention still need
-implementation; this coordinator does not delete historical public records.
+not published. Entrypoint/control-metadata rollover and post-success staging
+retention still need implementation; historical public records are retained.
 
 ## Validation and preview
 
@@ -70,9 +75,10 @@ py -3 tools/benchmark_release.py
 py -3 tools/serve_release.py
 ```
 
-The preview binds `127.0.0.1` and substitutes only the configured origins in HTML
-and reader configuration. Selected data packs, snapshot indexes and runtimes are
-served unchanged. It is a local browser check, not proof of Pages deployment.
+The preview binds `127.0.0.1` and serves all physical repositories. HTML installs
+a local origin mapping; the reader applies it when resolving requests and links.
+Configurations, snapshot indexes and data packs keep their published bytes and
+hashes. It is a local browser check, not proof of Pages deployment.
 
 Tests use real Git repositories to check exact commits, no-op reuse, historical
 pack reuse, authored content, unknown ignored files, modified journals, staged

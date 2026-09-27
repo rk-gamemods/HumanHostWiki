@@ -4,13 +4,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from pathlib import Path
 
-from . import github_pages, publication_git, release
+from . import github_pages, physical, publication_git, release
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 
 def contract():
     return {name: digest((Path(__file__).parent / name).read_bytes().replace(b"\r\n", b"\n"))
-            for name in ("publication.py", "publication_git.py", "github_pages.py")}
+            for name in ("publication.py", "publication_git.py", "github_pages.py", "physical.py")}
 
 
 def save(path, payload):
@@ -86,9 +86,12 @@ def prepare(root, project, manifest, host):
     for topic, record in manifest["repositories"].items():
         baseline = previous["repositories"][topic]["main"] if previous and topic in previous["repositories"] else None
         publication_git.audit(within(root, record["path"]), record["commit"], baseline)
-    identities = provision(root, project, host)
+    repositories = physical.repositories(project, manifest.get("physical"))
+    if {repo["id"] for repo in repositories} != set(manifest["repositories"]):
+        raise ContractError("Publication outputs differ from the physical registry")
+    identities = provision(root, {**project, "repositories": repositories}, host)
     plans = {}
-    for repo in project["repositories"]:
+    for repo in repositories:
         topic, name = repo["id"], repo["github_name"]
         record = manifest["repositories"][topic]
         path = within(root, record["path"])
@@ -99,13 +102,28 @@ def prepare(root, project, manifest, host):
         if old_pages != (prior["pages"] if prior else None):
             raise ContractError(f"Unexpected remote Pages branch: {name}")
         tree = git(path, "rev-parse", record["commit"] + ":site")
-        target = publication_git.commit(path, tree, old_pages, f"Publish wiki release {manifest['release_id']}")
+        if "pages" in record:
+            if record["pages_parent"] == old_pages:
+                target = record["pages"]
+            else:
+                # An earlier pending publication can finish after this local
+                # release was prepared. Its verified receipt is the new parent;
+                # remeasure the exact rebased history before advertising bytes.
+                from .capacity_inventory import history_size
+                target = publication_git.commit(path, tree, old_pages, f"Publish wiki release {manifest['release_id']}")
+                if history_size(path, [record["commit"], target])["history_bytes"] > physical.budgets(project).history_bytes:
+                    raise ContractError("Recovered Pages history exceeds the configured capacity")
+            if git(path, "rev-parse", target + "^{tree}") != tree:
+                raise ContractError("Prepared Pages tree differs")
+        else:
+            target = publication_git.commit(path, tree, old_pages, f"Publish wiki release {manifest['release_id']}")
         pin(path, target)
         files = site_files(root, record)
         checks = {key: value for key, value in files.items() if not prior or prior["files"].get(key) != value
                   or key in {"reader.json", "index.html", "404.html"}}
         plans[topic] = {"path": record["path"], "name": name, "repository_id": identities[topic],
-                        "base": manifest["routes"][topic], "old_main": old_main, "old_pages": old_pages,
+                        "base": physical.base(project, repo), "role": repo["role"],
+                        "old_main": old_main, "old_pages": old_pages,
                         "main": record["commit"], "pages": target, "tree": tree,
                         "files": files, "checks": checks, "verified": False}
     hub_path = within(root, plans["hub"]["path"])
@@ -123,6 +141,11 @@ def deploy(root, plan, host):
     host.configure(plan["name"])
     host.wait(plan["name"], plan["pages"])
     host.verify(plan["base"], plan["checks"])
+
+
+def health(plan):
+    name = "reader.json" if "reader.json" in plan["files"] else "index.html"
+    return {name: plan["files"][name]}
 
 
 def rollback(root, state, path, host):
@@ -163,21 +186,25 @@ def resume(root, state, path, host, workers):
         if plan["verified"]:
             if host.ref(plan["name"], "main") != plan["main"] or host.ref(plan["name"], "gh-pages") != plan["pages"]:
                 raise ContractError(f"Verified publication changed remotely: {plan['name']}")
-            host.verify(plan["base"], {"reader.json": plan["files"]["reader.json"]})
-    topics = [plan for topic, plan in state["repositories"].items() if topic != "hub" and not plan["verified"]]
-    errors = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        pending = {pool.submit(deploy, root, plan, host): plan for plan in topics}
-        for future in as_completed(pending):
-            plan = pending[future]
-            try:
-                future.result()
-                plan["verified"] = True
-                save(path, state)
-            except Exception as exc:
-                errors.append(f"{plan['name']}: {exc}")
-    if errors:
-        raise ContractError("Topic publication failed; hub unchanged: " + "; ".join(errors))
+            host.verify(plan["base"], health(plan))
+    # Storage is a dependency of every topic/front that references its bytes.
+    # Complete independent workers within each phase before advertising the next.
+    for storage in (True, False):
+        topics = [plan for topic, plan in state["repositories"].items() if topic != "hub" and not plan["verified"]
+                  and (plan.get("role") == "partition") == storage]
+        errors = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            pending = {pool.submit(deploy, root, plan, host): plan for plan in topics}
+            for future in as_completed(pending):
+                plan = pending[future]
+                try:
+                    future.result()
+                    plan["verified"] = True
+                    save(path, state)
+                except Exception as exc:
+                    errors.append(f"{plan['name']}: {exc}")
+        if errors:
+            raise ContractError(("Storage" if storage else "Topic") + " publication failed; hub unchanged: " + "; ".join(errors))
     hub = state["repositories"]["hub"]
     if not hub["verified"]:
         state["phase"] = "hub"
@@ -232,7 +259,7 @@ def run(root, project, manifest, *, host=None, progress=None):
             if host.ref(plan["name"], "main") != plan["main"] or host.ref(plan["name"], "gh-pages") != plan["pages"]:
                 raise ContractError(f"Published branch changed: {plan['name']}")
             host.configure(plan["name"])
-            host.verify(plan["base"], {"reader.json": plan["files"]["reader.json"]})
+            host.verify(plan["base"], health(plan))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(check_current, current["repositories"].values()))
         return current, {"reused": True}

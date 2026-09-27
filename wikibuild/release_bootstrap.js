@@ -6,10 +6,41 @@
   const base = new URL(".", document.currentScript.src);
   const requested = new URLSearchParams(location.search).get("release");
   if (requested && !/^[0-9a-f]{64}$/.test(requested)) throw new Error("Invalid release identity");
+  function resolve(value, relative = base) {
+    const url = new URL(value, relative);
+    // The local preview maps origins at request time. Immutable JSON bytes and
+    // their hashes remain identical to publication, including partition links.
+    if (globalThis.humanHostPreviewOrigin === url.origin) {
+      const local = new URL(location.origin);
+      url.protocol = local.protocol;
+      url.host = local.host;
+    }
+    return url;
+  }
   async function read(url) {
-    const response = await fetch(url, {cache: "no-cache"});
-    if (!response.ok) throw new Error(`Release unavailable: HTTP ${response.status}`);
-    return response.json();
+    url = resolve(url);
+    let expected = null, identity = null;
+    const seen = new Set();
+    for (let depth = 0; depth < 4; depth++) {
+      if (seen.has(url.href)) throw new Error("Release reference cycle");
+      seen.add(url.href);
+      const response = await fetch(url, {cache: "no-cache"});
+      if (!response.ok) throw new Error(`Release unavailable: HTTP ${response.status}`);
+      const bytes = await response.arrayBuffer();
+      if (expected) {
+        const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), value => value.toString(16).padStart(2, "0")).join("");
+        if (bytes.byteLength !== expected.bytes || sha !== expected.sha256) throw new Error("Release reference content differs");
+      }
+      const value = JSON.parse(new TextDecoder().decode(bytes));
+      if (identity && value.release_id !== identity) throw new Error("Release reference identity differs");
+      if (value.kind !== "wiki-release-reference") return value;
+      if (value.schema_version !== 1 || !/^[0-9a-f]{64}$/.test(value.release_id)) throw new Error("Invalid release reference");
+      expected = value.target;
+      identity = value.release_id;
+      url = resolve(expected.path);
+      if (url.origin !== base.origin) throw new Error("Release reference leaves the configured namespace");
+    }
+    throw new Error("Release reference depth exceeded");
   }
   let config = await read(new URL(requested ? `releases/${requested}.json` : "reader.json", base));
   if (!requested && config.topic !== "hub") {
@@ -20,10 +51,10 @@
     if (config.release_id !== coordinated.release_id) throw new Error("Coordinated release identity differs");
   }
   if (requested && requested !== config.release_id) throw new Error("Release identity differs");
-  globalThis.humanHostReader = {config, base: base.href};
-  document.querySelector('link[rel="stylesheet"]').href = new URL(config.runtime.css, base).href;
+  globalThis.humanHostReader = {config, base: base.href, resolve};
+  document.querySelector('link[rel="stylesheet"]').href = resolve(config.runtime.css).href;
   const script = document.createElement("script");
-  script.src = new URL(config.runtime.js, base).href;
+  script.src = resolve(config.runtime.js).href;
   script.onerror = () => {document.getElementById("status").textContent = "The selected release runtime could not be loaded.";};
   document.head.append(script);
 })().catch(error => {

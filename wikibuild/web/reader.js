@@ -2,6 +2,7 @@
 
 // All imported text is rendered through textContent. No game text becomes HTML.
 const siteBase = globalThis.humanHostReader ? new URL(globalThis.humanHostReader.base) : new URL(".", document.currentScript.src);
+const resolveURL = globalThis.humanHostReader?.resolve || ((value, base) => new URL(value, base));
 const params = new URLSearchParams(location.search);
 const content = document.getElementById("content");
 const cache = new Map();
@@ -15,7 +16,7 @@ function element(tag, text, className) {
 }
 
 async function json(path, expected) {
-  const url = new URL(path, siteBase).href;
+  const url = resolveURL(path, siteBase).href;
   if (!cache.has(url)) {
     const pending = (async () => {
       const response = await fetch(url);
@@ -38,7 +39,7 @@ function url(topic, entity = null, selected = snapshot, group = null) {
   const owner = config.topics.find(value => value.id === topic);
   if (!owner) throw new Error(`Unknown topic ${topic}`);
   const path = entity ? `entry/${encodeURIComponent(entity)}/` : group ? `groups/${encodeURIComponent(group)}/` : "";
-  const target = new URL(path, new URL(owner.base, location.origin));
+  const target = resolveURL(path, new URL(owner.base, location.origin));
   target.search = new URLSearchParams({snapshot: selected, release: config.release_id || config.candidate_id}).toString();
   return target.href;
 }

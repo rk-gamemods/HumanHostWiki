@@ -3,8 +3,10 @@
 The [ADR](adr/0001-versioned-public-wiki.md#5-storage-and-presentation) requires
 automatic file, site and history budgets while preserving logical topic ownership
 and historical URLs. Allocation, committed-input measurement and immutable reference
-projection are implemented. Repository rollover and publication integration remain unfinished;
-the normal update does not yet allocate physical partitions.
+projection are implemented and connected to the normal release and publication
+stages. The update creates storage partitions as immutable objects fill existing
+repositories. Rollover of the logical entrypoints and oversized control metadata
+remains unfinished, so automatic capacity handling does not yet cover every ADR case.
 
 ## Owners and inputs
 
@@ -49,20 +51,46 @@ Projection verifies the candidate, retains leaf paths instead of bytes, and hold
 only transformed metadata. Its write iterator yields one new payload at a time,
 rechecks its hash and skips reused files. Planning creates no destination files.
 
-The release journal owns new repository identities, staged files, prepared commits
-and the route changes that depend on them. Publication must verify new storage
-targets before promoting any route that advertises them.
+`wikibuild/physical.py` derives the physical registry from configured topic names.
+`project.json` retains logical ownership; each release's `physical` map records
+allocated repository IDs, logical topics, ordinals and sealed state. The checkout
+lock includes all those repositories. Commands inspecting workspace state resolve
+this map through the current immutable release manifest.
 
-Blob estimates alone do not prove capacity. Before promotion, the release writer
-must measure the final prepared Git history and public tree, including control
-files. Mutable entrypoints, release indexes and ownership manifests also need bounded
-storage and rollover. A full partition must remain readable while later writes
-use another partition. Moving only data packs does not satisfy the ADR.
+`wikibuild/release_output.py` owns generated files and their allocation membership.
+Existing ownership records remain readable. New records distinguish allocated
+objects from small entrypoint references, avoiding duplicate ownership when a
+release configuration moves to another repository. Unchanged storage partitions
+retain their exact files and commits, including their earlier ownership receipt.
 
-Required integration proof includes forced thresholds, interrupted preparation and
-publication, retained historical URLs, oversized-index splitting and a repeat that
-creates no files, commits or repositories. Until those checks pass through the normal
-entrypoint, automatic capacity management remains incomplete.
+`wikibuild/release_partitions.py` prepares new Git repositories in private staging.
+The release journal records seed identities before installing them at their final
+paths. Retry accepts the recorded staged or installed state, preserves unknown
+destinations and resumes the exact prepared commits. Source and Pages objects are
+pinned with local refs before promotion. Publication provisions the generated
+repository names and verifies storage sites before topic entrypoints, then the hub.
+The browser follows hashed configuration references while retaining its logical
+base for relative paths and historical navigation.
+
+Before promotion, the release writer checks changed file sizes, final public tree
+bytes and the unique Git objects reachable from the prepared source and Pages
+commits. If an earlier pending publication finishes after preparation, publication
+rebuilds the Pages parent and repeats the history check before pushing. A failed
+budget check leaves the prior release selected and reports an execution failure.
+Configure byte limits and reserves through the optional `project.json.capacity`
+object, using the field names in `capacity.Budgets`.
+
+Mutable entrypoints, release indexes and ownership manifests still need bounded
+storage and rollover. Oversized control files currently fail before promotion;
+they are not automatically split. Full immutable storage partitions remain readable,
+but a full logical entrypoint still requires the unfinished rollover path. These
+limitations keep complete automatic capacity acceptance open.
+
+Forced-threshold integration tests cover new local repositories, installation
+interruption, publication dependency order/failure, retained historical URLs and
+no-op replay. They use real Git objects and a deterministic host adapter. Real
+GitHub overflow provisioning, oversized-index splitting and entrypoint rollover
+remain acceptance gaps.
 
 ## Current validation
 
@@ -87,3 +115,9 @@ reader candidate. It checks both current placement and forced budgets, then veri
 that replay yields no writes. Small tests additionally materialize two releases in
 temporary physical directories and verify that both remain readable. These checks
 do not exercise provisioning, Git promotion, Pages publication or entrypoint rollover.
+
+`tests/test_capacity_release.py` exercises the integrated Git/provisioning boundary
+with a host adapter. `tests/test_release_browser.py` runs the actual loader in Node.js
+with native URL and SHA-256 APIs, covering configuration references, mismatched bytes,
+release identity, namespace containment, coordinated selection and local preview.
+Node.js is a test dependency only; generation still uses Python's standard library.

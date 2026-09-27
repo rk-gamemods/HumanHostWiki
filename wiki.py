@@ -13,11 +13,11 @@ from wikibuild.storage import ContractError, json_bytes, within, writer_lock, wr
 def run(root, args):
     project = manifest.load(root)
     if args.command == "validate":
-        states = [workspace.inspect(root, repo) for repo in project["repositories"]]
+        states = [workspace.inspect(root, repo) for repo in workspace.repositories(root, project)]
         return {"valid": True, "repositories": len(states), "pipeline": manifest.stage_order(project),
                 "checkout_states": {state["id"]: state["state"] for state in states}}
     if args.command == "status":
-        return {"repositories": [workspace.inspect(root, repo) for repo in project["repositories"]]}
+        return {"repositories": [workspace.inspect(root, repo) for repo in workspace.repositories(root, project)]}
     if args.command == "plan":
         return {"stages": project["pipeline"], "note": "Update runs registration, selected facts, identity history, rendering, coordinated Git release and configured Pages publication with a final exception report. The decompile wrapper invokes it after capture, including reuse. Full gameplay and historical coverage, verification and capacity allocation remain unfinished."}
     if args.command == "check-lock":

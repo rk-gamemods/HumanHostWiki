@@ -201,6 +201,14 @@ that retained release indexes, packs and runtimes remain reachable. The benchmar
 runs an unchanged `wiki.py update` and checks child commits, output bytes and
 timestamps. It requires an already completed release for the current inputs.
 
+The normal update applies [storage capacity allocation](CAPACITY.md) before
+committing and publishing. New physical repositories retain their logical topic
+owner, appear in the release manifest and checkout lock, and publish before their
+dependent entrypoints. Optional byte limits and reserves live in
+`project.json.capacity`; no separate allocation command is needed for maintenance.
+Full entrypoint rollover and automatic splitting of oversized control metadata
+remain unfinished and fail before promotion if their budgets are exceeded.
+
 ## Publish or resume a release
 
 Publication is enabled in `project.json` and runs during `wiki.py update`.

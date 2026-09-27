@@ -8,7 +8,18 @@ from .storage import ContractError, digest, git, json_bytes, within, write_chang
 
 
 def marker(repo):
-    return {"schema_version": 1, "repository_id": repo["id"], "role": repo["role"]}
+    value = {"schema_version": 1, "repository_id": repo["id"], "role": repo["role"]}
+    if repo["role"] == "partition":
+        value.update(logical_topic=repo["logical_topic"], ordinal=repo["ordinal"])
+    return value
+
+
+def repositories(root, project, allocated=None):
+    from . import physical, release
+    if allocated is None and (root / "releases/latest.json").exists():
+        identity = json.loads((root / "releases/latest.json").read_text())["release_id"]
+        allocated = release.read(root, identity).get("physical")
+    return physical.repositories(project, allocated)
 
 
 def seed_readme(repo):
@@ -55,10 +66,10 @@ def initialize(root, manifest):
     return created
 
 
-def checkout_lock(root, manifest, check=False):
+def checkout_lock(root, manifest, check=False, *, allocated=None):
     """Pin clean local commits without claiming a coordinated wiki release."""
     records = {}
-    for repo in manifest["repositories"]:
+    for repo in repositories(root, manifest, allocated):
         state = inspect(root, repo)
         if state["state"] != "clean":
             raise ContractError(f"Cannot pin {repo['id']}: checkout is {state['state']}")

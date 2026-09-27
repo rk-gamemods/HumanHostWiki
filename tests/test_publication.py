@@ -206,6 +206,19 @@ class PublicationTests(unittest.TestCase):
             self.run_publish()
         self.assertFalse(any(e[0] == "push" for e in self.host.events))
 
+    def test_pending_prior_publication_finishes_before_new_pages_parent_is_prepared(self):
+        first = self.manifest
+        self.host.fail_name = "Wiki-items"
+        with self.assertRaises(ContractError):
+            self.run_publish()
+        self.next_release()
+        result, _ = self.run_publish()
+        self.assertEqual(result["release_id"], self.manifest["release_id"])
+        previous = publication.load(self.root / "publications" / (first["release_id"] + ".json"))
+        for identity, plan in result["repositories"].items():
+            self.assertEqual(git(self.root / plan["path"], "rev-parse", plan["pages"] + "^"),
+                             previous["repositories"][identity]["pages"])
+
     def test_unchanged_immutable_packs_do_not_download_again(self):
         first, _ = self.run_publish()
         for receipt in (self.root / '.local/publication/remotes').glob('*.json'):

@@ -340,6 +340,30 @@ Git memory. It created no physical repositories or public changes. Journaled wri
 final prepared Git measurements, bounded control metadata and entrypoint rollover
 remain required before the normal update can use these plans automatically.
 
+### Integrated storage capacity checkpoint
+
+The normal release stage now allocates immutable objects, prepares overflow Git
+repositories, measures final source/Pages history and records physical ownership in
+the release manifest and checkout lock. A durable journal precedes installation.
+Publication verifies storage dependencies before topic entrypoints and the hub.
+The loader follows hashed release-configuration references, and the preview preserves
+immutable JSON bytes while resolving public URLs locally.
+
+The full suite passed 164 tests in 250.413 seconds. Five forced-capacity integration
+cases exercise real Git commits with a deterministic publication host: automatic
+allocation and replay, interrupted installation, storage publication failure,
+historical release retention, and final-size rejection before promotion. The actual
+JavaScript loader passed six scenarios through Node.js, including byte/identity
+mismatches, namespace containment and local preview. Pending older publication can
+complete before a newer release; its updated Pages parent is remeasured before push.
+The independent checker also accepted all 680 files and 26 historical configurations
+of the previous real public release.
+
+These checks do not prove live GitHub overflow provisioning or complete capacity
+management. Full logical-entrypoint rollover, oversized control-index splitting,
+staging retention and the other ADR completion gates remain open. The owning
+[capacity contract](CAPACITY.md) distinguishes the implemented path from those gaps.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters

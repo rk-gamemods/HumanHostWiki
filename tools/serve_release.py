@@ -1,4 +1,4 @@
-"""Preview a committed release locally, substituting local origins in routes only."""
+"""Preview all physical sites while preserving immutable JSON bytes and hashes."""
 
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,9 +15,10 @@ from wikibuild.storage import within
 
 
 def handler(root, manifest):
-    routes = {urlsplit(base).path.strip('/'): root / manifest['repositories'][topic]['path'] / 'site'
-              for topic, base in manifest['routes'].items()}
-    replacements = {base.encode(): (urlsplit(base).path).encode() for base in manifest['routes'].values()}
+    routes = {repo['github_name']: root / repo['path'] / 'site' for repo in manifest['repositories'].values()}
+    hub = urlsplit(manifest['routes']['hub'])
+    origin = hub.scheme + '://' + hub.netloc
+    injection = ('<script>globalThis.humanHostPreviewOrigin=' + json.dumps(origin) + ';</script>').encode()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -42,9 +43,8 @@ def handler(root, manifest):
                     self.send_error(404)
                     return
             data = path.read_bytes()
-            if path.suffix == '.html' or path.name == 'reader.json' or path.parent.name == 'releases':
-                for origin, local in replacements.items():
-                    data = data.replace(origin, local)
+            if path.suffix == '.html':
+                data = data.replace(origin.encode(), b'').replace(b'<head>', b'<head>' + injection, 1)
             self.send_response(status)
             self.send_header('Content-Type', mimetypes.guess_type(str(path))[0] or 'application/octet-stream')
             self.send_header('Content-Length', str(len(data)))

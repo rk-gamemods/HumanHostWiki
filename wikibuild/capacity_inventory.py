@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 import subprocess
 
-from . import capacity, publication, release
+from . import capacity, physical, publication, release
 from .storage import ContractError, git, within
 
 
@@ -61,37 +61,51 @@ def history_size(path, refs):
 
 
 def read(root, project):
-    """Read the current logical repositories as the initial allocation baseline.
-
-    Caller holds the workspace lock while preparing an allocation from this state.
-    Allocated partitions will be read from the release's physical registry when
-    the release integration is added. Refuse that schema here until it is owned.
-    """
-    identity = json.loads((root / "releases/latest.json").read_text(encoding="utf-8"))["release_id"]
-    manifest = release.read(root, identity)
+    """Caller holds the workspace lock; read committed physical ownership only."""
+    pointer = root / "releases/latest.json"
+    identity = json.loads(pointer.read_text(encoding="utf-8"))["release_id"] if pointer.exists() else None
+    manifest = release.read(root, identity) if identity else None
     topics = tuple(capacity.Topic(repo["id"], repo["github_name"]) for repo in project["repositories"])
-    if set(manifest["repositories"]) != {topic.id for topic in topics}:
-        raise ContractError("Capacity inventory requires the initial logical repository layout")
-    release.verify(root, manifest)
+    registry = manifest.get("physical") if manifest else None
+    repositories = physical.repositories(project, registry)
+    if manifest:
+        if set(manifest["repositories"]) != {repo["id"] for repo in repositories}:
+            raise ContractError("Release outputs differ from the physical registry")
+        release.verify(root, manifest)
     published = publication.published(root)
+    owners = {topic.id: topic for topic in topics}
     partitions, stored = [], []
-    for topic in topics:
-        record = manifest["repositories"][topic.id]
-        if record["github_name"] != topic.github_name or record["path"] != "repositories/" + topic.id:
-            raise ContractError("Released repository differs from the configured logical topic")
-        path = within(root, record["path"])
-        refs = [record["commit"]]
-        if published and topic.id in published["repositories"]:
-            prior = published["repositories"][topic.id]
-            if prior["name"] != topic.github_name:
+    for repo in repositories:
+        path = within(root, repo["path"])
+        if manifest:
+            record = manifest["repositories"][repo["id"]]
+            if record["github_name"] != repo["github_name"] or record["path"] != repo["path"]:
+                raise ContractError("Released repository differs from its physical identity")
+            commit = record["commit"]
+            owner = json.loads(git(path, "cat-file", "blob", commit + ":" + release.OWNER_FILE))
+        else:
+            if (path / release.OWNER_FILE).exists():
+                raise ContractError("Owned outputs exist without a release baseline")
+            commit, owner = git(path, "rev-parse", "HEAD"), {"files": {}}
+        refs = [commit]
+        if published and repo["id"] in published["repositories"]:
+            prior = published["repositories"][repo["id"]]
+            if prior["name"] != repo["github_name"]:
                 raise ContractError("Published repository differs from capacity inventory")
             refs.append(prior["pages"])
         measured = history_size(path, refs)
-        partitions.append(capacity.partition(topic, 0, site_bytes=record["site_bytes"],
-                                               history_bytes=measured["history_bytes"]))
-        owner = json.loads(git(path, "cat-file", "blob", record["commit"] + ":" + release.OWNER_FILE))
-        for name, meta in owner["files"].items():
-            if capacity.OBJECT.fullmatch(name):
-                artifact = capacity.Artifact(topic.id, name, meta["sha256"], meta["bytes"])
-                stored.append(capacity.Placement(artifact, topic.id))
+        logical = repo.get("logical_topic", repo["id"])
+        state = registry[repo["id"]] if registry else {"ordinal": 0, "sealed": False}
+        site_bytes = sum(meta["bytes"] for name, meta in owner["files"].items() if name.startswith("site/"))
+        partitions.append(capacity.partition(owners[logical], state["ordinal"], site_bytes=site_bytes,
+                                               history_bytes=measured["history_bytes"], sealed=state["sealed"]))
+        selected = owner.get("capacity_objects", [name for name in owner["files"] if capacity.OBJECT.fullmatch(name)])
+        if len(selected) != len(set(selected)):
+            raise ContractError("Duplicate capacity object in output ownership")
+        for name in selected:
+            if capacity.OBJECT.fullmatch(name) is None or name not in owner["files"]:
+                raise ContractError("Invalid capacity object in output ownership")
+            meta = owner["files"][name]
+            artifact = capacity.Artifact(logical, name, meta["sha256"], meta["bytes"])
+            stored.append(capacity.Placement(artifact, repo["id"]))
     return Inventory(identity, topics, tuple(partitions), tuple(stored))
