@@ -30,9 +30,11 @@ Derived factual documentation belongs in the wiki repositories. The parent
 codebase's source and raw catalog remain local inputs, read in place.
 
 Current tooling builds an architecture/navigation preview, registers input snapshots
-and extracts selected facts in every topic. Gameplay coverage and public deployment
+and extracts selected facts in every topic with durable identity decisions.
+Gameplay coverage and public deployment
 remain unfinished; see `docs/IMPLEMENTATION.md` for completion evidence and
-`docs/EXTRACTION.md` for adapter ownership and extension rules.
+`docs/EXTRACTION.md` for adapter ownership and extension rules. Identity matching,
+semantic revisions and recovery are owned by `docs/IDENTITY.md`.
 Never call a registered snapshot a verified wiki release or an empty topic a
 completed catalog. Keep implementation status accurate in the workflow document.
 

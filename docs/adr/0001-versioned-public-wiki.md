@@ -66,8 +66,10 @@ The complete scope and implementation status are separate: the current foundatio
 supports registry validation, local repository setup/locking, input registration,
 generated architecture maps and deterministic navigation previews.
 Selected facts in every topic are implemented with grouped exceptions and reuse.
-Gameplay coverage remains partial. The integrated runner, identity matching, historical
-browsing and publishing remain unfinished. These development commands are
+Gameplay coverage remains partial. Selected-observation identity matching and
+durable decisions are implemented; individual asset identities and historical
+coverage remain incomplete. The integrated runner, historical browsing and
+publishing remain unfinished. These development commands are
 diagnostic entrypoints, not the intended maintenance workflow. Current evidence
 and remaining completion gates are in [IMPLEMENTATION.md](../IMPLEMENTATION.md).
 

@@ -80,7 +80,7 @@ flowchart LR
   capture --> register
   normalize["normalize: partial"]
   register --> normalize
-  identity["identity: planned"]
+  identity["identity: partial"]
   normalize --> identity
   project["project: planned"]
   identity --> project
@@ -98,7 +98,7 @@ flowchart LR
 | capture | HumanHostMods/tools/Decompile-GameCode.ps1 | external-existing |
 | register | wikibuild/snapshots.py | implemented |
 | normalize | wikibuild/extraction.py and topic adapters | partial |
-| identity | future identity registry | planned |
+| identity | wikibuild/identity.py, model.py and history.py | partial |
 | project | future topic projectors | planned |
 | verify | future semantic and link validation | planned |
 | release | future release coordinator | planned |

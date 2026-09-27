@@ -120,6 +120,31 @@ The benchmark retains its generated cache under `.local/benchmarks/`; it reads t
 existing source in place. It verifies unchanged output bytes and pointer timestamps.
 Its peak-memory figure covers the Python process and excludes the Git subprocess.
 
+## Reconcile selected identities
+
+```powershell
+py -3 wiki.py normalize
+py -3 tools/check_history.py
+py -3 tools/benchmark_extraction.py --identity
+```
+
+`normalize` registers and extracts the current source, then reconciles selected
+observations with the durable ledger under `identity/`. It preserves ambiguous
+matches and logs unresolved relationships while supported records complete.
+The independent checker verifies observation conservation, facts, evidence,
+semantic hashes and canonical target references against the pinned source.
+
+Immutable run/state files and `identity/latest.json` are durable decision history.
+The generated `.local/history/` model is rebuildable staging. Missing staging is
+reconstructed from frozen decisions; modified staging is preserved and refused.
+A repeated older request cannot rewind a later decision chain. For reviewed
+corrections and rule ownership, see [identity contracts](IDENTITY.md).
+
+This command currently processes the current source commit. Older captured game
+builds without a catalog require explicit uncaptured status; current asset facts
+cannot establish what those builds contained. Historical registration and public
+history browsing remain unfinished. No identity run grants gameplay verification.
+
 ## Build the architecture preview
 
 ```powershell
@@ -176,8 +201,10 @@ no-op builds, writer exclusion and failure before preview promotion. They use
 small synthetic local Git repositories. A real input registration and repeated
 preview build complement those tests during initial setup.
 
-They do not establish correctness of unimplemented gameplay adapters, historical
-identity matching or remote publication. The ADR lists their acceptance gates.
+Identity tests cover source-ID changes, renames, reused IDs, split/merge ambiguity,
+reviewed mappings, revision reuse, removals, capture gaps and interrupted writes.
+They do not establish correctness of unimplemented gameplay adapters, real
+cross-build identity continuity or remote publication. The ADR lists those gates.
 
 Git for Windows can mark synthetic test object files read-only. Test cleanup uses
 ordinary removal and reports any protected fixtures retained under

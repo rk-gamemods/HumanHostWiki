@@ -31,8 +31,8 @@ complete product.
   separate failure reports and final unresolved-content report.
 - Extract and independently validate every registered gameplay topic. Account for
   source objects locally without copying the whole index into wiki content.
-- Implement evidence-based identity reconciliation, explicit ambiguity, removals,
-  semantic revision reuse and dependency-based verification across captured builds.
+- Complete individual asset identities, real cross-build identity coverage and
+  dependency-based verification beyond the selected-observation identity stage.
 - Render readable grouped pages, search, version selection, provenance, historical
   links, authored-claim checks and useful external backlinks.
 - Coordinate child commits and immutable releases with interrupted-run recovery,
@@ -104,6 +104,33 @@ complete product.
   New checks cover nested selection, null/unknown references, recipe projection,
   source/index hash disagreement, assembly-name collisions and object accounting.
   [Extraction contracts](EXTRACTION.md) identify the owning files for corrections.
+
+### Selected identity checkpoint
+
+- `wiki.py normalize` assigned wiki keys to 8,146 selected observations. The ledger
+  retains matching evidence, ambiguity, semantic revisions and snapshot-specific
+  provenance; source hashes do not determine semantic revision identity.
+- The initial real-source model contains 76 unresolved relationship occurrences
+  in two groups. Those gaps do not block other facts or relationships. The stage
+  has no model calls and grants no gameplay/current-version badge.
+- `tools/check_history.py` independently validated 101,032 assertions across all
+  8,146 observations, including conservation, values, revision hashes, provenance
+  and target aliases. It does not import identity, model or source-reader code.
+- A combined local benchmark measured identity at 1.745 seconds fresh and 0.121
+  seconds unchanged, with zero source bytes read on repeat. Peak Python working
+  set for extraction plus identity was 62.5 MiB, excluding Git. The initial ledger
+  is 8.4 MiB and model staging is 22.2 MiB. Public storage must still reuse immutable
+  revisions and enforce capacity budgets; these staging files are not releases.
+- Earlier real builds `25448142` and `25407931` contain decompiled code and
+  `BUILD_INFO.md` but no asset catalog. Future historical registration must expose
+  that capture gap rather than apply present-day asset facts to those builds.
+- [Identity contracts](IDENTITY.md) locate matching rules, graph projection,
+  reviewed corrections and persistent transaction ownership. Full historical
+  browsing, underlying asset identities and publication remain incomplete.
+- The suite passed 80 tests after adding duplicate-observation rejection and
+  stable reviewed-new allocation across matching-rule changes. Reprocessing the
+  real snapshot after that correction preserved all 8,146 semantic revisions;
+  the independent checker passed again and the unchanged repeat reused its run.
 
 ## Deferred classifier experiments
 

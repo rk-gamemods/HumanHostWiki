@@ -16,7 +16,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from wikibuild import extraction, snapshots
+from wikibuild import extraction, history, snapshots
 from wikibuild.storage import writer_lock
 
 
@@ -43,7 +43,7 @@ def peak_memory():
     return counters.PeakWorkingSetSize
 
 
-def benchmark(source):
+def benchmark(source, include_identity=False):
     project = json.loads((ROOT / "project.json").read_text())
     parent = ROOT / ".local/benchmarks"
     parent.mkdir(parents=True, exist_ok=True)
@@ -60,13 +60,29 @@ def benchmark(source):
         repeat["seconds"] = round(time.perf_counter() - started, 3)
         if first != second or stamp != pointer.stat().st_mtime_ns:
             raise ValueError("Unchanged repeat changed the result or pointer")
+        identity_metrics = {}
+        if include_identity:
+            started = time.perf_counter()
+            initial, identity_cold = history.run(work, source, receipt, first)
+            identity_cold["seconds"] = round(time.perf_counter() - started, 3)
+            pointer = work / "identity/latest.json"
+            stamp = pointer.stat().st_mtime_ns
+            started = time.perf_counter()
+            repeated, identity_repeat = history.run(work, source, receipt, first)
+            identity_repeat["seconds"] = round(time.perf_counter() - started, 3)
+            if initial != repeated or stamp != pointer.stat().st_mtime_ns:
+                raise ValueError("Identity repeat changed the result or pointer")
+            identity_metrics = {"identity_cold": identity_cold, "identity_repeat": identity_repeat,
+                                "ledger_bytes": initial["state"]["bytes"], "model_bytes": initial["models"]["bytes"]}
     return {"snapshot": receipt["snapshot_id"], "cold": cold, "repeat": repeat,
             "python_peak_working_set_bytes": peak_memory(), "memory_scope": "Python process only; excludes Git subprocess",
             "record_bytes": first["records"]["bytes"], "record_sha256": first["records"]["sha256"],
-            "cache": str(work.relative_to(ROOT)), "byte_and_pointer_stability": "passed"}
+            "cache": str(work.relative_to(ROOT)), "byte_and_pointer_stability": "passed", **identity_metrics}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=ROOT.parent / "HumanHostCodebase")
-    print(json.dumps(benchmark(parser.parse_args().source), indent=2))
+    parser.add_argument("--identity", action="store_true", help="Also measure identity/history processing and its repeat")
+    args = parser.parse_args()
+    print(json.dumps(benchmark(args.source, args.identity), indent=2))

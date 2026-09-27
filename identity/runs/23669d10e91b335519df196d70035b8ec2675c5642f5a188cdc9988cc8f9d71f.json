@@ -1,0 +1,80 @@
+{
+  "change_origin": "initial",
+  "contract_sha256": "b7b84e9c31003ec9836bde83ff3a635627edd433344eea0dfe9647601f78de53",
+  "corrections_sha256": "ff75bee24e8eb4b416fe1bac1036b0898729c3286ad5a8c9e0f0994df2bcc6a4",
+  "counts": {
+    "new": 8146
+  },
+  "exceptions": {
+    "group_count": 2,
+    "groups": [
+      {
+        "code": "relationship-gap",
+        "examples": [
+          "bundles/vehicle_parts_icon_assets_all.bundle::serialized-0#2314867528783352842",
+          "bundles/vehicle_parts_icon_assets_all.bundle::serialized-0#561488052171951150"
+        ],
+        "id": "41ffdae40739e4090e93bce0",
+        "message": "A selected relationship lacks a unique cataloged target; other relationships were retained.",
+        "occurrences": 2,
+        "pattern": "model",
+        "topic": "items-equipment"
+      },
+      {
+        "code": "relationship-gap",
+        "examples": [
+          "bundles/zb_baseterrain_assets_all.bundle::serialized-0#-5143606443698367351",
+          "bundles/zb_desert_assets_all.bundle::serialized-0#2924915871640044705",
+          "bundles/zb_desert_rocky_assets_all.bundle::serialized-0#-5847023096234725915",
+          "bundles/zb_forest_assets_all.bundle::serialized-0#-3797249700584937674",
+          "bundles/zb_forest_assets_all.bundle::serialized-0#2241260805568844840",
+          "bundles/zb_forest_assets_all.bundle::serialized-0#3825021950835633410",
+          "bundles/zb_mountain_assets_all.bundle::serialized-0#1146310594220424584",
+          "bundles/zb_mountain_assets_all.bundle::serialized-0#1330804590348258261"
+        ],
+        "id": "b3e9301fc14999e71ce2b7b0",
+        "message": "A selected relationship lacks a unique cataloged target; other relationships were retained.",
+        "occurrences": 74,
+        "pattern": "headless-prefab",
+        "topic": "spawning-populations"
+      }
+    ],
+    "kind": "unresolved-wiki-content",
+    "next_action": "Ask the user how to handle these exceptions after supported work completes.",
+    "occurrences": 76,
+    "schema_version": 1
+  },
+  "extraction_run": "4fa0a92d30c964fdc28537ea71c0ff11421b82977c23996a186436179b089c75",
+  "input_identity": {
+    "inventory": "1184f9cfdddd5f6448411e38187fc9ac68a37088",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "25548639",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "8060226703539543058",
+          "size": "53522231159"
+        }
+      }
+    }
+  },
+  "models": {
+    "bytes": 23271792,
+    "path": ".local/history/objects/9f29738b730f66bffbdca875ce7a9c899cec4408574593b43ad874a26f021485.jsonl",
+    "sha256": "9f29738b730f66bffbdca875ce7a9c899cec4408574593b43ad874a26f021485"
+  },
+  "parent_run": null,
+  "request_key": "2c78398273551c7262efabc6f023a2684d04186312dc2490ea2d02c28ba3ed56",
+  "run_id": "23669d10e91b335519df196d70035b8ec2675c5642f5a188cdc9988cc8f9d71f",
+  "schema_version": 1,
+  "snapshot_id": "build-25548639-8f1263c7d28f",
+  "source_commit": "8f1263c7d28f1fcfd19e212c97d860cefa31b3b0",
+  "state": {
+    "bytes": 8793090,
+    "path": "identity/states/ab291f4bc146db3e35b6be4b9b121c01b37b14eff9728b3a6e88e114a653322d.jsonl",
+    "sha256": "ab291f4bc146db3e35b6be4b9b121c01b37b14eff9728b3a6e88e114a653322d"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}

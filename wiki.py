@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from wikibuild import extraction, manifest, navigation, snapshots, workspace
+from wikibuild import extraction, history, manifest, navigation, snapshots, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 
@@ -19,7 +19,7 @@ def run(root, args):
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in project["repositories"]]}
     if args.command == "plan":
-        return {"stages": project["pipeline"], "note": "Registration and selected facts in every topic are implemented; coverage remains partial. Build renders the architecture preview. Full normalization and release remain unfinished."}
+        return {"stages": project["pipeline"], "note": "Registration, selected facts and identity history are implemented; coverage remains partial. Build renders the architecture preview. Gameplay pages, full historical coverage and release remain unfinished."}
     if args.command == "check-lock":
         result = workspace.checkout_lock(root, project, check=True)
         return {"lock": "current", "repositories": len(result["repositories"])}
@@ -40,11 +40,15 @@ def run(root, args):
         if args.command == "init-repositories":
             return {"created": workspace.initialize(root, project), "remotes_created": 0,
                     "note": "New repositories contain uncommitted seed files; review and commit them locally."}
-        if args.command in {"refresh", "extract"}:
+        if args.command in {"refresh", "extract", "normalize"}:
             source = Path(args.source) if args.source else root / project["source"]["default_path"]
             receipt = snapshots.register(root, project, source)
-            if args.command == "extract":
+            if args.command in {"extract", "normalize"}:
                 result, metrics = extraction.run(root, project, source, receipt)
+                if args.command == "normalize":
+                    normalized, history_metrics = history.run(root, source, receipt, result)
+                    return {"identity": normalized, "metrics": history_metrics,
+                            "extraction": {"run_id": result["run_id"], "exceptions": result["exceptions"], "metrics": metrics}}
                 return {**result, "metrics": metrics}
             return {"snapshot_id": receipt["snapshot_id"], "status": receipt["status"],
                     "wiki_verification": receipt["wiki_verification"], "game_version": receipt["game_version"]}
@@ -64,6 +68,8 @@ def main():
     refresh.add_argument("--source", help="Existing local codebase repository; default from project.json")
     extract = sub.add_parser("extract", help="Extract supported facts and report exceptions; does not publish")
     extract.add_argument("--source", help="Existing local codebase repository; default from project.json")
+    normalize = sub.add_parser("normalize", help="Reconcile selected identities and semantic revisions; does not publish")
+    normalize.add_argument("--source", help="Existing local codebase repository; default from project.json")
     build = sub.add_parser("build", help="Build a local architecture/navigation preview, not gameplay articles")
     build.add_argument("--snapshot", help="Registered snapshot ID for the preview provenance banner")
     args = parser.parse_args()

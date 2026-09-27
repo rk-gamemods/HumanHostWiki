@@ -1,0 +1,226 @@
+"""Durable identity decisions and reusable normalized staging, under the writer lock."""
+
+from collections import Counter
+import json
+import os
+from pathlib import Path
+import uuid
+
+from . import extraction, identity, model
+from .exceptions import Exceptions
+from .source import Source
+from .storage import ContractError, digest, json_bytes, within, write_changed
+
+
+def immutable(path, data):
+    if path.exists() and path.read_bytes() != data:
+        raise ContractError(f"Immutable identity artifact differs: {path.name}")
+    write_changed(path, data)
+
+
+def install(root, temporary, namespace):
+    sha = extraction.file_hash(temporary)
+    relative = f"{namespace}/{sha}.jsonl"
+    destination = within(root, relative)
+    record = {"path": relative, "sha256": sha, "bytes": temporary.stat().st_size}
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        extraction.artifact(root, record)
+        temporary.unlink()
+    else:
+        os.rename(temporary, destination)
+    return record
+
+
+def contract():
+    folder = Path(__file__).parent
+    return digest(json_bytes({name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
+                             for name in ("identity.py", "model.py", "history.py", "storage.py", "exceptions.py", "source.py")}))
+
+
+def corrections(root):
+    path = within(root, "identity/corrections.json")
+    data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"schema_version": 1, "mappings": []}
+    if data.get("schema_version") != 1 or not isinstance(data.get("mappings"), list):
+        raise ContractError("Invalid reviewed identity corrections")
+    return data
+
+
+def read(root, run_id, require_models=True):
+    if not isinstance(run_id, str) or len(run_id) != 64 or any(c not in "0123456789abcdef" for c in run_id):
+        raise ContractError("Invalid identity run identifier")
+    result = json.loads(within(root, f"identity/runs/{run_id}.json").read_text(encoding="utf-8"))
+    if result.get("schema_version") != 1 or result.get("run_id") != run_id or identity.fingerprint([result["request_key"], result["parent_run"]]) != run_id:
+        raise ContractError("Identity run schema or identity mismatch")
+    for key in ("state", "models") if require_models else ("state",):
+        extraction.artifact(root, result[key])
+    return result
+
+
+def latest(root):
+    pointer = within(root, "identity/latest.json")
+    return read(root, json.loads(pointer.read_text())["run_id"], require_models=False) if pointer.exists() else None
+
+
+def load_state(root, run):
+    states = {}
+    if run:
+        for row in model.rows(extraction.artifact(root, run["state"])):
+            if row["entity_key"] in states:
+                raise ContractError("Duplicate entity in identity state")
+            states[row["entity_key"]] = row
+    return states
+
+
+def same_inputs(receipt, previous):
+    return bool(previous and receipt["steam"] == previous["input_identity"]["steam"]
+                and receipt["input_inventory_git_blob"] == previous["input_identity"]["inventory"])
+
+
+def write_row(stream, row):
+    stream.write((json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode())
+
+
+def relevant_metadata(source, revision, needed):
+    metadata = {}
+    with Source(source, revision) as inputs:
+        for entry in inputs.records("Catalog/views/object-index.jsonl"):
+            if entry["id"] in needed:
+                metadata[entry["id"]] = {key: entry[key] for key in ("type", "assembly", "class", "paths") if key in entry}
+        return metadata, inputs.bytes_read
+
+
+def restore_models(root, source, observations, extracted, prepared):
+    """Rebuild missing staging from frozen decisions; never rerun matching."""
+    path = within(root, prepared["models"]["path"])
+    if path.exists():
+        extraction.artifact(root, prepared["models"])
+        return 0
+    state = load_state(root, prepared)
+    by_observation = {row["descriptor"]["observation_key"]: row for row in state.values() if row["status"] == "present"}
+    assignments = {key: row["entity_key"] for key, row in by_observation.items()}
+    needed = {key for row in model.rows(observations) for key in model.source_ids(row)}
+    metadata, source_bytes = relevant_metadata(source, prepared["source_commit"], needed)
+    indexes = model.targets_index(model.rows(observations), assignments)
+    temporary = within(root, ".local/history/repair/" + uuid.uuid4().hex + ".jsonl")
+    temporary.parent.mkdir(parents=True, exist_ok=True)
+    with temporary.open("wb") as stream:
+        for row in model.rows(observations):
+            key = row["observation_key"]
+            projected = model.project(row, assignments[key], indexes, metadata, extracted["dependencies"], Exceptions())
+            projected["snapshot_id"] = prepared["snapshot_id"]
+            projected["identity_decision"] = by_observation[key]["decision"]
+            write_row(stream, projected)
+    if extraction.file_hash(temporary) != prepared["models"]["sha256"]:
+        raise ContractError("Rebuilt staging differs from the accepted identity run; preserved for investigation")
+    install(root, temporary, ".local/history/objects")
+    return source_bytes
+
+
+def run(root, source, receipt, extracted):
+    """Caller holds writer_lock. No publication or page-verification side effect."""
+    extraction.ensure_source(source, receipt["source_commit"])
+    if extracted["source_commit"] != receipt["source_commit"] or extracted["snapshot_id"] != receipt["snapshot_id"]:
+        raise ContractError("Extraction and identity inputs name different snapshots")
+    observations = extraction.artifact(root, extracted["records"])
+    reviewed = corrections(root)
+    contract_hash = contract()
+    request_key = identity.fingerprint([receipt["snapshot_id"], extracted["run_id"], extracted["records"]["sha256"], contract_hash, reviewed])
+    request_path = within(root, f"identity/requests/{request_key}.json")
+    pointer = within(root, "identity/latest.json")
+    previous = latest(root)
+    parent_id = previous["run_id"] if previous else None
+    if request_path.exists():
+        prepared = read(root, json.loads(request_path.read_text())["run_id"], require_models=False)
+        if prepared["request_key"] != request_key:
+            raise ContractError("Identity request receipt mismatch")
+        if parent_id not in {prepared["parent_run"], prepared["run_id"]}:
+            raise ContractError("An earlier identity request cannot rewind later decisions")
+        source_bytes = restore_models(root, source, observations, extracted, prepared)
+        extraction.ensure_source(source, receipt["source_commit"])
+        write_changed(pointer, json_bytes({"run_id": prepared["run_id"]}))
+        return prepared, {"reused": True, "source_bytes_read": source_bytes}
+
+    run_id = identity.fingerprint([request_key, parent_id])
+    old = load_state(root, previous)
+    needed = {state["descriptor"]["source_object"] for state in old.values()}
+    for row in model.rows(observations):
+        needed.update(model.source_ids(row))
+    metadata, source_bytes = relevant_metadata(source, receipt["source_commit"], needed)
+    descriptors = {}
+    for row in model.rows(observations):
+        key = row["observation_key"]
+        if key in descriptors:
+            raise ContractError("Duplicate observation in identity input")
+        descriptors[key] = identity.describe(row, metadata)
+    unchanged_inputs = same_inputs(receipt, previous)
+    assignments, decisions = identity.reconcile(descriptors, old, receipt["snapshot_id"], request_key,
+                                               same_capture=unchanged_inputs, corrections=reviewed["mappings"])
+    indexes = model.targets_index(model.rows(observations), assignments)
+    issues, states, counts = Exceptions(), {}, Counter()
+    staging = within(root, ".local/history/staging/" + uuid.uuid4().hex)
+    staging.mkdir(parents=True)
+    with (staging / "models.jsonl").open("wb") as stream:
+        for row in model.rows(observations):
+            key = row["observation_key"]
+            entity = assignments[key]
+            projected = model.project(row, entity, indexes, metadata, extracted["dependencies"], issues)
+            prior = old.get(entity)
+            changed = not prior or prior["revision_id"] != projected["revision_id"]
+            counts["new" if not prior else "changed" if changed else "unchanged"] += 1
+            decision = decisions[key]
+            if decision["status"] == "ambiguous":
+                counts["ambiguous"] += 1
+                issues.add("ambiguous-identity", row["topic"], row["kind"],
+                           "Identity candidates are unresolved; this observation retains a separate wiki key.", row["source_id"])
+            states[entity] = {"entity_key": entity, "descriptor": descriptors[key], "revision_id": projected["revision_id"],
+                              "status": "present", "first_seen": prior["first_seen"] if prior else receipt["snapshot_id"],
+                              "last_seen": receipt["snapshot_id"], "last_changed": receipt["snapshot_id"] if changed else prior["last_changed"],
+                              "last_data_checked": receipt["snapshot_id"], "last_verified": None, "decision": decision}
+            projected["snapshot_id"] = receipt["snapshot_id"]
+            projected["identity_decision"] = decision
+            write_row(stream, projected)
+    ambiguous_old = {candidate for decision in decisions.values() if decision["status"] == "ambiguous" for candidate in decision["candidates"]}
+    current_by_observation = {state["descriptor"]["observation_key"]: entity for entity, state in states.items()}
+    for entity, state in old.items():
+        if entity in states:
+            continue
+        if state["status"] == "superseded":
+            states[entity] = state
+            continue
+        observation = state["descriptor"]["observation_key"]
+        replacement = current_by_observation.get(observation)
+        if replacement and decisions[observation]["status"] == "reviewed":
+            status = "superseded"
+        elif entity in ambiguous_old:
+            status = "unresolved"
+        else:
+            status = model.absent_status(state, extracted["supported_kinds"], metadata)
+        states[entity] = {**state, "status": status,
+                          **({"superseded_by": replacement} if status == "superseded" else {})}
+        if status != state["status"]:
+            counts[status] += 1
+    with (staging / "state.jsonl").open("wb") as stream:
+        for entity in sorted(states):
+            write_row(stream, states[entity])
+    result = {"schema_version": 1, "run_id": run_id, "request_key": request_key, "parent_run": parent_id,
+              "snapshot_id": receipt["snapshot_id"], "source_commit": receipt["source_commit"],
+              "extraction_run": extracted["run_id"], "contract_sha256": contract_hash,
+              "input_identity": {"steam": receipt["steam"], "inventory": receipt["input_inventory_git_blob"]},
+              "corrections_sha256": identity.fingerprint(reviewed),
+              "change_origin": ("initial" if not previous else "game-input-change" if not unchanged_inputs else
+                                "identity-correction" if previous.get("corrections_sha256") != identity.fingerprint(reviewed) else "extractor-correction"),
+              "state": install(root, staging / "state.jsonl", "identity/states"),
+              "models": install(root, staging / "models.jsonl", ".local/history/objects"),
+              "counts": dict(sorted(counts.items())), "exceptions": issues.report(),
+              "verification": "selected-data-only; gameplay and pages not verified", "wiki_release": "not-created"}
+    extraction.ensure_source(source, receipt["source_commit"])
+    extraction.artifact(root, extracted["records"])
+    if contract() != contract_hash or corrections(root) != reviewed:
+        raise ContractError("Identity rules changed during generation; previous pointer preserved")
+    immutable(within(root, f"identity/runs/{run_id}.json"), json_bytes(result))
+    read(root, run_id)
+    immutable(request_path, json_bytes({"run_id": run_id}))
+    write_changed(pointer, json_bytes({"run_id": run_id}))
+    staging.rmdir()
+    return result, {"reused": False, "source_bytes_read": source_bytes}

@@ -46,7 +46,7 @@
     {"id": "capture", "depends_on": ["detect"], "owner": "HumanHostMods/tools/Decompile-GameCode.ps1", "status": "external-existing"},
     {"id": "register", "depends_on": ["capture"], "owner": "wikibuild/snapshots.py", "status": "implemented"},
     {"id": "normalize", "depends_on": ["register"], "owner": "wikibuild/extraction.py and topic adapters", "status": "partial"},
-    {"id": "identity", "depends_on": ["normalize"], "owner": "future identity registry", "status": "planned"},
+    {"id": "identity", "depends_on": ["normalize"], "owner": "wikibuild/identity.py, model.py and history.py", "status": "partial"},
     {"id": "project", "depends_on": ["identity"], "owner": "future topic projectors", "status": "planned"},
     {"id": "verify", "depends_on": ["project"], "owner": "future semantic and link validation", "status": "planned"},
     {"id": "release", "depends_on": ["verify"], "owner": "future release coordinator", "status": "planned"},
