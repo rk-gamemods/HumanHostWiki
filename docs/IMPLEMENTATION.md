@@ -599,8 +599,27 @@ hash/mtime comparison. Registry validation, the generated map, all thirteen chil
 locks and whitespace validation passed before the live update. Protected synthetic
 fixtures remain retained without overriding their file protections.
 
-Live publication and repeat evidence will be recorded after the normal update.
-Display-version capture and dependency-based gameplay verification remain open.
+Implementation commit `8145ba9` completed the normal operator update and published
+release `242d80ac4dde930da38365b9eec1a67e165ef19b646afe0fe8166838ba606ca5`
+to all thirteen sites. The provider observed public build `25548639` at
+`2026-09-27T09:26:55+00:00`, matching the captured build. Immutable observation
+`446c285e4bb26fa3e022cbb096fd7009b5498c9bd433374737be60c47484fb41`
+records its source and hashes. The release audit independently checked 823 owned
+files (48,697,973 bytes), 589 candidate files and 104 historical configurations.
+The cached unchanged update passed in 8.703 seconds with all thirteen child commits
+and 846 observed files' hashes and modification times unchanged. Normalize and
+identity reused results with zero selected-source bytes read. This is not a claim
+of zero filesystem I/O. Evidence is in `.local/availability-operator-report.txt`,
+`.local/availability-release-audit.json` and `.local/availability-live-repeat.json`.
+
+The published browser check verified the observation time and matching-build text,
+the explicit absence of gameplay verification, hub-to-item navigation, `Crude Axe`
+search and entry facts, and selection of the older `8f1263c7d28f` capture while
+retaining the release ID. Both real captures belong to the same Steam build;
+different-build wording is fixture-tested. The operator report retains 193
+exception groups and 27,087 occurrences. No exception was investigated or resolved
+in this checkpoint. Display-version capture and dependency-based gameplay
+verification remain open.
 
 ## Deferred classifier experiments
 

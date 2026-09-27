@@ -3,67 +3,67 @@
   "project_sha256": "a2135741587cd2fa3e462aac0db751ac023e3a7e9287e0e34fc6a025b16ce249",
   "repositories": {
     "biomes-resources": {
-      "commit": "e143922e97c909cc8ba4bd3bc7cdb3683d4ef84b",
+      "commit": "ff043335bea1a43357fa0c62b843109c89f1659d",
       "github_name": "HumanHost-Wiki-Biomes",
       "path": "repositories/biomes-resources"
     },
     "combat": {
-      "commit": "927108236b0f526be7bd491ef5f058cbe7fb84eb",
+      "commit": "87c2130929651a2a5c08f052875a3eddbc7b940b",
       "github_name": "HumanHost-Wiki-Combat",
       "path": "repositories/combat"
     },
     "construction": {
-      "commit": "3e97f96651e5ccb764fba4100a44ffdae3356a23",
+      "commit": "47572c7ee5357d9ea9e77a1a07122910fcadf31d",
       "github_name": "HumanHost-Wiki-Construction",
       "path": "repositories/construction"
     },
     "crafting-processing": {
-      "commit": "685d4b7dfafeb8ccda236d44f5c27d9839f73e94",
+      "commit": "55c5971bbb5174157e7bb13652faee7034225045",
       "github_name": "HumanHost-Wiki-Crafting",
       "path": "repositories/crafting-processing"
     },
     "creatures-ai": {
-      "commit": "0cb1ed272e5c273819175028f2d5b028e0b437a0",
+      "commit": "cf4fafe3dd19e06205d21a42e9786aa7d5aa4376",
       "github_name": "HumanHost-Wiki-Creatures",
       "path": "repositories/creatures-ai"
     },
     "hub": {
-      "commit": "1d0fc8d8ae2895da7e8a34ed3f64aef5d986886c",
+      "commit": "9926d0c8b4d401565fdb23c4fbb4262b08065e13",
       "github_name": "HumanHost-Wiki",
       "path": "repositories/hub"
     },
     "items-equipment": {
-      "commit": "f928c444e4079729e158f692234da69b01571f42",
+      "commit": "de637812c1ad31a23eff5d2d85b858227989f0b1",
       "github_name": "HumanHost-Wiki-Items",
       "path": "repositories/items-equipment"
     },
     "loot-acquisition": {
-      "commit": "16160dddcc49b223171b3235fa9ccb5e7438640f",
+      "commit": "1d20dbec276b963437673ba685d65847366e7a59",
       "github_name": "HumanHost-Wiki-Loot",
       "path": "repositories/loot-acquisition"
     },
     "skills-survival": {
-      "commit": "72ea7e32e49db661dd32475849046bc4b7b93395",
+      "commit": "86f94c749f66931a5a36263f07216cf0c34a509e",
       "github_name": "HumanHost-Wiki-Survival",
       "path": "repositories/skills-survival"
     },
     "spawning-populations": {
-      "commit": "1fde4efb57b9bcf7b4bed6a205d16d5f07bce739",
+      "commit": "7f89fcd4af05db80ec79b5fbf733ebfc7f5ddf48",
       "github_name": "HumanHost-Wiki-Spawning",
       "path": "repositories/spawning-populations"
     },
     "technical-reference": {
-      "commit": "f716a287dfe57d4b72f60dcfc1213a77ced70170",
+      "commit": "7233792cdf8f759dc1056253b6a58490e5a31ad7",
       "github_name": "HumanHost-Wiki-Technical",
       "path": "repositories/technical-reference"
     },
     "vehicles": {
-      "commit": "e938b9fd18db6ccffa90ff60b99ad639815c2fed",
+      "commit": "2f65b1881856d9d49a2ded3ec03418fedca187cf",
       "github_name": "HumanHost-Wiki-Vehicles",
       "path": "repositories/vehicles"
     },
     "world-systems": {
-      "commit": "a4eb08406fe7c69f35a7323e0b7c4d65589609dc",
+      "commit": "27058c9fefe5549652fa77c8739f104d42a4c00a",
       "github_name": "HumanHost-Wiki-World",
       "path": "repositories/world-systems"
     }
