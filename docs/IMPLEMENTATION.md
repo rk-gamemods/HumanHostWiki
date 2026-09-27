@@ -26,12 +26,14 @@ complete product.
 
 ## Remaining completion gates
 
-The user has authorized reconciliation of all initial exceptions: 191 unsupported
-component classes, two relationship groups and five external article issues.
-Review their source evidence, correct the owning rules, and verify the resulting
-catalog before claiming the first working baseline. Historical checkpoints below
-that say these groups await user direction are superseded by this instruction.
-A completed script or published partial reader does not satisfy this gate.
+The original 191 unsupported component classes, two relationship groups and five
+external article issues now have reviewed resolutions in the owning rules. Normal
+decompile runs and an unchanged repeat report zero unresolved content. See
+[baseline reconciliation](BASELINE_RECONCILIATION.md) for the source decisions
+and remaining source-defined gameplay interpretation. Historical checkpoints
+below that say the initial backlog awaits user direction are superseded. Initial
+interpretation and the remaining acceptance work stay authorized; a successful
+selected-fact reader alone does not complete the ADR.
 
 The [external article integration](EXTERNAL_LINKS.md) now includes normal-update
 refresh, production routing, release storage and rendered backlinks. It has passed
@@ -1085,6 +1087,54 @@ many coordinate objects. Byte-bounded batching cannot fix a single decoded recor
 Selective field reading remains required memory work; raw geometry stays local.
 Diagnostic evidence is in `.local/baseline-memory-profile.jsonl`, and benchmark
 results are in `.local/baseline-bounded-extraction-benchmark.json`.
+
+### Large-record memory correction
+
+The catalog writer now indexes every member of script records at least 1 MiB
+in size. New source capture `1080b929da89375e2c09b6a80abc28f343e9d9a5`
+changes only `Catalog/generator.json` and `Catalog/views/object-index.jsonl`.
+All raw object shards and decompiled files remain byte-identical. An independent
+audit checked all 142 indexed records and 2,128 fields against their complete raw
+values. Member metadata totals 66,403 bytes for 261,714,133 raw record bytes.
+
+The wiki verifies the complete record hash while decoding only declared fields.
+Skipped values are read in chunks of at most 64 KiB; their names remain visible
+to new-field detection. Tests cover malformed metadata, changes inside skipped
+values, Unicode names, stale local files, immutable Git fallback and legacy indexes.
+The Git fallback still buffers one encoded line, and legacy indexes still decode
+complete records. Selected large values remain complete.
+
+The cold extraction/identity benchmark peaked at 181,633,024 Python working-set
+bytes, down from 676,065,280. This excludes the Git subprocess. Cold extraction
+took 11.913 seconds; unchanged extraction took 0.175 seconds with zero source
+reads. Cold identity took 4.624 seconds; its repeat took 0.200 seconds with zero
+source reads. Publication and the independent checker were running concurrently,
+so these latency samples are not a controlled comparison. The complete selected
+output remains 45,108,743 bytes with SHA-256
+`f843aca7527f64766e85cd6d5cf98fee9da4a2548d930bd118d4148bec5c29dc`.
+
+All 23 catalog tests, 18 extraction tests, 16 component tests and four record-reader
+tests passed. The parent solution built with zero warnings and errors. Independent
+source and history audits passed 365,969 and 318,439 assertions. Reader candidate
+`d4def90989e529d23a8f59dcaef8916d900d6ca80f8bdeca3fd07c41e11abf11`
+passed 603,170 assertions across 67,018 retained observations. It contains 2,289
+files totaling 181,071,520 bytes; the largest pack remains 514,644 bytes.
+Evidence is in `.local/baseline-selective-*`. The parent normal-command log is
+`../.local/baseline-selective-decompile.log`.
+
+The normal command published release
+`dbb5d525f6a7b033fef567b60c3844283ed3f7a21d31d5d147842072da3ae7d6`
+through pipeline `00cb20428e5de8944e8a54eedfceb92882d1d8ecae431e4261d294b2ac6fb78a`.
+It reports zero unresolved content groups and 22 populated external article checks.
+The independent release audit verified all 13 repositories, 4,821 owned files,
+439,339,142 owned bytes and 260 retained configurations. A second normal decompile
+command completed in 53.760 seconds, preserved the source commit and all 13 public
+child commits, and left 4,927 file hashes/timestamps unchanged. Installed-input
+hashes, Steam identity and generator checks confirmed source capture reuse.
+The live SceneProps page selected the new capture/release, displayed 4,887 total
+placements and zero unresolved placements, and kept the previous substantive-change
+date. No browser warnings or errors were recorded. Registry, map and checkout-lock
+checks passed. This completes the measured large-record memory correction.
 
 ## Deferred classifier experiments
 

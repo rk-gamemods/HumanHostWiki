@@ -6,11 +6,13 @@ declare their input paths; object lookups group requested IDs by catalog shard.
 
 from contextlib import contextmanager
 import hashlib
+import io
 import json
 from pathlib import Path, PurePosixPath
 import subprocess
 
 from .storage import ContractError, git
+from .source_record import read_record
 
 
 class Source:
@@ -123,7 +125,7 @@ class Source:
             raise ContractError(f"Invalid source object identity: {identity}") from exc
         return "Catalog/objects/" + shard.replace("::", "/") + ".jsonl"
 
-    def objects(self, identities):
+    def objects(self, identities, fields=None):
         by_path = {}
         for identity in identities:
             by_path.setdefault(self.object_path(identity), set()).add(identity)
@@ -144,16 +146,15 @@ class Source:
                         if type(offset) is not int or type(size) is not int or offset < 0 or size < 1 or offset + size > self.blobs[path]["bytes"]:
                             raise ContractError(f"Invalid source record location: {identity}")
                         handle.seek(offset)
-                        data = handle.read(size)
-                        self.bytes_read += len(data)
-                        if hashlib.sha256(data).hexdigest() != location.get("sha256"):
+                        def read(size):
+                            data = handle.read(size)
+                            self.bytes_read += len(data)
+                            return data
+                        row = read_record(read, location, fields.get(identity) if fields is not None else None)
+                        if row is None:
                             # A historical commit or different line endings may
                             # need the immutable blob. Never accept stale ranges.
                             continue
-                        try:
-                            row = json.loads(data)
-                        except (ValueError, UnicodeError) as exc:
-                            raise ContractError(f"Malformed source record location: {identity}") from exc
                         if not isinstance(row, dict) or row.get("id") != identity:
                             raise ContractError(f"Source record location identity mismatch: {identity}")
                         result[identity] = row
@@ -161,10 +162,28 @@ class Source:
                         self.dependencies[path] = {**self.blobs[path], "access": "verified-record-ranges"}
             if not remaining:
                 continue
+            indexed = {self.locations[identity]["offset"]: identity for identity in remaining
+                       if identity in self.locations}
+            offset = 0
             with self.lines(path) as lines:
                 for line in lines:
+                    indexed_id = indexed.get(offset)
+                    offset += len(line)
+                    if len(indexed) == len(remaining) and indexed_id is None:
+                        continue
                     try:
-                        row = json.loads(line)
+                        if indexed_id is not None:
+                            location = self.locations[indexed_id]
+                            row = read_record(io.BytesIO(line).read, location,
+                                              fields.get(indexed_id) if fields is not None else None)
+                            if row is None or len(line) != location["bytes"]:
+                                raise ContractError(f"Indexed record hash differs from pinned source: {indexed_id}")
+                            if row.get("id") != indexed_id:
+                                raise ContractError(f"Source record location identity mismatch: {indexed_id}")
+                        else:
+                            row = json.loads(line)
+                    except ContractError:
+                        raise
                     except (ValueError, UnicodeError) as exc:
                         raise ContractError(f"Malformed source object record: {path}") from exc
                     if not isinstance(row, dict):
@@ -177,6 +196,8 @@ class Source:
                         if location and hashlib.sha256(line).hexdigest() != location.get("sha256"):
                             raise ContractError(f"Indexed record hash differs from pinned source: {identity}")
                         result[identity] = row
+            if any(identity not in result for identity in indexed.values()):
+                raise ContractError(f"Indexed record location absent from pinned source: {path}")
         return result
 
     def changed_paths(self, previous):

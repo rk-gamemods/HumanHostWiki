@@ -96,7 +96,9 @@ def selected_records(source):
         wanted = list(group)
         if all(identity in source.locations for identity in wanted):
             for chunk in record_chunks(wanted, source.locations):
-                rows = source.objects(chunk)
+                selection = {identity: spec_for(source.catalog["selected"][identity]).fields.selected
+                             for identity in chunk if "members" in source.locations[identity]}
+                rows = source.objects(chunk, fields=selection) if selection else source.objects(chunk)
                 for identity in chunk:
                     yield identity, rows.get(identity)
                 del rows

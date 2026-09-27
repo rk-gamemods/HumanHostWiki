@@ -13,7 +13,7 @@ from .storage import ContractError, digest, git, json_bytes, within, write_chang
 
 
 def contract(root, project):
-    modules = ["extraction.py", "source.py", "exceptions.py", "storage.py"]
+    modules = ["extraction.py", "source.py", "source_record.py", "exceptions.py", "storage.py"]
     paths = [Path(__file__).parent / name for name in modules]
     paths += sorted((Path(__file__).parent / "adapters").glob("*.py"))
     return digest(json_bytes({

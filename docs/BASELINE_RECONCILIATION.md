@@ -218,6 +218,14 @@ An unchanged update passed in 15.512 seconds, preserving 13 child commits and
 repositories. Live SceneProps and Z_Boss_01 pages displayed composition totals,
 controller values and working related-record links without browser console errors.
 
+The subsequent large-record reader correction preserves that exact selected output.
+It published release `dbb5d525f6a7b033fef567b60c3844283ed3f7a21d31d5d147842072da3ae7d6`
+from capture `build-25548639-1080b929da89`. A second normal decompile command passed
+in 53.760 seconds with zero exceptions and unchanged source/public commits and
+4,927 file hashes/timestamps. Peak Python extraction/identity memory fell from
+676,065,280 to 181,633,024 bytes. [Implementation evidence](IMPLEMENTATION.md)
+records the independent source/member/reader/release audits and remaining gates.
+
 ## Remaining baseline interpretation and delivery
 
 The original exception inventory is reconciled at the selected-field level. Before

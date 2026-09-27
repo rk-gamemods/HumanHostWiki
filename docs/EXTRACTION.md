@@ -9,6 +9,7 @@ articles. Every published fact must come from an explicit field contract.
 | Surface | Responsibility |
 | --- | --- |
 | `wikibuild/source.py` | Pinned Git reads, verified byte ranges, dependencies and old-snapshot fallback |
+| `wikibuild/source_record.py` | Hash-verified large-record projection, member framing and bounded skipped reads |
 | `wikibuild/adapters/components.py` | One index pass, bounded record batches and technical type summaries |
 | `wikibuild/adapters/catalog_policy.py` | Explicit infrastructure accounting and payload omissions |
 | `wikibuild/adapters/technical.py` | Reviewed technical exclusions and selected operating defaults, with field drift detection |
@@ -35,10 +36,20 @@ Snapshots without range metadata remain readable through streaming Git.
 
 Component reads group at most 128 records and 2 MiB of encoded input per batch.
 An oversized or unknown-size record is isolated, and the prior decoded batch is
-released before reading another. This bounds ordinary batches, not the memory
-needed to decode a single very large record. A current terrain-loader record still
-contains large excluded corner-coordinate arrays; selective field reads remain a
-measured memory optimization to complete.
+released before reading another. New catalog indexes describe every member of
+script records at least 1 MiB in size. The reader hashes the complete record,
+checks canonical member names/boundaries and decodes the top-level fields selected
+by its component contract. Unselected values are hashed in chunks of at most
+64 KiB. Their names remain as null placeholders, so new-field reporting survives;
+no selection code can treat these placeholders as real values. Nested selected
+structures still pass through their complete existing field contracts.
+
+This avoids materializing excluded corner-coordinate arrays in the current terrain
+loader. The index is generated alongside the original local record, without a
+second data file. A stale local range falls back to the pinned Git blob and applies
+the same selection. That fallback still buffers one encoded JSONL line, while
+ordinary local range reads do not. Legacy indexes without member metadata retain
+full decoding. Selected large values are not capped or silently truncated.
 
 ## Adding or correcting a contract
 

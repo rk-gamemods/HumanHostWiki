@@ -256,6 +256,44 @@ class ExtractionTests(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "hash differs"):
                 source.objects(["fixture.assets#2"])
 
+    def test_projected_large_record_preserves_new_field_report_and_git_fallback(self):
+        from wikibuild.adapters.schema import component, Selection
+        from wikibuild.exceptions import Exceptions
+        from unittest.mock import patch
+        from wikibuild import source_record
+        identity = "fixture.assets#2"
+        value = {"id": identity, "script": {"assembly": "Test", "class": "Fixture"},
+                 "fields": {"speed": 3, "geometry": [{"x": 1, "y": 2}] * 90000,
+                            "future": {"unreviewed": True}}}
+        encoded = lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True).encode()
+        path = self.source / "Catalog/objects/fixture.assets.jsonl"
+        data = encoded(value) + b"\n"
+        path.write_bytes(data)
+        self.commit()
+        location = {"offset": 0, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                    "members": {key: ({name: len(encoded(item)) for name, item in child.items()}
+                               if key == "fields" else len(encoded(child))) for key, child in value.items()}}
+        original = json.loads
+        def small_decode(data, *args, **kwargs):
+            self.assertLess(len(data), 1024)
+            return original(data, *args, **kwargs)
+        spec = component("Test", "Fixture", "world-rule", "world-systems", {"speed": int}, "geometry")
+        reports = []
+        for stale in (False, True):
+            if stale:
+                path.write_bytes(b"stale working tree\n")
+            with self.subTest(stale=stale), Source(self.source, self.receipt["source_commit"]) as source:
+                source.locations[identity] = location
+                with patch.object(source_record.json, "loads", small_decode):
+                    row = source.objects([identity], fields={identity: spec.fields.selected})[identity]
+                issues = Exceptions()
+                facts = Selection(row, spec, issues).select(row["fields"], spec.fields)
+                self.assertEqual({"speed": 3}, facts)
+                self.assertEqual("new-field", issues.report()["groups"][0]["code"])
+                reports.append(issues.report())
+                self.assertEqual("2393970", source.json("Catalog/steam-build.json")["app_id"])
+        self.assertEqual(reports[0], reports[1])
+
     def test_capture_accounting_mismatch_preserves_last_success(self):
         first, _ = self.extract()
         self.put("Catalog/coverage.json", {"objects": 4, "decode_failures": []})
