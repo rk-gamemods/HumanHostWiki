@@ -21,11 +21,12 @@ protects capture; pinned source identity is rechecked before wiki promotion.
 | Identity | Durable identity decisions and normalized models |
 | Project | Validated static reader candidate |
 | Verify | Stage artifact checks, stable source and unchanged rules |
+| Release | Exact child commits, output hashes and immutable coordinated Git manifest |
 
-The runner currently ends at a local reader candidate. Complete gameplay
-coverage, gameplay verification, release commits and publication remain required
-delivery work. Its result explicitly reports `wiki_release: not-created`; local
-stage success cannot establish a published or gameplay-verified release.
+The runner currently ends at a coordinated local Git release, with details in
+[RELEASE.md](RELEASE.md). Complete gameplay coverage, gameplay verification,
+capacity allocation and publication remain required delivery work. Local stage
+success cannot establish a published or gameplay-verified release.
 
 ## State and recovery
 

@@ -72,6 +72,8 @@ coverage remain incomplete. A static reader supports grouped reference pages,
 search and snapshot-preserving navigation over normalized runs. Real older-build
 capture coverage and publishing remain unfinished. The integrated runner now
 connects capture to the supported local stages and final exception reporting.
+Coordinated local Git releases now preserve exact child commits and browser-readable
+historical packs with interrupted-run recovery. Public deployment remains unfinished.
 These development commands are
 diagnostic entrypoints, not the intended maintenance workflow. Current evidence
 and remaining completion gates are in [IMPLEMENTATION.md](../IMPLEMENTATION.md).

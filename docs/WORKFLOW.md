@@ -8,7 +8,7 @@ These are current foundation/development commands. The
 starts when an operator invokes the decompile command and completes supported work
 through publication, including capacity management, without intermediate input.
 The entrypoint now runs capture, registration, selected extraction, identity and
-the validated local reader. Release and publication remain unfinished. The
+the validated reader and coordinated local Git release. Publication remains unfinished. The
 [runner contract](PIPELINE.md) defines receipts and recovery. At completion the operator presents
 unresolved wiki exceptions and requests direction; execution failures are separate.
 The manual examples below are foundation diagnostics, not extra maintenance steps.
@@ -60,8 +60,8 @@ the umbrella detect checkout drift without pretending that a set of seed commits
 is a verified gameplay release. Both commands refuse dirty or missing children.
 
 Children are ignored by the umbrella. The umbrella is ignored by HumanHostMods.
-Do not use `git add -f` to override either boundary. Future release coordination
-will pin child commits in a release manifest; Git submodules are not used.
+Do not use `git add -f` to override either boundary. The release coordinator
+pins child commits in a release manifest; Git submodules are not used.
 
 ## Register an existing source snapshot
 
@@ -180,6 +180,25 @@ The benchmark retains its isolated candidate under `.local/rb-*/`, reads existin
 selected models in place and checks byte/pointer stability. Its reported memory
 covers the Python process. Reader candidates do not create child commits, remote
 repositories, verification badges or wiki releases. See [reader contracts](READER.md).
+
+## Inspect the coordinated Git release
+
+For the coordinated Git release, `wiki.py update` commits validated generated
+content to every child and updates the checkout lock automatically. Inspect the
+release manifest under `releases/` and run `py -3 tools/serve_release.py` to preview
+the committed content locally. The preview substitutes local origins; it does not
+deploy the configured URLs. [RELEASE.md](RELEASE.md) owns recovery and retention.
+
+```powershell
+py -3 tools/check_release.py
+py -3 tools/benchmark_release.py
+py -3 tools/serve_release.py
+```
+
+The independent checker compares committed blobs with the candidate and verifies
+that retained release indexes, packs and runtimes remain reachable. The benchmark
+runs an unchanged `wiki.py update` and checks child commits, output bytes and
+timestamps. It requires an already completed release for the current inputs.
 
 ## Build the architecture preview
 

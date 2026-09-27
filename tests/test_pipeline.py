@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import test_extraction
 import wiki
-from wikibuild import extraction, pipeline
+from wikibuild import extraction, pipeline, workspace
 from wikibuild.adapters import items_loot
 from wikibuild.storage import ContractError, git, json_bytes, writer_lock
 
@@ -18,6 +18,12 @@ class PipelineTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.tearDown)
         self.root, self.source = self.fixture.wiki, self.fixture.source
+        # Release transaction failures have their own real-Git tests. Keep these
+        # stage-recovery cases focused on capture, extraction, identity and reader.
+        self.release_patch = patch.object(pipeline.release, 'run', side_effect=lambda root, project, candidate: (
+            {'release_id': candidate['candidate_id'], 'publication': 'not-published'}, {'reused': True}))
+        self.release_patch.start()
+        self.addCleanup(self.release_patch.stop)
 
     def run_pipeline(self):
         return pipeline.run(self.root, test_extraction.PROJECT, self.source)
@@ -34,8 +40,8 @@ class PipelineTests(unittest.TestCase):
         self.modify(MaxStack=19, NewUnparsedFeature="DO NOT EXPORT")
         result = self.run_pipeline()
         saved = pipeline.read(self.root, result["run_id"])
-        self.assertEqual(saved["status"], "local-reader-ready")
-        self.assertEqual(saved["wiki_release"], "not-created")
+        self.assertEqual(saved["status"], "git-release-ready")
+        self.assertEqual(saved["completed"]["release"]["publication"], "not-published")
         self.assertTrue(any(group["code"] == "new-field" for group in saved["exceptions"]["groups"]))
         extracted = extraction.read(self.root, saved["completed"]["normalize"]["run_id"])
         facts = extraction.artifact(self.root, extracted["records"]).read_text(encoding="utf-8")
@@ -154,6 +160,26 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "baseline differs"):
             self.run_pipeline()
         self.assertEqual(before, self.latest().read_bytes())
+
+    def test_full_pipeline_commits_all_topics_despite_content_exceptions(self):
+        self.release_patch.stop()
+        workspace.initialize(self.root, test_extraction.PROJECT)
+        for repo in test_extraction.PROJECT['repositories']:
+            path = self.root / repo['path']
+            git(path, 'config', 'user.name', 'Wiki fixture')
+            git(path, 'config', 'user.email', 'wiki@example.invalid')
+            git(path, 'add', '.')
+            git(path, 'commit', '-m', 'Seed fixture')
+        workspace.checkout_lock(self.root, test_extraction.PROJECT)
+        self.modify(NewUnparsedFeature=1)
+        result = self.run_pipeline()
+        saved = pipeline.read(self.root, result['run_id'])
+        released = pipeline.release.read(self.root, saved['wiki_release'])
+        self.assertEqual(len(released['repositories']), 13)
+        self.assertGreater(result['exception_groups'], 0)
+        self.assertTrue((self.root / 'repositories/items-equipment/site/reader.json').is_file())
+        pipeline.release.verify(self.root, released)
+        self.assertEqual(result['run_id'], self.run_pipeline()['run_id'])
 
 
 if __name__ == "__main__":

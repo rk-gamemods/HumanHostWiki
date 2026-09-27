@@ -86,7 +86,7 @@ flowchart LR
   identity --> project
   verify["verify: partial"]
   project --> verify
-  release["release: planned"]
+  release["release: partial"]
   verify --> release
   publish["publish: planned"]
   release --> publish
@@ -101,7 +101,7 @@ flowchart LR
 | identity | wikibuild/identity.py, model.py and history.py | partial |
 | project | wikibuild/reader.py, packs.py, pages.py and web/ | partial |
 | verify | reader artifact checks and independent tools/check_*.py; gameplay checks unfinished | partial |
-| release | future release coordinator | planned |
+| release | wikibuild/release.py and git_transaction.py; selected-fact Git releases | partial |
 | publish | future GitHub Pages publisher | planned |
 
 The navigation preview is an independent foundation build, not the publish stage above.

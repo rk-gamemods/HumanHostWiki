@@ -49,7 +49,7 @@
     {"id": "identity", "depends_on": ["normalize"], "owner": "wikibuild/identity.py, model.py and history.py", "status": "partial"},
     {"id": "project", "depends_on": ["identity"], "owner": "wikibuild/reader.py, packs.py, pages.py and web/", "status": "partial"},
     {"id": "verify", "depends_on": ["project"], "owner": "reader artifact checks and independent tools/check_*.py; gameplay checks unfinished", "status": "partial"},
-    {"id": "release", "depends_on": ["verify"], "owner": "future release coordinator", "status": "planned"},
+    {"id": "release", "depends_on": ["verify"], "owner": "wikibuild/release.py and git_transaction.py; selected-fact Git releases", "status": "partial"},
     {"id": "publish", "depends_on": ["release"], "owner": "future GitHub Pages publisher", "status": "planned"}
   ]
 }

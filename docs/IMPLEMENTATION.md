@@ -7,8 +7,7 @@ complete product.
 ## Boundaries and performance
 
 - The parent decompiler owns input stability, source/catalog capture and Git diff.
-  The planned command integration invokes the wiki only after successful capture
-  or verified reuse; that entrypoint integration is still unfinished.
+  The command invokes the wiki after successful capture or verified reuse.
 - `wikibuild/source.py` reads hash-verified record ranges from the existing source
   checkout, with one streaming Git process for historical/mismatched local bytes.
   Adapters own field selection and interpretation. No raw catalog copy or public
@@ -27,8 +26,8 @@ complete product.
 
 ## Remaining completion gates
 
-- Extend the integrated local runner through gameplay verification, coordinated
-  release and publication without changing the operator workflow.
+- Extend the integrated local runner through gameplay verification and publication
+  without changing the operator workflow.
 - Extract and independently validate every registered gameplay topic. Account for
   source objects locally without copying the whole index into wiki content.
 - Complete individual asset identities, real cross-build identity coverage and
@@ -36,8 +35,6 @@ complete product.
 - Complete historical capture coverage, reader presentation of interpreted units
   and conditions, authored-claim checks and useful external backlinks beyond the
   selected-fact reader. Add verified freshness inputs and page-check receipts.
-- Coordinate child commits and immutable releases with interrupted-run recovery,
-  writer exclusion, unknown-file protection and failure-before-promotion checks.
 - Create the declared public repositories, provision Pages, validate target content
   and promote the hub last. Prove retry, rollback and automatic capacity allocation.
 - Run real initial generation and an unchanged repeat; measure time, bytes read,
@@ -217,6 +214,42 @@ hashing; wiki-only reuse took 0.866 seconds and read no selected source bytes.
 Python peak working set for that wiki-only repeat was 27,017,216 bytes; capture,
 Git and PowerShell memory are excluded. The request-baseline guard also passed
 its focused corruption regression.
+
+### Coordinated Git release checkpoint
+
+The integrated update commits selected generated output to all 13 child repositories
+and records their exact commits, trees, routes and output hashes in an immutable
+release manifest. The first real release is
+`0c355d746f9e6cfe30ec0ca83fc6fcc8c78229a0e5935f880b167eba9f450bda`.
+It is local and unpublished. All 193 unresolved content groups remain reported;
+they did not block the supported release. [Release contracts](RELEASE.md) own
+preparation, output ownership, retained historical objects and recovery.
+
+The full suite passed 113 tests. Release tests use independent Git repositories
+and exercise interruption during file promotion, between children and after a
+branch update. Retry reuses the prepared commits. Other cases preserve authored
+content, unknown ignored files and unexpected staged edits, and reject a modified
+journal. A real integration fixture commits all 13 topics despite content gaps.
+The eight release tests passed again after adding independent audit assertions,
+including modified-pack rejection and two-release reachability.
+
+`tools/check_release.py` independently checked 667 generated files totaling
+46,833,111 bytes (44.7 MiB), including exact Git blob identities and conservation
+of 589 candidate files after the documented path/link transformations. It also
+checked all 13 release configurations and their referenced indexes, packs and
+runtimes. The checker imports no release or renderer implementation.
+
+`tools/benchmark_release.py` measured an unchanged `wiki.py update` at 2.269 seconds.
+All 13 child commits and 686 file hashes/timestamps stayed unchanged. Extraction
+and identity read zero source bytes. This excludes the parent capture/input-hashing
+step and is a local measurement, not a performance guarantee.
+
+The local committed-site browser check exercised topic navigation, Wood search,
+entry facts and switching between the two capture revisions. Links retained the
+selected snapshot and release. Requesting a missing release displayed an explicit
+error without substituting current content. These revisions belong to the same
+Steam build; they do not satisfy the real cross-build acceptance gate. Public
+deployment, automatic capacity allocation and staging retention remain unfinished.
 
 ## Deferred classifier experiments
 

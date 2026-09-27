@@ -20,8 +20,10 @@ requested group or entity shard. Source code and the source asset index are neve
 reader inputs. Compact asset identifiers and evidence locators remain visible.
 
 The renderer uses standard-library Python and native browser APIs. It adds no
-framework dependency or server/database requirement. Links carry snapshot and
-candidate identity. The `/entry/<entity-key>/` route uses the shared static-site
+framework dependency or server/database requirement. Diagnostic links carry snapshot
+and candidate identity. Committed sites carry snapshot and coordinated release
+identity; the [release loader](RELEASE.md) selects that release's immutable runtime
+and indexes. The `/entry/<entity-key>/` route uses the shared static-site
 fallback shell, avoiding a generated document per Unity object. GitHub Pages
 supports a [custom `404.html`](https://docs.github.com/en/pages/getting-started-with-github-pages/creating-a-custom-404-page-for-your-github-pages-site);
 deployment verification must test the rendered

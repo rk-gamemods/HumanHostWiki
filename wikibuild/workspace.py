@@ -11,6 +11,13 @@ def marker(repo):
     return {"schema_version": 1, "repository_id": repo["id"], "role": repo["role"]}
 
 
+def seed_readme(repo):
+    return (f"# {repo['title']}\n\n{repo['coverage']}.\n\n"
+            "This repository is initialized for Human Host Wiki. Topic content is not generated yet.\n"
+            "The umbrella's `project.json` owns its identity, routing and shared build contracts.\n\n"
+            "## Ownership\n\n" + ", ".join(f"`{kind}`" for kind in repo["owns"]) + "\n").encode()
+
+
 def inspect(root, repo):
     path = within(root, repo["path"])
     if not path.exists():
@@ -39,11 +46,7 @@ def initialize(root, manifest):
         path.mkdir(parents=True)
         git(path, "init", "--initial-branch=main")
         write_changed(path / ".wiki-repository.json", json_bytes(marker(repo)))
-        readme = (f"# {repo['title']}\n\n{repo['coverage']}.\n\n"
-                  "This repository is initialized for Human Host Wiki. Topic content is not generated yet.\n"
-                  "The umbrella's `project.json` owns its identity, routing and shared build contracts.\n\n"
-                  "## Ownership\n\n" + ", ".join(f"`{kind}`" for kind in repo["owns"]) + "\n")
-        write_changed(path / "README.md", readme.encode())
+        write_changed(path / "README.md", seed_readme(repo))
         write_changed(path / ".gitignore", b".local/\n__pycache__/\n*.local.json\n")
         write_changed(path / ".gitattributes", b"* text=auto eol=lf\n")
         destination.parent.mkdir(parents=True, exist_ok=True)

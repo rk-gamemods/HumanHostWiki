@@ -1,7 +1,7 @@
 "use strict";
 
 // All imported text is rendered through textContent. No game text becomes HTML.
-const siteBase = new URL(".", document.currentScript.src);
+const siteBase = globalThis.humanHostReader ? new URL(globalThis.humanHostReader.base) : new URL(".", document.currentScript.src);
 const params = new URLSearchParams(location.search);
 const content = document.getElementById("content");
 const cache = new Map();
@@ -39,7 +39,7 @@ function url(topic, entity = null, selected = snapshot, group = null) {
   if (!owner) throw new Error(`Unknown topic ${topic}`);
   const path = entity ? `entry/${encodeURIComponent(entity)}/` : group ? `groups/${encodeURIComponent(group)}/` : "";
   const target = new URL(path, new URL(owner.base, location.origin));
-  target.search = new URLSearchParams({snapshot: selected, release: config.candidate_id}).toString();
+  target.search = new URLSearchParams({snapshot: selected, release: config.release_id || config.candidate_id}).toString();
   return target.href;
 }
 
@@ -243,15 +243,16 @@ function overview() {
 }
 
 async function start() {
-  config = await json("reader.json");
-  if (params.has("release") && params.get("release") !== config.candidate_id) throw new Error("This URL names a different reader revision. Use that revision's archived site; current content has not been substituted.");
+  config = globalThis.humanHostReader?.config || await json("reader.json");
+  if (params.has("release") && params.get("release") !== (config.release_id || config.candidate_id)) throw new Error("This URL names a different reader revision. Use that revision's archived site; current content has not been substituted.");
   snapshot = params.get("snapshot") || config.default_snapshot;
   if (!config.versions.some(version => version.snapshot_id === snapshot)) throw new Error("The requested snapshot is unavailable in this reader revision");
-  index = await json(`snapshots/${snapshot}.json`);
+  const pinned = config.snapshots?.[snapshot];
+  index = await json(pinned ? pinned.path : `snapshots/${snapshot}.json`, pinned);
   document.getElementById("home").href = url("hub");
   const selector = document.getElementById("version");
   for (const version of config.versions) {const option = element("option", `Steam ${version.build_id} · ${version.snapshot_id.split("-").at(-1)}`); option.value = version.snapshot_id; option.selected = version.snapshot_id === snapshot; selector.append(option);}
-  selector.addEventListener("change", () => {const target = new URL(location.href); target.searchParams.set("snapshot", selector.value); target.searchParams.set("release", config.candidate_id); location.assign(target);});
+  selector.addEventListener("change", () => {const target = new URL(location.href); target.searchParams.set("snapshot", selector.value); target.searchParams.set("release", config.release_id || config.candidate_id); location.assign(target);});
   for (const topic of config.topics) {const a = link(topic.title, url(topic.id)); if (topic.id === config.topic) a.setAttribute("aria-current", "page"); document.getElementById("topics").append(a);}
   for (const official of config.official_links) {document.getElementById("credits").append(link(official.title, official.url), document.createTextNode(" · "));}
   document.getElementById("search-form").addEventListener("submit", event => {event.preventDefault(); search(document.getElementById("search").value).catch(failure);});

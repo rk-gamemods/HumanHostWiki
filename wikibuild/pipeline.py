@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from . import extraction, history, reader, snapshots
+from . import extraction, history, reader, release, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -61,7 +61,7 @@ def run(root, project, source, progress=None):
         completed[stage] = {"snapshot_id": receipt["snapshot_id"], "source_commit": receipt["source_commit"]}
         contracts = {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
                      "extraction": extraction.contract(root, project), "identity": history.contract(),
-                     "reader": reader.contract()}
+                     "reader": reader.contract(), "release": release.contract()}
         reviewed = history.corrections(root)
         request_key = digest(json_bytes([receipt, project, contracts, reviewed]))
         request_path = within(root, f".local/pipeline/requests/{request_key}.json")
@@ -96,7 +96,7 @@ def run(root, project, source, progress=None):
         stage = "project"
         if progress:
             progress(stage)
-        projected = reader.build(root, project)
+        projected = reader.build(root, project, bases=release.bases(project))
         completed[stage] = {"candidate_id": projected["candidate_id"], "bytes": projected["bytes"]}
         metrics[stage] = {"reused": projected["reused"]}
         stage = "verify"
@@ -107,19 +107,24 @@ def run(root, project, source, progress=None):
         extraction.ensure_source(source, receipt["source_commit"])
         if contracts != {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
                          "extraction": extraction.contract(root, project), "identity": history.contract(),
-                         "reader": reader.contract()}:
+                         "reader": reader.contract(), "release": release.contract()}:
             raise ContractError("Pipeline rules changed during processing")
         if history.corrections(root) != reviewed:
             raise ContractError("Reviewed mappings changed during processing")
         completed[stage] = {"scope": "stage-artifacts-and-stable-source", "gameplay_verified": False}
+        stage = "release"
+        if progress:
+            progress(stage)
+        released, metrics[stage] = release.run(root, project, projected)
+        completed[stage] = {"release_id": released["release_id"], "publication": released["publication"]}
         result = {"schema_version": 1, "request_key": request_key,
                   "previous_run": previous["run_id"] if previous else None,
                   "source_commit": receipt["source_commit"], "snapshot_id": receipt["snapshot_id"],
                   "diff_base": previous["source_commit"] if previous else None,
                   "contracts": contracts, "completed": completed,
                   "exceptions": report(reports, previous["exceptions"] if previous else None),
-                  "status": "local-reader-ready", "wiki_release": "not-created",
-                  "remaining": ["complete-gameplay-coverage", "gameplay-verification", "release", "publish"]}
+                  "status": "git-release-ready", "wiki_release": released["release_id"],
+                  "remaining": ["complete-gameplay-coverage", "gameplay-verification", "capacity-allocation", "publish"]}
         run_id = digest(json_bytes(result))
         result["run_id"] = run_id
         stage = "promote"
@@ -147,7 +152,8 @@ def run(root, project, source, progress=None):
 def operator_report(root, result):
     saved = read(root, result["run_id"])
     lines = [f"Wiki supported stages completed for {saved['snapshot_id']}.",
-             "Status: local reader ready; public release and gameplay verification remain unfinished.",
+             "Status: local Git release ready; publication and gameplay verification remain unfinished.",
+             f"Git release: {saved['wiki_release']}",
              f"Report: {result['report']}", f"Reader: {result['reader']}",
              f"Unresolved content: {saved['exceptions']['group_count']} groups, {saved['exceptions']['occurrences']} occurrences."]
     for group in saved["exceptions"]["groups"]:
