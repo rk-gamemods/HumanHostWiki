@@ -73,7 +73,9 @@ They are not build dependencies. Semantic cycles and backlinks are expected.
 
 ```mermaid
 flowchart LR
+  detect["detect: planned"]
   capture["capture: external-existing"]
+  detect --> capture
   register["register: implemented"]
   capture --> register
   normalize["normalize: planned"]
@@ -92,6 +94,7 @@ flowchart LR
 
 | Stage | Owner | Implementation |
 | --- | --- | --- |
+| detect | future non-LLM local update runner | planned |
 | capture | HumanHostMods/tools/Decompile-GameCode.ps1 | external-existing |
 | register | wikibuild/snapshots.py | implemented |
 | normalize | future wiki adapters | planned |

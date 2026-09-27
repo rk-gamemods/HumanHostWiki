@@ -1,8 +1,8 @@
 # Human Host Wiki
 
 Local umbrella for a public, English, free, ad-free player and modding reference.
-It coordinates one navigation hub and twelve topic repositories, backed by
-versioned factual catalogs and shared generation tooling.
+It defines one navigation hub and twelve topic repositories, with versioned
+factual catalogs and unattended updates as the target architecture.
 
 Start with the [accepted ADR](docs/adr/0001-versioned-public-wiki.md). It records
 the complete decisions, provenance model, historical browsing, ownership,
@@ -18,8 +18,9 @@ refresh/release pipeline, failure recovery and delivery sequence.
 
 The foundation validates and initializes independent local repositories,
 registers the existing game catalog without copying it, and builds a linked
-architecture preview. Gameplay adapters, historical article rendering and
-remote publication are planned in the ADR. No remote is configured by this tool.
+architecture preview. The unattended runner, gameplay adapters, historical article
+rendering and remote publication are planned in the ADR. No remote is configured
+by this tool.
 
 Requires Python 3.11+ and Git. The foundation uses only Python's standard library.
 

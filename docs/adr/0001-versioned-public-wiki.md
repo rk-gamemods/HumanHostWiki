@@ -19,8 +19,9 @@ relationships, with information for every captured game version.
 - Read the existing `HumanHostCodebase` in place. Reuse the parent's
   `tools/Decompile-GameCode.ps1` for capture. Export useful text metadata, not
   graphical/audio payloads, raw source trees or duplicate analysis datasets.
-- Routine extraction, linking, comparisons and updates run deterministically
-  without LLM calls. Human review handles new schemas and ambiguous interpretations.
+- After initial setup, a non-LLM runner automatically detects updates, captures,
+  parses, classifies, links, versions, validates, commits and publishes them.
+  Routine updates require no operator commands, page edits or approval per release.
 - Credit the studio and identify the site as an independent community resource.
   The in-game viewer remains deferred until the wiki is stable and maintainable.
 
@@ -43,7 +44,9 @@ remotes exist.
 
 Each entity has one canonical owner; other topics reference it. Domain entities
 and underlying assets have separate identities and may relate many-to-many.
-New types enter technical reference until classified, rather than disappearing.
+Existing category/schema rules automatically handle new records and supported
+types. Content those rules cannot classify enters technical reference and an
+exception report; only extending those rules requires maintainer work.
 Topic generators consume pinned inputs and shared contracts, never another topic's
 mutable checkout or a forked orchestrator. Semantic graph cycles/backlinks are
 valid; build dependencies must be acyclic.
@@ -59,8 +62,10 @@ Keep three records distinct:
 Registration or a navigation preview cannot establish gameplay verification.
 The complete scope and implementation status are separate: the current foundation
 supports registry validation, local repository setup/locking, input registration,
-generated architecture maps and deterministic navigation previews. Gameplay
-adapters, identity matching, historical browsing and publishing remain planned.
+generated architecture maps and deterministic navigation previews.
+The unattended runner, gameplay adapters, identity matching, historical browsing
+and publishing remain planned. These manual foundation commands are diagnostic
+entrypoints, not the intended maintenance workflow.
 
 ## 4. Data and provenance contracts
 
@@ -96,9 +101,10 @@ before being presented as probabilities.
 
 Scope game identifiers to their build and container; no GUID, path ID, name or
 asset path is universally stable. Wiki entity keys remain independent of them.
-Deterministic matching records its evidence; ambiguous matches remain unresolved
-until reviewed. Track renames, removals, reused IDs, splits and merges. Mapping
-corrections create new wiki releases and preserve earlier decisions.
+Deterministic matching records evidence and handles renames, removals, reused IDs,
+splits and merges. Ambiguous matches retain separate observations and an unresolved
+link; they do not require a guessed mapping or block unrelated updates. Optional
+mapping corrections create new releases and preserve earlier decisions.
 
 ### Version behavior
 
@@ -136,21 +142,32 @@ index; retain accepted facts and identity decisions outside that cache. The raw
 reference index need not be published. Compression is optional; Git LFS and a
 public graph/database server are not required.
 
-Measure file, site and compressed Git-history sizes before publishing or splitting
-further. Preserve routes/history when repartitioning; do not automatically rewrite
-history, delete snapshots or drop coverage. GitHub's checked limits (2026-09-26)
-are [100 MiB per ordinary Git file, warnings above 50 MiB](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)
-and [1 GB per published Pages site](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits).
+The builder enforces configured file/site/history budgets automatically: split
+oversized shards, reuse revisions and allocate further repositories/sites under
+the configured namespace. It updates registry locks, indexes and routes together,
+preserving historical links and coverage without deleting snapshots or rewriting
+history. Physical partitions retain their logical topic owner. Full history
+partitions remain readable while new writes roll into another partition.
+Configure headroom below the checked platform limits (2026-09-26):
+[100 MiB per Git file, warnings above 50 MiB](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)
+and [1 GB per Pages site](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits).
 
 ## 6. Refresh, build and coordinated release
 
+One scheduled local runner owns this sequence. It checks for stable installed
+build/catalog changes, skips unchanged inputs and invokes capture automatically.
+Latest available builds are checked separately; unavailable local inputs produce
+a waiting/stale state and automatic retry, never a false current badge. Configure
+input paths, credentials, namespace and budgets once; no LLM scheduler is required.
+
 | Stage | Required result |
 | --- | --- |
+| Detect | Observe build/input changes, wait for stable inputs and resume eligible work from durable state |
 | Capture | Existing decompiler produces a stable, validated local snapshot; reuse captures when inputs are unchanged |
 | Register | Check input identity/schema and record provenance without claiming wiki verification |
 | Normalize | Stream typed facts/edges, dependency hashes, new types and coverage gaps |
 | Identity | Apply evidenced matches and reviewed mappings; retain ambiguity |
-| Project | Assign owners; generate grouped pages, links/backlinks, search shards and affected-page records |
+| Project | Classify with existing rules; generate pages, links and search; automatically partition outputs to capacity budgets |
 | Verify | Validate schemas, identities, relationships, semantics, provenance, coverage, links, size and repeatability |
 | Release | Commit changed child outputs; persist the immutable coordinated manifest |
 | Publish | Deploy version-addressed topic content, verify every target, then promote the hub pointer |
@@ -169,12 +186,14 @@ and [1 GB per published Pages site](https://docs.github.com/en/pages/getting-sta
 
 Use conservative invalidation until complete dependencies are recorded. Identical
 inputs must produce identical bytes and no new content commit. Automation invokes
-commands and consumes exit codes/receipts; it reports actionable changes or failures.
+commands and consumes exit codes/receipts. Duplicate or missed wakes resume from
+durable state; human attention is for unsupported content/schema or unrecoverable
+failures, not normal changes, successful releases or capacity growth.
 
 ### Failure and recovery
 
 One OS-held lock excludes concurrent writers. Pin source commits before reads
-and recheck before registration. Reject dirty/changed inputs, unsupported schemas
+and recheck before registration. Reject dirty/changed inputs, unsupported input contracts
 and conflicting identities without promoting results. Require clean destination
 checkouts; stage outside them, validate before promotion, preserve authored/unknown
 files, enforce path ownership and never override file protection automatically.
@@ -183,18 +202,21 @@ Git repositories and Pages sites do not share an atomic transaction. Persist sta
 identities, expected hashes, commits and completion receipts. Partial deployments
 remain unadvertised until every pinned target is available; existing version URLs
 remain accessible. Retry from receipts, reusing verified outputs or rebuilding
-incomplete staging. Bound network retries; surface contract failures for correction.
-Rollback restores an earlier validated hub release pointer without rewriting child
-history or source observations. Retention/deletion requires an explicit decision.
+incomplete staging. Retry transient failures automatically; isolate unsupported
+records with explicit gaps so independently valid content can proceed. A failed
+whole-release integrity check preserves the previous release and reports the cause.
+Failed deployment verification automatically restores the previous validated hub
+pointer. Preserve child history and source observations; capacity handling retains
+historical snapshots.
 
 ## 7. Curated content and external links
 
-Separate authored prose from generated sections. Material claims declare source
-and code dependencies plus executable assertions or manual verification needs.
-Changed dependencies regenerate facts and either pass claim tests or mark prose
-for review. Failures retain the last verified build and reason, never a current badge.
+Separate optional authored prose from generated facts. Claims use generated values
+and executable dependency checks. Updates refresh factual sections automatically;
+failed checks mark only the affected explanation unverified with its last verified
+build and reason. Maintaining core reference coverage must not require prose edits.
 
-Official backlinks use reviewed entity/topic mappings and recorded checks:
+Official backlinks use scripted entity/topic matching and recorded checks:
 populated, empty, missing or temporarily unavailable. Link only useful populated
 article destinations; temporary external failure does not remove our information.
 Feed these observations into the default offline, deterministic build as versioned
@@ -213,12 +235,15 @@ Required proof before full publication:
   freshness claims, cross-repository links, search and curated assertions.
 - Exercise interruption, partial publication, concurrent writers, modified output,
   retry and rollback; preserve the prior coordinated release without duplicates/loss.
-- Enforce measured publication limits and demonstrate scripted maintenance/recovery
-  with bounded review work and no routine LLM dependency.
+- Demonstrate unattended updates through new assets in existing categories and
+  forced capacity thresholds, including automatic splits/provisioning and intact
+  historical links. No hand edits, operator commands, release approvals or LLM calls.
+- Unknown content enters technical reference with an actionable exception while
+  supported changes proceed; retries and missed/duplicate wakes require no intervention.
 
-Delivery order: **foundation (implemented) -> item/loot data-contract slice -> all
-registered topics -> historical reader -> coordinated Pages publication -> repeatable
-operation**. The first slice does not reduce final coverage. Select streaming versus
+Delivery order: **foundation (implemented) -> unattended runner with item/loot slice
+-> all registered topics -> historical reader -> coordinated Pages publication**.
+The first slice does not reduce final coverage. Select streaming versus
 SQLite from measured access patterns and choose the production renderer when building
 the historical reader; the current HTML preview does not select that framework.
 

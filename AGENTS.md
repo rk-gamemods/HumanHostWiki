@@ -22,11 +22,13 @@ and [ADR-0001](docs/adr/0001-versioned-public-wiki.md).
 
 The accepted product is a public, English, free, ad-free factual wiki with the
 full agreed catalog and historical provenance.
+The ADR requires unattended routine updates, including classification, capacity
+management and release. Do not introduce per-update manual steps or LLM dependencies.
 Derived factual documentation belongs in the wiki repositories. The parent
 codebase's source and raw catalog remain local inputs, read in place.
 
-Current tooling builds an architecture/navigation preview and registers input
-snapshots. It does not implement gameplay topic extraction or public deployment.
+Current foundation tooling builds an architecture/navigation preview and registers
+input snapshots. It does not implement gameplay topic extraction or public deployment.
 Never call a registered snapshot a verified wiki release or an empty topic a
 completed catalog. Keep implementation status accurate in the workflow document.
 

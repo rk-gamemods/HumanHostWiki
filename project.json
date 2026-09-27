@@ -42,7 +42,8 @@
     {"from": "technical-reference", "to": "items-equipment", "kind": "backs-game-entity"}
   ],
   "pipeline": [
-    {"id": "capture", "depends_on": [], "owner": "HumanHostMods/tools/Decompile-GameCode.ps1", "status": "external-existing"},
+    {"id": "detect", "depends_on": [], "owner": "future non-LLM local update runner", "status": "planned"},
+    {"id": "capture", "depends_on": ["detect"], "owner": "HumanHostMods/tools/Decompile-GameCode.ps1", "status": "external-existing"},
     {"id": "register", "depends_on": ["capture"], "owner": "wikibuild/snapshots.py", "status": "implemented"},
     {"id": "normalize", "depends_on": ["register"], "owner": "future wiki adapters", "status": "planned"},
     {"id": "identity", "depends_on": ["normalize"], "owner": "future identity registry", "status": "planned"},

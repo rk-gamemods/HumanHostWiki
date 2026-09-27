@@ -3,6 +3,12 @@
 Run these commands from the `HumanHostWiki` umbrella directory. Python 3.11+
 and Git are the only foundation dependencies. No packages are installed.
 
+These are current foundation/development commands. The
+[target update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
+is unattended: a configured runner detects changes and invokes capture through
+publication, including capacity management. That runner is not implemented yet.
+The manual examples below are not a maintenance requirement for the completed wiki.
+
 ## Inspect and validate
 
 ```powershell
