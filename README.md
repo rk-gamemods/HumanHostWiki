@@ -16,14 +16,19 @@ refresh/release pipeline, failure recovery and delivery sequence.
 
 ## Current implementation
 
-The foundation validates and initializes independent local repositories,
-registers the existing game catalog without copying it, and builds a linked
-architecture preview. `extract` now streams selected item and loot facts with
-source evidence, grouped exceptions and validated reuse. It does not create a wiki
-release. Other topic adapters, the integrated pipeline, historical article rendering
-and remote publication remain in progress. No remote is configured by this tool.
+The [public reader](https://rk-gamemods.github.io/HumanHost-Wiki/) serves selected
+facts in every topic with source evidence, search, relationships and capture
+selection. The existing decompile command invokes an integrated update that
+reuses unchanged work, commits a coordinated release and publishes topic sites
+before advancing the hub. Unresolved content is reported after supported work
+finishes. See [publication and recovery](docs/PUBLICATION.md).
 
-Requires Python 3.11+ and Git. The foundation uses only Python's standard library.
+Gameplay interpretation, real cross-build coverage, verification, automatic
+capacity allocation and other ADR requirements remain incomplete. The
+[implementation evidence](docs/IMPLEMENTATION.md) records the remaining gates.
+
+Requires Python 3.11+ and Git, plus authenticated GitHub CLI for publication.
+Generation uses Python's standard library and native browser APIs.
 
 ```powershell
 py -3 wiki.py validate
@@ -33,6 +38,7 @@ py -3 wiki.py map --check
 py -3 wiki.py check-lock
 py -3 wiki.py build
 py -3 wiki.py extract
+py -3 wiki.py update --operator-report
 py -3 -m unittest discover -s tests -v
 ```
 

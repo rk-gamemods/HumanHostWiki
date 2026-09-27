@@ -3,7 +3,7 @@
   "project": "Human Host Wiki",
   "github_owner": "rk-gamemods",
   "language": "en",
-  "publication": {"visibility": "public", "monetized": false, "advertising": false, "host": "github-pages", "remote_setup": "not-created"},
+  "publication": {"visibility": "public", "monetized": false, "advertising": false, "host": "github-pages", "enabled": true, "workers": 4},
   "source": {"kind": "humanhost-codebase", "default_path": "../HumanHostCodebase", "steam_app_id": "2393970", "catalog_schema": 1},
   "official_links": [
     {"title": "Human Host on Steam", "url": "https://store.steampowered.com/app/2393970/Human_Host/"},
@@ -50,6 +50,6 @@
     {"id": "project", "depends_on": ["identity"], "owner": "wikibuild/reader.py, packs.py, pages.py and web/", "status": "partial"},
     {"id": "verify", "depends_on": ["project"], "owner": "reader artifact checks and independent tools/check_*.py; gameplay checks unfinished", "status": "partial"},
     {"id": "release", "depends_on": ["verify"], "owner": "wikibuild/release.py and git_transaction.py; selected-fact Git releases", "status": "partial"},
-    {"id": "publish", "depends_on": ["release"], "owner": "future GitHub Pages publisher", "status": "planned"}
+    {"id": "publish", "depends_on": ["release"], "owner": "wikibuild/publication.py, publication_git.py and github_pages.py", "status": "partial"}
   ]
 }

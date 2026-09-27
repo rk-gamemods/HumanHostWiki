@@ -17,6 +17,7 @@ from wikibuild.storage import ContractError, git, json_bytes
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = json.loads((ROOT / "project.json").read_text())
+PROJECT["publication"]["enabled"] = False  # Fixtures must never call a live host.
 
 
 class ExtractionTests(unittest.TestCase):

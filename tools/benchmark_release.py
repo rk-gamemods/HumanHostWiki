@@ -14,6 +14,11 @@ def observe(root):
     latest = json.loads((root / "releases/latest.json").read_text())
     manifest_path = root / "releases" / (latest["release_id"] + ".json")
     paths.append(manifest_path)
+    publication_pointer = root / 'publications/latest.json'
+    if publication_pointer.exists():
+        paths.append(publication_pointer)
+        published = json.loads(publication_pointer.read_text())['payload']['release_id']
+        paths.append(root / 'publications' / (published + '.json'))
     manifest = json.loads(manifest_path.read_text())
     heads = {}
     for topic, record in manifest["repositories"].items():

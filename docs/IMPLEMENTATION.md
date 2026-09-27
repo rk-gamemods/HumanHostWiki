@@ -26,7 +26,7 @@ complete product.
 
 ## Remaining completion gates
 
-- Extend the integrated local runner through gameplay verification and publication
+- Extend the integrated runner through gameplay verification
   without changing the operator workflow.
 - Extract and independently validate every registered gameplay topic. Account for
   source objects locally without copying the whole index into wiki content.
@@ -35,8 +35,9 @@ complete product.
 - Complete historical capture coverage, reader presentation of interpreted units
   and conditions, authored-claim checks and useful external backlinks beyond the
   selected-fact reader. Add verified freshness inputs and page-check receipts.
-- Create the declared public repositories, provision Pages, validate target content
-  and promote the hub last. Prove retry, rollback and automatic capacity allocation.
+- Implement automatic capacity allocation with forced-threshold tests and retained
+  historical links. Public repository provisioning and coordinated Pages publication
+  are implemented; see the publication checkpoint below.
 - Run real initial generation and an unchanged repeat; measure time, bytes read,
   output size and peak memory. Exercise changed/new/removed/unsupported records and
   tool corrections, using real builds and focused fixtures for unavailable cases.
@@ -221,7 +222,7 @@ The integrated update commits selected generated output to all 13 child reposito
 and records their exact commits, trees, routes and output hashes in an immutable
 release manifest. The first real release is
 `0c355d746f9e6cfe30ec0ca83fc6fcc8c78229a0e5935f880b167eba9f450bda`.
-It is local and unpublished. All 193 unresolved content groups remain reported;
+It was initially local and unpublished. All 193 unresolved content groups remained reported;
 they did not block the supported release. [Release contracts](RELEASE.md) own
 preparation, output ownership, retained historical objects and recovery.
 
@@ -248,8 +249,51 @@ The local committed-site browser check exercised topic navigation, Wood search,
 entry facts and switching between the two capture revisions. Links retained the
 selected snapshot and release. Requesting a missing release displayed an explicit
 error without substituting current content. These revisions belong to the same
-Steam build; they do not satisfy the real cross-build acceptance gate. Public
-deployment, automatic capacity allocation and staging retention remain unfinished.
+Steam build; they do not satisfy the real cross-build acceptance gate. At this
+checkpoint, public deployment, automatic capacity allocation and staging retention
+were unfinished. The following checkpoint records the public deployment.
+
+### Initial public publication checkpoint
+
+The configured public hub and twelve topic repositories now serve release
+`120d76c6a29e1ed5b1f2153ba2ba1c81c956c9b8f024237f40e618de94eac59f` at
+[Human Host Wiki](https://rk-gamemods.github.io/HumanHost-Wiki/).
+The integrated update completed successfully with 193 unresolved content groups
+(27,087 occurrences). The final report retains those exceptions for operator
+review. Publication receipts pin each repository identity, main/Pages commit and
+expected public file hash. The hub's live Pages API reports `built` for
+`c7f12047e7db09ee035f6c26f86908f56207eb24`.
+
+Publication prepares Pages trees from existing Git objects, uses four concurrent
+topic workers, validates new/changed public bytes and promotes the hub last.
+Unchanged immutable packs reuse prior validation. Compensating commits restore
+the previous hub after failed verification without rewriting history. A direct
+topic landing page follows the hub's coordinated release. Before initial hub
+promotion, the browser showed the explicit unavailable state; after promotion,
+the same topic loaded successfully.
+
+The full suite passed 125 tests in 166.397 seconds. Publication tests include
+independent completion after a topic failure, lost push responses, changed remote
+refs, first-release fallback, restoration of a previous hub and retry. HTTP tests
+check streamed hashes and oversized-response rejection. The test host uses real
+Git objects; live rollback was not deliberately induced. A Windows path-length
+failure in the test host's `git show` read was fixed by using `git cat-file blob`;
+no operating-system setting or production protection was changed.
+
+`tools/check_release.py` independently verified 680 owned files totaling
+46,905,701 bytes (44.7 MiB), 589 candidate files and 26 retained release
+configurations across all 13 repositories. `tools/benchmark_release.py` then ran
+the unchanged published update in 8.022 seconds. All 13 child commits and 701
+checked file hashes/timestamps stayed unchanged; extraction and identity read
+zero source bytes. This measurement includes remote identity/ref and small public
+pointer checks, excludes parent capture, and is not a performance guarantee.
+
+Public browser checks covered Crude Axe search, its entity route through Pages'
+custom 404 handler, a relationship into the crafting repository, an earlier
+capture selection and navigation back to the hub. Snapshot and release parameters
+were preserved. The two captures are revisions of Steam build 25548639, not two
+distinct game builds. Gameplay verification, automatic capacity allocation,
+staging retention and the other remaining gates still require implementation.
 
 ## Deferred classifier experiments
 

@@ -22,11 +22,12 @@ protects capture; pinned source identity is rechecked before wiki promotion.
 | Project | Validated static reader candidate |
 | Verify | Stage artifact checks, stable source and unchanged rules |
 | Release | Exact child commits, output hashes and immutable coordinated Git manifest |
+| Publish | Verified topic targets, hub promotion and immutable publication receipt |
 
-The runner currently ends at a coordinated local Git release, with details in
-[RELEASE.md](RELEASE.md). Complete gameplay coverage, gameplay verification,
-capacity allocation and publication remain required delivery work. Local stage
-success cannot establish a published or gameplay-verified release.
+The runner includes [coordinated Git release](RELEASE.md) and configured
+[Pages publication](PUBLICATION.md). Complete gameplay coverage, gameplay
+verification and capacity allocation remain required delivery work. A local release
+alone cannot establish public availability or gameplay verification.
 
 ## State and recovery
 

@@ -162,6 +162,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(before, self.latest().read_bytes())
 
     def test_full_pipeline_commits_all_topics_despite_content_exceptions(self):
+        from test_publication import Host
         self.release_patch.stop()
         workspace.initialize(self.root, test_extraction.PROJECT)
         for repo in test_extraction.PROJECT['repositories']:
@@ -172,14 +173,22 @@ class PipelineTests(unittest.TestCase):
             git(path, 'commit', '-m', 'Seed fixture')
         workspace.checkout_lock(self.root, test_extraction.PROJECT)
         self.modify(NewUnparsedFeature=1)
-        result = self.run_pipeline()
+        project = json.loads(json.dumps(test_extraction.PROJECT))
+        project['publication']['enabled'] = True
+        workspace.checkout_lock(self.root, project)
+        host = Host(project['github_owner'])
+        with patch.object(pipeline.publication.github_pages, 'GitHubPages', return_value=host):
+            result = pipeline.run(self.root, project, self.source)
         saved = pipeline.read(self.root, result['run_id'])
         released = pipeline.release.read(self.root, saved['wiki_release'])
         self.assertEqual(len(released['repositories']), 13)
         self.assertGreater(result['exception_groups'], 0)
+        self.assertEqual(result['status'], 'published')
+        self.assertEqual(len(pipeline.publication.published(self.root)['repositories']), 13)
         self.assertTrue((self.root / 'repositories/items-equipment/site/reader.json').is_file())
         pipeline.release.verify(self.root, released)
-        self.assertEqual(result['run_id'], self.run_pipeline()['run_id'])
+        with patch.object(pipeline.publication.github_pages, 'GitHubPages', return_value=host):
+            self.assertEqual(result['run_id'], pipeline.run(self.root, project, self.source)['run_id'])
 
 
 if __name__ == "__main__":

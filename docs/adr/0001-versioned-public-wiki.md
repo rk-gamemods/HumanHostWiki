@@ -70,10 +70,12 @@ Gameplay coverage remains partial. Selected-observation identity matching and
 durable decisions are implemented; individual asset identities and historical
 coverage remain incomplete. A static reader supports grouped reference pages,
 search and snapshot-preserving navigation over normalized runs. Real older-build
-capture coverage and publishing remain unfinished. The integrated runner now
-connects capture to the supported local stages and final exception reporting.
+capture coverage remains unfinished. The integrated runner now
+connects capture to the supported stages and final exception reporting.
 Coordinated local Git releases now preserve exact child commits and browser-readable
-historical packs with interrupted-run recovery. Public deployment remains unfinished.
+historical packs with interrupted-run recovery. GitHub provisioning and coordinated
+Pages publication are implemented and have published all thirteen sites. Coverage,
+gameplay verification and automatic capacity allocation remain incomplete.
 These development commands are
 diagnostic entrypoints, not the intended maintenance workflow. Current evidence
 and remaining completion gates are in [IMPLEMENTATION.md](../IMPLEMENTATION.md).

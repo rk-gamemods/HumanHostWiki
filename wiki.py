@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from wikibuild import extraction, history, manifest, navigation, pipeline, reader, snapshots, workspace
+from wikibuild import extraction, history, manifest, navigation, pipeline, publication, reader, release, snapshots, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 
@@ -19,7 +19,7 @@ def run(root, args):
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in project["repositories"]]}
     if args.command == "plan":
-        return {"stages": project["pipeline"], "note": "Update runs registration, selected facts, identity history, rendering and coordinated local Git release with a final exception report. The decompile wrapper invokes it after capture, including reuse. Full gameplay and historical coverage, verification, capacity allocation and publication remain unfinished."}
+        return {"stages": project["pipeline"], "note": "Update runs registration, selected facts, identity history, rendering, coordinated Git release and configured Pages publication with a final exception report. The decompile wrapper invokes it after capture, including reuse. Full gameplay and historical coverage, verification and capacity allocation remain unfinished."}
     if args.command == "check-lock":
         result = workspace.checkout_lock(root, project, check=True)
         return {"lock": "current", "repositories": len(result["repositories"])}
@@ -34,6 +34,11 @@ def run(root, args):
             changed = write_changed(output, data)
         return {"map": str(output), "changed": changed}
     with writer_lock(root):
+        if args.command == "publish":
+            identity = json.loads((root / "releases/latest.json").read_text())["release_id"]
+            result, metrics = publication.run(root, project, release.read(root, identity),
+                progress=lambda message: print(message, file=sys.stderr, flush=True))
+            return {"status": result["status"], "release_id": identity, "hub": result.get("hub"), "metrics": metrics}
         if args.command == "update":
             source = Path(args.source) if args.source else root / project["source"]["default_path"]
             return pipeline.run(root, project, source, progress=lambda stage: print(f"Wiki: {stage}", file=sys.stderr, flush=True))
@@ -66,7 +71,7 @@ def run(root, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ["validate", "status", "plan", "init-repositories", "lock", "check-lock"]:
+    for command in ["validate", "status", "plan", "init-repositories", "lock", "check-lock", "publish"]:
         sub.add_parser(command)
     sub.add_parser("map").add_argument("--check", action="store_true")
     refresh = sub.add_parser("refresh", help="Register the current local catalog input; does not re-extract game data")

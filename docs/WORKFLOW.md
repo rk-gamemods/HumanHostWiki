@@ -1,14 +1,15 @@
 # Local workspace workflow
 
 Run these commands from the `HumanHostWiki` umbrella directory. Python 3.11+
-and Git are the only foundation dependencies. No packages are installed.
+and Git are the foundation dependencies. Publication also uses the authenticated
+GitHub CLI. No Python packages are installed.
 
 These are current foundation/development commands. The
 [target update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
 starts when an operator invokes the decompile command and completes supported work
 through publication, including capacity management, without intermediate input.
 The entrypoint now runs capture, registration, selected extraction, identity and
-the validated reader and coordinated local Git release. Publication remains unfinished. The
+the validated reader, coordinated local Git release and configured Pages publication. The
 [runner contract](PIPELINE.md) defines receipts and recovery. At completion the operator presents
 unresolved wiki exceptions and requests direction; execution failures are separate.
 The manual examples below are foundation diagnostics, not extra maintenance steps.
@@ -27,7 +28,7 @@ settings, pipeline order and any existing checkout identities. Absent topic
 repositories are reported as absent. Dirty repositories are reported as dirty;
 the command does not commit, clean or reset them. Unknown existing directories
 fail validation rather than being adopted. `plan` explicitly distinguishes
-implemented stages from later gameplay generation and publication work.
+implemented stages from unfinished gameplay interpretation and verification work.
 
 Edit `project.json` to change repository declarations, then regenerate the map:
 
@@ -145,8 +146,8 @@ corrections and rule ownership, see [identity contracts](IDENTITY.md).
 
 This command currently processes the current source commit. Older captured game
 builds without a catalog require explicit uncaptured status; current asset facts
-cannot establish what those builds contained. Historical registration and public
-publication remain unfinished. No identity run grants gameplay verification.
+cannot establish what those builds contained. Historical registration remains
+unfinished. No identity run grants gameplay verification.
 
 ## Build and inspect the selected-fact reader
 
@@ -199,6 +200,15 @@ The independent checker compares committed blobs with the candidate and verifies
 that retained release indexes, packs and runtimes remain reachable. The benchmark
 runs an unchanged `wiki.py update` and checks child commits, output bytes and
 timestamps. It requires an already completed release for the current inputs.
+
+## Publish or resume a release
+
+Publication is enabled in `project.json` and runs during `wiki.py update`.
+`py -3 wiki.py publish` resumes only the latest local release without recapturing
+game inputs. It provisions configured repositories, audits outgoing history,
+verifies topic deployments and advances the hub last. Completed publication
+receipts live in `publications/`; incomplete work lives in `.local/publication/`.
+See [publication recovery](PUBLICATION.md) for interrupted pushes and hub rollback.
 
 ## Build the architecture preview
 
@@ -262,8 +272,11 @@ preview build complement those tests during initial setup.
 
 Identity tests cover source-ID changes, renames, reused IDs, split/merge ambiguity,
 reviewed mappings, revision reuse, removals, capture gaps and interrupted writes.
-They do not establish correctness of unimplemented gameplay adapters, real
-cross-build identity continuity or remote publication. The ADR lists those gates.
+Publication tests cover independent topic completion, interrupted pushes, hub
+rollback, retained history and rejection of changed remote refs. Live publication
+and browser evidence are recorded in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+These checks do not establish correctness of unimplemented gameplay adapters or
+real cross-build identity continuity. The ADR lists those remaining gates.
 
 Git for Windows can mark synthetic test object files read-only. Test cleanup uses
 ordinary removal and reports any protected fixtures retained under

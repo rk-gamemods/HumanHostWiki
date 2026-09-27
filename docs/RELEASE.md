@@ -54,7 +54,7 @@ checkout lock and finally advance `releases/latest.json`. The manifest pins chil
 commits, trees, output hashes, routes, reader inputs and the precise validation
 scope. Before that boundary, the previous coordinated release remains selected.
 Partial child commits can survive an interruption; retry recognizes and reuses
-their exact identities. Publication has a separate pointer and is not yet implemented.
+their exact identities. Publication has a [separate pointer and recovery contract](PUBLICATION.md).
 
 Operational staging remains under `.local/rs/` for recovery and inspection. It is
 not published. Capacity allocation and post-success staging retention still need
