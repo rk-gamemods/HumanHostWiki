@@ -34,8 +34,8 @@ complete product.
   dependency-based verification beyond the selected-observation identity stage.
 - Complete historical capture coverage, reader presentation of interpreted units
   and conditions, authored-claim checks and useful external backlinks beyond the
-  selected-fact reader. Steam availability observations are implemented;
-  display-version capture, gameplay freshness and page-check receipts remain.
+  selected-fact reader. Steam availability and captured application-version
+  evidence are implemented; gameplay freshness and page-check receipts remain.
 - Complete capacity acceptance for live GitHub overflow and indivisible control
   records. Storage allocation, bounded indexes and entrypoint rollover have
   forced-threshold tests with retained historical links; see their checkpoints below.
@@ -646,7 +646,28 @@ The focused reader checks and production JavaScript checks also passed.
 Registry validation, map, child locks and whitespace checks passed. Protected
 synthetic fixtures remain retained without overriding file protections.
 
-Normal-command reuse, public deployment and browser evidence are pending below.
+The normal parent command, `pwsh -NoProfile -File tools/Decompile-GameCode.ps1`,
+verified unchanged installed inputs and reused the source commit, then completed
+the wiki stages and published release
+`748fc6c9de3b17187d77d4df69818b72939c03554225b9c3155929390db52411` across all
+13 repositories. Its log is `.local/game-version-operator.log` in the parent
+workspace. The independent release audit checked 960 owned files (56,680,248 bytes),
+674 candidate files and 117 historical configurations; it does not certify gameplay.
+The report is `.local/game-version-release-audit.json` in this repository.
+
+The immediate unchanged wiki rerun took 8.765 seconds, preserving 983 tracked
+output files and all 13 child HEADs. Normalization and identity reused their
+results with zero selected-source bytes read; this is not a claim of zero
+filesystem I/O. All subsequent stages reused their outputs. See
+`.local/game-version-live-repeat.json` for measurements.
+
+Live browser checks on 2026-09-27 confirmed the application version and source
+evidence, topic navigation, search and the Crude Axe entry under the new capture.
+Selecting `build-25548639-a7d9406a5bfb` retained the release query, loaded that
+historical entry and showed its application version as unknown. Its facts and
+relationships remained accessible. These captures share one Steam build and do
+not satisfy the distinct-real-build acceptance requirement. The 193 unresolved
+content groups (27,087 occurrences) remain pending user direction.
 
 ## Deferred classifier experiments
 
