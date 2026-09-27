@@ -261,6 +261,9 @@ populated, empty, missing or temporarily unavailable. Link only useful populated
 article destinations; temporary external failure does not remove our information.
 Feed these observations into the default offline, deterministic build as versioned
 inputs rather than querying live websites during rendering.
+The [external article contract](../EXTERNAL_LINKS.md) owns provider checks,
+observation reuse and matching; its implementation status distinguishes the
+tested adapter from unfinished pipeline and reader integration.
 
 ## 8. Acceptance and delivery
 

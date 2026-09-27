@@ -26,6 +26,10 @@ complete product.
 
 ## Remaining completion gates
 
+The [external article adapter](EXTERNAL_LINKS.md) now has focused and live-boundary
+evidence. Normal-update integration, production routing and rendered backlinks
+remain open; the adapter checkpoint does not close that requirement.
+
 - Extend the integrated runner through gameplay verification
   without changing the operator workflow.
 - Extract and independently validate every registered gameplay topic. Account for
@@ -51,6 +55,30 @@ complete product.
   browser behavior and remote state, and audit every ADR acceptance requirement.
 
 ## Current evidence
+
+### External article adapter checkpoint
+
+On 2026-09-27, 21 focused tests passed. The live acceptance fixture enumerated
+64 community-wiki pages and checked 21 selected articles: 15 populated, two with
+no recognized article body and four unavailable under the content rule.
+The four unavailable pages were recorded for later review, not classified by an
+LLM. The pending game-content exception queue was not processed.
+
+The reviewed collection took 1.1060 seconds and transferred 78,310 bytes in four
+requests. Its saved observation was 11,139 bytes. Peak Python allocation measured
+by `tracemalloc` was 349,883 bytes; this is not whole-process resident memory.
+The immediate repeat took 0.0007 seconds, made no requests and preserved the
+pointer bytes/timestamp. After a test-only one-second expiry, one 15,492-byte
+inventory request reused all 21 article checks. A separate 6,158-byte request
+independently verified the IDs, byte lengths and content hashes of three pinned
+revisions. These are single-run measurements, not statistical benchmarks.
+
+Reproduce with `py -3 tools/check_external_links.py --online --root <isolated-directory>`.
+Evidence is in `.local/external-link-acceptance-reviewed/acceptance.json`;
+the initial observation is
+`b57c5a3620319912672caff7fd31b128b9683032a7d451ea99a4093f495a7fa7`.
+This checkpoint does not change the published reader or prove the unfinished
+pipeline and browser integration.
 
 - The item/loot extraction command produced 944 items, 29 loot tags, 51 loot tables
   and 862 loot sources from snapshot `build-25548639-9d77a0415918`. It read
