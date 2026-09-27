@@ -22,7 +22,7 @@ def immutable(path, value):
 def contract():
     folder = Path(__file__).parent
     return {name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
-            for name in ("release.py", "release_content.py", "release_output.py", "release_partitions.py",
+            for name in ("release.py", "release_content.py", "release_output.py", "ownership.py", "release_partitions.py",
                          "capacity.py", "capacity_inventory.py", "capacity_projection.py", "shard_index.py", "capture_catalog.py", "physical.py",
                          "git_transaction.py", "publication_git.py", "release_bootstrap.js", "workspace.py")}
 
@@ -182,7 +182,7 @@ def run(root, project, candidate):
             release_partitions.landing(writer, project, repo)
         else:
             project_topic(Path(candidate["path"]), repo, writer, projection)
-        changes, summary = writer.finish()
+        changes, summary = writer.finish(limits.file_bytes)
         if any(meta["bytes"] > limits.file_bytes for meta in changes.values()):
             raise ContractError(f"Generated control file exceeds the configured file budget: {repo['id']}")
         commit = git_transaction.prepare(target, stage / repo["id"], changes, f"Update wiki reference {release_id[:12]}")

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 import subprocess
 
-from . import capacity, physical, publication, release
+from . import capacity, ownership, physical, publication, release
 from .storage import ContractError, git, within
 
 
@@ -82,7 +82,7 @@ def read(root, project):
             if record["github_name"] != repo["github_name"] or record["path"] != repo["path"]:
                 raise ContractError("Released repository differs from its physical identity")
             commit = record["commit"]
-            owner = json.loads(git(path, "cat-file", "blob", commit + ":" + release.OWNER_FILE))
+            owner, _ = ownership.committed(path, commit)
         else:
             if (path / release.OWNER_FILE).exists():
                 raise ContractError("Owned outputs exist without a release baseline")

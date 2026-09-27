@@ -7,7 +7,7 @@ from unittest.mock import patch
 import test_publication
 import test_release
 from tools.check_release import check
-from wikibuild import capacity_inventory, physical, publication, reader, release, release_partitions, workspace
+from wikibuild import capacity_inventory, ownership, physical, publication, reader, release, release_partitions, workspace
 from wikibuild.storage import ContractError, git, json_bytes
 
 
@@ -121,6 +121,28 @@ class CapacityReleaseTests(unittest.TestCase):
         for identity in first["capacity"]["new_repositories"]:
             if first["repositories"][identity]["files_sha256"] == second["repositories"][identity]["files_sha256"]:
                 self.assertEqual(first["repositories"][identity]["commit"], second["repositories"][identity]["commit"])
+
+    def test_paged_ownership_commits_publishes_and_preserves_prior_release_reads(self):
+        # Force only the metadata-page threshold. Runtime objects still obey
+        # the independently configured 24,000-byte physical file budget.
+        with patch.object(ownership, "PAGE_BYTES", 2048):
+            first, _ = self.run_release()
+            audit = check(self.root)
+            self.assertGreater(audit["ownership_pages"], 0)
+            prior_sites = {topic: publication.site_files(self.root, record)
+                           for topic, record in first["repositories"].items()}
+            publication.run(self.root, self.project, first, host=self.host)
+            self.project["official_links"] = [{"title": "Fixture revision", "url": "https://example.invalid/"}]
+            workspace.checkout_lock(self.root, self.project)
+            self.candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
+            second, _ = self.run_release()
+            self.assertGreater(check(self.root)["ownership_pages"], 0)
+            self.assertEqual(check(self.root)["historical_configs"], 6)
+            for topic, record in first["repositories"].items():
+                self.assertEqual(publication.site_files(self.root, record), prior_sites[topic])
+            self.assertEqual(publication.run(self.root, self.project, second, host=self.host)[0]["status"], "published")
+            self.assertTrue(self.run_release()[1]["reused"])
+            capacity_inventory.read(self.root, self.project)
 
     def test_final_prepared_size_failure_preserves_all_existing_checkouts(self):
         before = self.fixture.heads()

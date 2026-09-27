@@ -7,6 +7,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.audit_ownership import expand
+
 
 def observe(root):
     paths = [root / name for name in ("workspace.lock.json", "releases/latest.json",
@@ -28,7 +31,9 @@ def observe(root):
         assert not subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain=v1", "--untracked-files=all"])
         owner = repo / ".wiki-output.json"
         paths.append(owner)
-        paths.extend(repo / name for name in json.loads(owner.read_text())["files"])
+        receipt, parts = expand(json.loads(owner.read_text()), lambda name: (repo / name).read_bytes())
+        paths.extend(repo / name for name in receipt["files"])
+        paths.extend(repo / name for name in parts)
     files = {p.relative_to(root).as_posix(): (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns) for p in paths}
     return heads, files
 

@@ -99,6 +99,11 @@ Existing ownership records remain readable. New records distinguish allocated
 objects from small entrypoint references, avoiding duplicate ownership when a
 release configuration moves to another repository. Unchanged storage partitions
 retain their exact files and commits, including their earlier ownership receipt.
+Large ownership receipts use bounded hashed metadata pages; current checkout
+ownership and pinned historical reads share one codec. Metadata pages stay outside
+Pages output and obsolete pages leave the current checkout through the release
+transaction. [RELEASE.md](RELEASE.md#output-ownership-and-storage) owns the format
+and recovery contract. Prepared source-history accounting includes these pages.
 
 `wikibuild/release_partitions.py` prepares new Git repositories in private staging.
 The release journal records seed identities before installing them at their final
@@ -117,9 +122,9 @@ budget check leaves the prior release selected and reports an execution failure.
 Configure byte limits and reserves through the optional `project.json.capacity`
 object, using the field names in `capacity.Budgets`.
 
-Mutable entrypoints and ownership manifests still need bounded storage and
-rollover. Oversized fixed control metadata still fails before promotion, including
-indivisible snapshot metadata and capture records.
+Mutable entrypoints still need bounded storage and rollover. Oversized fixed
+control metadata still fails before promotion, including indivisible snapshot
+metadata, capture records and ownership records.
 Full immutable storage partitions remain readable,
 but a full logical entrypoint still requires the unfinished rollover path. These
 limitations keep complete automatic capacity acceptance open.
@@ -127,8 +132,7 @@ limitations keep complete automatic capacity acceptance open.
 Forced-threshold integration tests cover new local repositories, installation
 interruption, publication dependency order/failure, retained historical URLs and
 no-op replay. They use real Git objects and a deterministic host adapter. Real
-GitHub overflow provisioning, ownership index splitting and entrypoint
-rollover remain acceptance gaps.
+GitHub overflow provisioning and entrypoint rollover remain acceptance gaps.
 
 ## Current validation
 
@@ -136,6 +140,7 @@ Run from the umbrella directory:
 
 ```powershell
 py -3 -m unittest discover -s tests -p 'test_capacity*.py' -v
+py -3 -m unittest discover -s tests -p 'test_ownership*.py' -v
 py -3 tools/check_capacity.py
 py -3 tools/check_capacity_projection.py
 ```
@@ -176,3 +181,11 @@ across three topics, drive the production JavaScript reader through those files,
 then append capture 81 and verify retained bytes and reuse. The Git release suite
 adds a 60-capture case. Browser boundary tests exercise lazy default/old selection,
 batched browsing, failed-fetch retry, integrity failures and flat compatibility.
+
+`tests/test_ownership.py` checks bounded multilevel receipts, exact flat bytes,
+membership and malformed inputs. `tests/test_ownership_transaction.py` checks real
+Git migration, interruption after obsolete-page removal, retry, preservation of
+outside edits and historical reads after the current checkout drops old metadata.
+`tools/audit_ownership.py` independently expands the receipt for release auditing
+and repeat measurements. The capacity-release suite also covers paged ownership
+across two coordinated releases and host-adapter publications.

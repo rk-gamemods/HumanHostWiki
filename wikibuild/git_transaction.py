@@ -40,6 +40,10 @@ def prepare(path, stage, files, message):
         if target.is_symlink() or actual != record["old"]:
             raise ContractError(f"Unowned or modified destination: {target}")
         staged = within(stage, name)
+        if record["new"] is None:
+            if record["old"] is None or record["bytes"] != 0 or staged.exists():
+                raise ContractError(f"Invalid prepared deletion: {name}")
+            continue
         if staged.stat().st_size != record["bytes"] or file_hash(staged) != record["new"]:
             raise ContractError(f"Prepared content differs: {name}")
     index = stage / "commit.index"
@@ -75,6 +79,13 @@ def promote(path, stage, plan):
     validate(path, plan)
     for name, record in sorted(plan["files"].items()):
         target = within(path, name)
+        if record["new"] is None:
+            if not target.exists():
+                continue
+            if not target.is_file() or file_hash(target) != record["old"]:
+                raise ContractError(f"Destination changed before file removal: {name}")
+            target.unlink()
+            continue
         if target.is_file() and file_hash(target) == record["new"]:
             continue
         source = within(stage, name)

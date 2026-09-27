@@ -4,13 +4,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from pathlib import Path
 
-from . import github_pages, physical, publication_git, release
+from . import github_pages, ownership, physical, publication_git, release
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 
 def contract():
     return {name: digest((Path(__file__).parent / name).read_bytes().replace(b"\r\n", b"\n"))
-            for name in ("publication.py", "publication_git.py", "github_pages.py", "physical.py")}
+            for name in ("publication.py", "publication_git.py", "github_pages.py", "ownership.py", "physical.py")}
 
 
 def save(path, payload):
@@ -70,7 +70,7 @@ def provision(root, project, host):
 
 def site_files(root, record):
     path = within(root, record["path"])
-    owner = json.loads(git(path, "show", record["commit"] + ":.wiki-output.json"))
+    owner, _ = ownership.committed(path, record["commit"])
     return {name.removeprefix("site/"): meta for name, meta in owner["files"].items() if name.startswith("site/")}
 
 

@@ -13,6 +13,16 @@ the generator's initial seed. Authored READMEs and other committed files remain
 outside generated ownership. Unknown files, including ignored files inside the
 generated namespaces, fail validation without being overwritten or staged.
 
+`wikibuild/ownership.py` owns the receipt format. Small receipts retain schema 1.
+Larger receipts use a schema 2 root and hashed `.wiki-ownership/<sha256>.json`
+pages, each bounded by the smaller of 64 KiB and the configured file budget.
+Directory pages bound the root as the file list grows. Each file record carries
+its hash, size and allocation membership; the root checks the complete file map.
+The current checkout contains only the metadata pages referenced by its receipt.
+Historical receipts remain readable at their pinned Git commits through one
+`git cat-file --batch` process per receipt. Ownership metadata is excluded from
+Pages output. Unknown or modified metadata pages fail validation and are preserved.
+
 Public site storage retains all releases:
 
 - `data/<hash>.json` stores a selected data pack once across snapshots/releases.
@@ -42,6 +52,12 @@ Before checkout mutation, save `.local/rs/<attempt>/plan.json` and a hash-pinned
 branch names, trees, file hashes and staged bytes. Topics commit before the hub.
 The next invocation finishes a pending transaction before preparing newer work.
 
+Obsolete ownership metadata pages are recorded as deletions with their old hashes.
+Promotion removes only those exact bytes; retry accepts an already completed
+deletion and rejects an outside edit. The same prepared Git commit includes the
+new receipt, new pages and obsolete-page removals. Historical site files are not
+deleted by this metadata transition.
+
 Recovery accepts only recorded old/new file content and index trees. Unexpected
 branch changes, staged edits or file changes are preserved and rejected. After
 file promotion, an index-only two-tree merge preserves Git's staged-change conflict
@@ -62,7 +78,7 @@ before dependent logical topics. The release manifest and checkout lock pin ever
 physical repository while the public route map retains logical topic ownership.
 
 Operational staging remains under `.local/rs/` for recovery and inspection. It is
-not published. Entrypoint/control-metadata rollover and post-success staging
+not published. Entrypoint rollover, indivisible control metadata and post-success staging
 retention still need implementation; historical public records are retained.
 
 ## Validation and preview

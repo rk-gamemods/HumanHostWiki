@@ -39,6 +39,7 @@ def audit(path, head, baseline=None):
             mode, kind, oid = meta.split()
             name = raw_name.decode()
             metadata = name in {".gitattributes", ".gitignore", ".wiki-repository.json", ".wiki-output.json", "README.md"}
+            metadata = metadata or re.fullmatch(r"\.wiki-ownership/[0-9a-f]{64}\.json", name) is not None
             generated = name.startswith(("site/", "reference/")) and name.rsplit("/", 1)[-1].endswith((".json", ".md", ".js", ".css", ".html", ".nojekyll"))
             authored = name.startswith("authored/") and name.endswith(".md")
             if mode != b"100644" or kind != b"blob" or not (metadata or generated or authored):

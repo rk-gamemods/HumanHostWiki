@@ -206,9 +206,9 @@ committing and publishing. New physical repositories retain their logical topic
 owner, appear in the release manifest and checkout lock, and publish before their
 dependent entrypoints. Optional byte limits and reserves live in
 `project.json.capacity`; no separate allocation command is needed for maintenance.
-Oversized snapshot pack-reference lists split automatically. Full entrypoint rollover
-and splitting of release configurations, ownership manifests and indivisible snapshot
-metadata remain unfinished; those cases fail before promotion if their budgets are exceeded.
+Oversized snapshot pack-reference lists, release capture lists and ownership manifests
+split automatically. Full entrypoint rollover and indivisible control records remain
+unfinished; those cases fail before promotion if their budgets are exceeded.
 
 ## Publish or resume a release
 

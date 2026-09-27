@@ -438,8 +438,8 @@ Appending capture 81 preserved historical files and reused earlier objects. A
 unchanged-commit replay. These are synthetic captures, not additional real game builds
 or live GitHub overflow evidence. The forced file budget is now 24,000 bytes to fit
 the expanded runtime; repository rollover and oversized-index splitting remain
-asserted by the tests. Indivisible control metadata and ownership/entrypoint growth
-remain separate unfinished cases.
+asserted by the tests. Indivisible control metadata and entrypoint growth remain
+unfinished cases. Ownership paging is covered by the later checkpoint below.
 
 A rendered local preview with 80 synthetic captures across eight physical sites
 loaded all version choices in two batches, selected build 1003, searched and opened
@@ -470,6 +470,36 @@ results with zero selected-source bytes read; project, release and publish also
 reused their results. This is not a claim of zero total I/O. The final
 `.local/capture-catalog-operator-report.txt` lists 193 unchanged exception groups
 (27,087 occurrences), with no execution failure or exception investigation.
+
+### Ownership paging checkpoint
+
+Large generated-file ownership receipts now use bounded hashed pages and directory
+indexes. Small receipts retain their prior bytes. Allocation inventory, publication
+and release validation use the same versioned codec; the independent audit expands
+receipts separately and checks their files against Git objects. The format and
+recovery contract are in [RELEASE.md](RELEASE.md#output-ownership-and-storage).
+
+Focused tests passed for flat-to-paged migration, multiple directory levels,
+allocation membership, exact repeat bytes, missing/modified pages, and malformed
+receipts. A real Git transaction interrupted immediately after removing an obsolete
+metadata page resumed to its prepared commit. Unknown and modified metadata were
+preserved and rejected. Earlier receipts remained readable at their pinned commits
+using one batch Git process, while metadata stayed outside Pages output.
+
+The seven capacity-release integration tests passed in 108.127 seconds, including
+two coordinated releases with paged ownership, deterministic host publication,
+retained historical site files, independent audits and unchanged-commit replay.
+The ownership page limit in that fixture was 2,048 bytes; the separate physical
+file budget remained 24,000 bytes. These tests do not establish live GitHub
+overflow or entrypoint rollover. Protected synthetic Git fixtures were retained
+by ordinary cleanup without changing their protections.
+
+The full suite passed 184 tests in 322.008 seconds; its local log is
+`.local/ownership-tests.log`. Project validation, generated-map validation,
+checkout-lock validation and `git diff --check` also passed. The independent
+checker passed against the previous real release `ababd1f9`, including 758 owned
+files, 589 candidate files and 65 retained configurations. Its ownership receipts
+were flat, so that audit proves compatibility rather than live paging.
 
 ## Deferred classifier experiments
 

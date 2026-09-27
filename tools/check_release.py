@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.audit_shard_index import leaves
 from tools.audit_capture_catalog import expand
+from tools.audit_ownership import expand as expand_ownership
 
 
 def sha(data):
@@ -47,7 +48,7 @@ def check(root):
     assert sha(canonical(candidate_manifest["inputs"])) == candidate_id
     assert manifest["versions"] == candidate_manifest["versions"]
     assert manifest["routes"] == candidate_manifest["inputs"]["bases"]
-    counts = {"repositories": 0, "owned_files": 0, "owned_bytes": 0, "candidate_files": 0, "historical_configs": 0}
+    counts = {"repositories": 0, "owned_files": 0, "owned_bytes": 0, "candidate_files": 0, "historical_configs": 0, "ownership_pages": 0}
     origins, ownership, locations = {}, {}, {}
     owner_name = candidate_manifest["inputs"]["project"]["github_owner"]
     for identity, record in manifest["repositories"].items():
@@ -66,7 +67,15 @@ def check(root):
         owner_data = (path / ".wiki-output.json").read_bytes()
         assert sha(owner_data) == record["ownership_sha256"]
         assert git(path, "cat-file", "blob", record["commit"] + ":.wiki-output.json") == owner_data
-        owner = json.loads(owner_data)
+        owner, metadata_pages = expand_ownership(json.loads(owner_data), lambda name: contained(path, name).read_bytes())
+        metadata_folder = contained(path, ".wiki-ownership")
+        actual_pages = {p.relative_to(path).as_posix() for p in metadata_folder.rglob("*") if p.is_file()}
+        assert actual_pages == set(metadata_pages)
+        for name, meta in metadata_pages.items():
+            data = contained(path, name).read_bytes()
+            object_hash = hashlib.new(algorithm, b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+            assert blobs[name] == object_hash
+        counts["ownership_pages"] += len(metadata_pages)
         assert owner["repository_id"] == identity
         logical = manifest.get("physical", {}).get(identity, {}).get("topic", identity)
         if identity == logical:
