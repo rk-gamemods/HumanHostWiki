@@ -501,6 +501,23 @@ checker passed against the previous real release `ababd1f9`, including 758 owned
 files, 589 candidate files and 65 retained configurations. Its ownership receipts
 were flat, so that audit proves compatibility rather than live paging.
 
+The normal update from `4fe97ca` published
+[release 84499e31](../releases/84499e31b869a9e02cc30b44093a3c3bd251bee884a5ec78758922586cb31ddb.json)
+across all thirteen sites. Its independent audit passed for 771 owned files
+(47,912,621 bytes), 589 candidate files and 78 retained configurations across six
+wiki releases. Real receipts still fit below the paging threshold. The reader
+candidate was reused, so this change did not replace its browser runtime.
+
+The unchanged `tools/benchmark_release.py` run passed in 8.200 seconds, preserving
+all thirteen child commits and 792 checked files, including timestamps. Its receipt
+is `.local/ownership-live-repeat.json`. Normalize and identity reused their results
+with zero selected-source bytes read; project, release and publish also reused
+their results. This does not measure zero total I/O. The final
+`.local/ownership-operator-report.txt` lists 193 unchanged exception groups
+(27,087 occurrences), with no execution failure or exception investigation.
+The two captured inputs still belong to Steam build 25548639; cross-build
+acceptance, current-game freshness and complete gameplay verification remain open.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters
