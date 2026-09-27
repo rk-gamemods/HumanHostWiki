@@ -25,6 +25,11 @@ full agreed catalog and historical provenance.
 The ADR requires operator-invoked runs that complete supported updates unattended,
 including classification, capacity management and release. Report unresolved wiki
 exceptions at the end for user direction; report execution failures separately.
+Initial delivery has a stricter completion gate: review and reconcile every known
+content and article exception, including the extraction rules that caused it.
+The user has authorized the entire initial backlog. Do not ask which initial
+exceptions to review or treat successful stage execution as a working baseline.
+Post-baseline exception reporting applies only after that baseline is established.
 Do not introduce a scheduler, automatic LLM processing or intermediate approvals.
 Derived factual documentation belongs in the wiki repositories. The parent
 codebase's source and raw catalog remain local inputs, read in place.

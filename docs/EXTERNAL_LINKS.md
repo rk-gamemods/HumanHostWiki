@@ -60,7 +60,9 @@ in that inventory, so an intervening edit cannot silently substitute new content
 These checks establish article presence and recognized content, not accuracy or
 compatibility with a game build. The content rule accepts at least eight English
 words outside excluded markup, a literal numeric property such as `Damage: 10`,
-or a multi-cell numeric wiki-table row. Templates and HTML remain unavailable.
+or a multi-cell numeric wiki-table row. Reviewed attribute-free `<u>`, `<code>` and
+`<br />` formatting is stripped before this check, with balanced nesting required.
+Templates, other HTML, attributes and malformed formatting remain unavailable.
 The rule is limited and its source digest versions the decision.
 
 Names normalize Unicode compatibility forms, underscores, whitespace and case.

@@ -26,6 +26,13 @@ complete product.
 
 ## Remaining completion gates
 
+The user has authorized reconciliation of all initial exceptions: 191 unsupported
+component classes, two relationship groups and five external article issues.
+Review their source evidence, correct the owning rules, and verify the resulting
+catalog before claiming the first working baseline. Historical checkpoints below
+that say these groups await user direction are superseded by this instruction.
+A completed script or published partial reader does not satisfy this gate.
+
 The [external article integration](EXTERNAL_LINKS.md) now includes normal-update
 refresh, production routing, release storage and rendered backlinks. It has passed
 normal-entrypoint publication, independent projection/release audits, an unchanged
@@ -82,7 +89,8 @@ and public release `e89be19a88ba2209581b9895133719aecb02628a3a8040a6243c7ba2ffc0
 Extraction, identity and authored-check source reads were zero; external article
 requests and response bytes were zero. The subsequent normal decompile invocation
 also succeeded with the same source capture and release. The 193 game-content
-exception groups and five article issues remain pending user direction.
+exception groups and five article issues were still unresolved in that run.
+Their reconciliation is now part of the initial-delivery work authorized above.
 
 The subsequent unchanged-update check passed in 10.457 seconds, preserving all
 13 child HEADs and the hashes/timestamps of 1,080 checked files. Every stage reused
@@ -897,6 +905,41 @@ audit checked 156 retained configurations. Final receipts are
 and `.local/curation-final-publication.log`. The cached explanation check reused
 the same receipt with zero model/code reads, 0.049 seconds and 43,457 peak
 Python-allocated bytes. Protected synthetic Git fixtures remain retained.
+
+### Initial exception reconciliation, first batch
+
+The [reconciliation record](BASELINE_RECONCILIATION.md) documents reviewed source
+evidence for 12 gameplay classes and 16 technical summary classes. Individual
+GameObject identities selected through domain relationships resolve both original
+relationship groups. Five external article checks now accept reviewed literal
+formatting; all 22 selected articles are populated. The initial baseline is still
+unfinished: 163 unsupported classes covering 22,143 occurrences remain in scope.
+
+The normal decompile command completed pipeline
+`6bfa2dbb943c3cf55d2fe0dab845e330df11d78d2d955a117ca33e14b26a7ab3`
+and published release
+`c8cab53303aa808a64cfca46153681d3f64993d9bc976c49730bf5815d185d8e`.
+Source capture remained unchanged. The independent full source audit checked
+12,222 selected gameplay records, 181,450 assertions, 527 type summaries and
+2,063 referenced GameObjects. The reader audit checked 31,104 observations and
+279,942 assertions across retained captures. The Git release audit verified 13
+repositories, 1,682 owned files and 182 retained release configurations. These
+checks prove selected facts and their projection, not complete gameplay coverage.
+
+The full suite passed 277 tests in 654.844 seconds. A later identity regression
+proves that reviewing a technical summary preserves its existing key; all 14
+identity tests passed afterward. Evidence is retained in the
+`.local/baseline-reconciliation-*` reports. The unchanged normal update took
+12.282 seconds and preserved 13 child commits and 1,731 file hashes/timestamps.
+Public browser checks verified
+the selected release and the corrected Vehicle Building revision link.
+
+An isolated extraction benchmark measured 6.041 seconds cold and 0.114 seconds
+for the unchanged repeat. Cold identity processing took 2.594 seconds, with a
+0.200-second repeat. Both repeats read zero source bytes and preserved output
+bytes and pointers. Peak Python working set was 91,824,128 bytes, excluding the
+Git subprocess. This single observation ran alongside publication and is not a
+controlled comparison.
 
 ## Deferred classifier experiments
 

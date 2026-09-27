@@ -153,6 +153,51 @@ class ComponentTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "unique sorted"):
             components.prepare(CatalogFixture([row, row], {}), Exceptions())
 
+    def test_reviewed_technical_fields_emit_only_summary_and_new_fields_stay_actionable(self):
+        index = [{"id": "fixture#1", "type": "MonoBehaviour", "assembly": "Assembly-CSharp",
+                  "class": "Reporter", "record": {"sha256": "verified"}}]
+        record = {"id": "fixture#1", "script": {"assembly": "Assembly-CSharp", "class": "Reporter"},
+                  "fields": {"UserData": "PRIVATE TELEMETRY", "fps": 60, "newGameplayParameter": 12}}
+        source = CatalogFixture(index, {"fixture#1": record})
+        issues = Exceptions()
+        components.prepare(source, issues)
+        rows = list(components.extract(source, issues))
+        self.assertEqual(1, len(rows))
+        self.assertEqual("catalog-type-summary", rows[0]["fact_scope"])
+        self.assertEqual("technical-component", rows[0]["facts"]["coverage"])
+        self.assertNotIn("PRIVATE TELEMETRY", json.dumps(rows))
+        self.assertNotIn("newGameplayParameter", json.dumps(rows))
+        self.assertEqual("new-field", issues.report()["groups"][0]["code"])
+        self.assertEqual("Reporter/newGameplayParameter", issues.report()["groups"][0]["pattern"])
+        self.assertEqual(["fixture#1"], source.requested)
+
+    def test_material_gameplay_fields_are_preserved_while_audio_and_new_fields_are_omitted(self):
+        spec = components.BY_CLASS[("Sound_FX", "Sound_Mat")]
+        data = {"_ThisMatHP": 240, "_MatDensity": 2.5, "_AllowUpdateBI_MassHP": 1,
+                "_HP_ZoneSmashBI": 450.0, "_IsMetal": 1,
+                "_SmashAudioClips": ["BINARY PAYLOAD"], "newResistance": 0.3}
+        issues = Exceptions()
+        facts = Selection({"id": "fixture#1"}, spec, issues).select(data, spec.fields)
+        self.assertEqual(240, facts["_ThisMatHP"])
+        self.assertEqual(450, facts["_HP_ZoneSmashBI"])
+        self.assertEqual(2.5, facts["_MatDensity"])
+        self.assertNotIn("_SmashAudioClips", facts)
+        self.assertNotIn("newResistance", facts)
+        self.assertEqual("Sound_Mat/newResistance", issues.report()["groups"][0]["pattern"])
+
+    def test_bad_trap_damage_retains_independent_timing_and_no_visual_payload(self):
+        spec = components.BY_CLASS[("Trap", "Trap_Laser")]
+        data = {name: 0 for name in spec.fields.selected}
+        data.update(_TrapDamage="changed representation", _TriggerInterval=0.8,
+                    _LaserContinueSeconds=4.0, _LaserBeam="PRIVATE VISUAL")
+        issues = Exceptions()
+        facts = Selection({"id": "fixture#1"}, spec, issues).select(data, spec.fields)
+        self.assertNotIn("_TrapDamage", facts)
+        self.assertNotIn("_LaserBeam", facts)
+        self.assertEqual(0.8, facts["_TriggerInterval"])
+        self.assertEqual(4, facts["_LaserContinueSeconds"])
+        self.assertEqual("unsupported-field-type", issues.report()["groups"][0]["code"])
+
 
 if __name__ == "__main__":
     unittest.main()

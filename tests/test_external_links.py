@@ -265,6 +265,28 @@ class ProviderTests(unittest.TestCase):
             with self.subTest(content=content):
                 self.assertEqual(mediawiki.article_state(content)[0], expected)
 
+    def test_reviewed_formatting_preserves_body_and_navigation_checks(self):
+        cases = [
+            ("<u>Damage</u>: 10", "populated"),
+            ("<code>" + BODY + "</code>", "populated"),
+            ("<U><code>Damage</code></U>: 10", "populated"),
+            ("== Heading ==<br />Damage: 10", "populated"),
+            ("<u>[[Human Host:Some Guide|A guide with a very long descriptive title]]</u>", "empty"),
+            ("<code></code><br><u></u>", "empty"),
+            ("<u>Coming soon</u><br />", "empty"),
+            ("<code>{{Info|damage=10}}</code>", "unavailable"),
+            ("<u hidden>" + BODY + "</u>", "unavailable"),
+            ("<br onclick='run()'>" + BODY, "unavailable"),
+            ("<code>" + BODY, "unavailable"),
+            ("<u><code>" + BODY + "</u></code>", "unavailable"),
+            ("</code>" + BODY, "unavailable"),
+            ("<code" + BODY, "unavailable"),
+            ("<!DOCTYPE html>" + BODY, "unavailable"),
+        ]
+        for content, expected in cases:
+            with self.subTest(content=content):
+                self.assertEqual(mediawiki.article_state(content)[0], expected)
+
     def test_incomplete_duplicate_or_wrong_namespace_indexes_never_prove_absence(self):
         entry, body = page(1, "Axe")
         for response in [None, {}, {"query": None}, {"query": {"pages": None}},

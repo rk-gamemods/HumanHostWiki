@@ -3,6 +3,9 @@
 from .schema import NUMBER as N, Ref, component, fields, numbers
 
 SPECS = (
+    component("Weather", "Local_Wheather_Zone", "world-rule", "world-systems", {
+        "_ZoneSets": Ref("weather-zone-settings"),
+    }, "_WeatherChances", notes="Local weather zone's settings reference; runtime chance cache is excluded."),
     component("Weather", "Weather_Settings", "weather", "world-systems", {
         "weatherName": str, "weatherType": int,
         **numbers("maxContinueSeconds minContinueSeconds maxWetnessLevel thunderFrequency rainSecondsToHide rainSecondsToShow"),

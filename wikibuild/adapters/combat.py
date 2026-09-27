@@ -1,6 +1,6 @@
 """Body/material damage factors and serialized melee/ranged weapon settings."""
 
-from .schema import NUMBER as N, Ref, component, numbers
+from .schema import NUMBER as N, Ref, component, fields, numbers
 
 COMMON = {
     **numbers("_Damage _DamageType _BladeHitProb _HitDownProb _HitFlyForce _DismemberBody _BlowHead _DuraCostPerAttack _DigGetDirtBlock _RepairDis _RepairNoiseDis _RepairValue _repairType _PushBodyDis _HitReactAmplitude"),
@@ -12,6 +12,11 @@ _lastHitIsScene _playerInput _reShotDis _soundMgr _thisToolSlot _toolMgr _tracer
 _weaponRenders layer_Creature layer_Ragdoll mask_2_8_9_10_14 mask_HitFinal mask_HitNoBI"""
 
 SPECS = (
+    component("Sound_FX", "WeaponHit_Set", "combat-rule", "combat", {
+        "HitSettings": [fields({"hitSoundMat": Ref("material"), "hitSoundMatName": str,
+                                "hitSoundSpreadDis": N},
+            "hitAudioClips hitAudioVolumes hitParticles hitP_Scales hitDecals decal_Scales")],
+    }, notes="Serialized impact alert distance by hit material; audio and visual payloads are omitted."),
     component("Hand_Tools", "BodyPartsDamage_Sets", "damage-type", "combat", {
         "_BodyPartsDamageFactor": numbers("armLeg chest head"),
     }, "触发自动编译"),

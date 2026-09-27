@@ -107,6 +107,7 @@ def run(root, project, source, receipt):
             metrics = {"reused": True, "source_bytes_read": 0}
         else:
             counts, keys = {}, set()
+            observers = [adapter.observe for adapter in ADAPTERS if hasattr(adapter, "observe")]
             for adapter in ADAPTERS:
                 for path in adapter.INPUTS:
                     inputs.identity(path)
@@ -123,6 +124,8 @@ def run(root, project, source, receipt):
                         if key in keys:
                             raise ContractError(f"Duplicate observation: {key}")
                         keys.add(key)
+                        for observe in observers:
+                            observe(inputs, row)
                         row["topic"] = owners[row["kind"]]
                         if row["kind"] == "item":
                             inputs.item_names[row["source_id"]] = row["name"]
@@ -135,7 +138,7 @@ def run(root, project, source, receipt):
                       "coverage": inputs.catalog["coverage"],
                       "records": store_file(root, staging / "records.jsonl", "jsonl"),
                       "exceptions": store_file(root, staging / "exceptions.json", "json"),
-                      "supported_kinds": sorted(kind for adapter in ADAPTERS for kind in adapter.KINDS),
+                      "supported_kinds": sorted({kind for adapter in ADAPTERS for kind in adapter.KINDS}),
                       "topics_without_records": sorted(repo["id"] for repo in project["repositories"] if repo["role"] == "topic"
                                                  and not set(repo["owns"]).intersection(counts)),
                       "topic_coverage": {repo["id"]: {"status": "partial" if set(repo["owns"]).intersection(counts) else "no-records",

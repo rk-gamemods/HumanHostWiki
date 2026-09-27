@@ -269,6 +269,10 @@ evidence distinguishes fixture tests, live provider checks and publication check
 
 Required proof before full publication:
 
+- Establish the first working baseline by reviewing and reconciling every known
+  initial content and article exception, including corrections to extraction and
+  cataloging rules. The user has authorized the entire initial backlog. Routine
+  post-baseline reporting for user direction does not defer this initial work.
 - Account for every source object as a domain/technical entry, payload omission or
   documented gap; resolve edges within the selected snapshot or label them unresolved.
 - Independently check real-source identifiers, values and references. Across at least

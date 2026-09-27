@@ -11,8 +11,11 @@ TARGET_KINDS = {
     "uses-loot-table": {"loot-table"}, "disassembly": {"processing-rule"},
     "body-damage-set": {"damage-type"}, "biome": {"biome"}, "weather": {"weather"},
     "terrain-block-set": {"resource-distribution"}, "spawn-set": {"spawn-rule"},
-    "spawns-prefab": {"creature"}, "headless-prefab": {"creature"},
+    "spawns-prefab": {"creature"}, "headless-prefab": {"asset"}, "model": {"asset"},
     "engine": {"vehicle-rule"}, "tire": {"vehicle-rule"}, "character-skills": {"survival-rule"},
+    "armor-part": {"equipment"},
+    "material": {"construction-rule"}, "material-binding": {"construction-rule"},
+    "weather-zone-settings": {"world-rule"},
 }
 
 
@@ -42,20 +45,22 @@ def source_ids(row):
 
 def targets_index(observations, assignments):
     aliases, summaries, kinds = defaultdict(set), {}, {}
+    direct = defaultdict(set)
     for row in observations:
         entity = assignments[row["observation_key"]]
         kinds[entity] = row["kind"]
         aliases[row["source_id"]].add(entity)
+        direct[row["source_id"]].add(entity)
         for identity in row.get("game_objects", []):
             aliases[identity].add(entity)
         if row.get("fact_scope") == "catalog-type-summary":
             facts = row["facts"]
             summaries[(facts["engine_type"], facts.get("assembly"), facts.get("class"))] = entity
-    return aliases, summaries, kinds
+    return aliases, summaries, kinds, direct
 
 
 def relationships(row, indexes, metadata, issues):
-    aliases, summaries, kinds = indexes
+    aliases, summaries, kinds, direct = indexes
     semantic, resolved = [], []
     for link in row.get("relationships", []):
         predicate = link["predicate"]
@@ -68,6 +73,9 @@ def relationships(row, indexes, metadata, issues):
             candidates = aliases.get(target, set())
             if predicate in TARGET_KINDS:
                 candidates = {candidate for candidate in candidates if kinds[candidate] in TARGET_KINDS[predicate]}
+            exact = candidates & direct.get(target, set())
+            if exact:
+                candidates = exact
             if len(candidates) == 1:
                 entity = next(iter(candidates))
                 destinations.append(entity)

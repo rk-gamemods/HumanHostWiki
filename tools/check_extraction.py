@@ -48,20 +48,26 @@ def compare_selected(expected, actual, context):
     return 1
 
 
-def check(root, source):
+def check(root, source, complete=False):
     pointer = json.loads((root / ".local/extraction-latest.json").read_text())
     run = json.loads((root / f".local/extractions/runs/{pointer['run_id']}.json").read_text())
     data = (root / run["records"]["path"]).read_bytes()
     if hashlib.sha256(data).hexdigest() != run["records"]["sha256"]:
         raise ValueError("Selected facts do not match their recorded hash")
     rows = [json.loads(line) for line in data.splitlines()]
-    sample, families = [], defaultdict(list)
+    sample, families, components_by_object = [], defaultdict(list), defaultdict(set)
     summaries = [row for row in rows if row.get("fact_scope") == "catalog-type-summary"]
+    prefabs = {row["source_id"]: row for row in rows if row.get("fact_scope") == "referenced-prefab-identity"}
+    prefab_count = len(prefabs)
     for row in rows:
-        if row.get("fact_scope") != "catalog-type-summary":
+        if "component" in row:
+            for identity in row.get("game_objects", []):
+                components_by_object[identity].add(row["source_id"])
+        if row.get("fact_scope") not in {"catalog-type-summary", "referenced-prefab-identity"}:
             families[(row["kind"], row.get("component", {}).get("class", ""))].append(row)
     for _, candidates in sorted(families.items()):
-        sample.extend(candidates[index] for index in sorted({0, len(candidates) // 2, len(candidates) - 1}))
+        sample.extend(candidates if complete else
+                      (candidates[index] for index in sorted({0, len(candidates) // 2, len(candidates) - 1})))
     requested = {}
     for row in sample:
         identity = row["source_id"].split("/tag/", 1)[0] if row["kind"] == "loot-tag" else row["evidence"][0]["object"]
@@ -70,6 +76,9 @@ def check(root, source):
         for evidence in row["evidence"][1:]:
             requested.setdefault(evidence["path"], set()).add(evidence["object"])
     objects, hashes = {}, {}
+    for row in prefabs.values():
+        for evidence in row["evidence"][1:]:
+            requested.setdefault(evidence["path"], set()).add(evidence["object"])
     for path, wanted in requested.items():
         for raw, sha in raw_records(source, run["source_commit"], path):
             if raw["id"] in wanted:
@@ -130,6 +139,29 @@ def check(root, source):
     totals = Counter()
     for record, _ in raw_records(source, run["source_commit"], "Catalog/views/object-index.jsonl"):
         totals[(record["type"], record.get("assembly"), record.get("class"))] += 1
+        if record["id"] in prefabs:
+            row = prefabs.pop(record["id"])
+            if (record["type"] != "GameObject" or row["facts"] != {"engine_type": "GameObject"}
+                    or row["name"] != (record.get("name") or record["id"])
+                    or row.get("asset_paths", []) != record.get("paths", [])):
+                raise ValueError(f"Referenced prefab differs from its index identity: {record['id']}")
+            component_ids = components_by_object[record["id"]]
+            if component_ids != {link["target_source_id"] for link in row["relationships"]}:
+                raise ValueError(f"Prefab component links differ: {record['id']}")
+            if component_ids != {evidence["object"] for evidence in row["evidence"][1:]}:
+                raise ValueError(f"Prefab component evidence differs: {record['id']}")
+            for evidence in row["evidence"][1:]:
+                raw = objects[evidence["object"]]
+                targets = {ref.get("target") for ref in raw.get("references", [])
+                           if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved"}
+                if targets != {record["id"]}:
+                    raise ValueError(f"Prefab component does not belong to object: {evidence['object']}")
+                if evidence.get("record_sha256", hashes[raw["id"]]) != hashes[raw["id"]]:
+                    raise ValueError(f"Prefab component evidence hash differs: {raw['id']}")
+                checks += 1
+            checks += 3
+    if prefabs:
+        raise ValueError("Referenced prefab identities are absent from the index")
     if sum(totals.values()) != run["coverage"]["objects"]:
         raise ValueError("Object coverage total differs")
     for row in summaries:
@@ -138,6 +170,8 @@ def check(root, source):
             raise ValueError(f"Technical type count differs: {row['name']}")
         checks += 1
     return {"snapshot_id": run["snapshot_id"], "observations_checked": len(sample), "assertions": checks,
+            "sampling": "all" if complete else "first-middle-last-per-family",
+            "prefab_identities_checked": prefab_count,
             "kinds": sorted({row["kind"] for row in sample}), "status": "passed", "type_summaries_checked": len(summaries),
             "scope": "Selected serialized facts, English names and loot eligibility; not runtime verification"}
 
@@ -145,5 +179,6 @@ def check(root, source):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[2] / "HumanHostCodebase")
+    parser.add_argument("--all", action="store_true", help="Check every selected observation instead of a sample per family")
     args = parser.parse_args()
-    print(json.dumps(check(Path(__file__).resolve().parents[1], args.source), indent=2))
+    print(json.dumps(check(Path(__file__).resolve().parents[1], args.source, args.all), indent=2))

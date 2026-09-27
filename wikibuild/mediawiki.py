@@ -92,10 +92,44 @@ class Client:
         return value
 
 
+def literal_formatting(text):
+    """Remove reviewed, attribute-free formatting, preserving line and word boundaries.
+
+    This is a literal-content check, not an HTML renderer. Unknown markup,
+    attributes and malformed nesting remain exceptions. In particular, a hidden
+    element or a template cannot supply evidence of a populated destination.
+    """
+    stack = []
+
+    def replace(match):
+        token = match[0].lower()
+        if re.fullmatch(r"<br\s*/?>", token):
+            return "\n"
+        found = re.fullmatch(r"<(/?)(u|code)>", token)
+        if found is None:
+            raise ValueError("unsupported markup")
+        closing, tag = found.groups()
+        if closing:
+            if not stack or stack.pop() != tag:
+                raise ValueError("mismatched formatting")
+        else:
+            stack.append(tag)
+        return ""
+
+    text = re.sub(r"</?[A-Za-z][^>]*>", replace, text)
+    if stack or re.search(r"</?[A-Za-z]|<!|<\?", text):
+        raise ValueError("unfinished markup")
+    return text
+
+
 def article_state(content):
     """Recognize literal prose, numeric properties or table data; never execute markup."""
     text = re.sub(r"<!--.*?-->", "", content, flags=re.S)
-    if "<!--" in text or "{{" in text or "}}" in text or re.search(r"</?[A-Za-z]", text):
+    if "<!--" in text or "{{" in text or "}}" in text:
+        return "unavailable", "unsupported-markup"
+    try:
+        text = literal_formatting(text)
+    except ValueError:
         return "unavailable", "unsupported-markup"
     text = re.sub(r"\[\[(?:File|Image|Category):[^\]]*\]\]", "", text, flags=re.I)
     body = []

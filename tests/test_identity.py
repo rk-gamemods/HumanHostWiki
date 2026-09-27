@@ -90,6 +90,17 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual("e-old", keys[changed["observation_key"]])
         self.assertEqual("same-observation-in-capture", decisions[changed["observation_key"]]["rule"])
 
+    def test_reviewed_classification_preserves_the_existing_technical_type_identity(self):
+        old = {**observation(source="catalog-type/reporter", name="Reporter", key="unknown"),
+               "kind": "unclassified", "topic": "technical-reference", "fact_scope": "catalog-type-summary",
+               "facts": {"class": "Reporter", "coverage": "uninterpreted-component"}}
+        corrected = {**old, "kind": "component", "observation_key": "reviewed",
+                     "facts": {"class": "Reporter", "coverage": "technical-component"}}
+        new = descriptor(corrected)
+        assignments, decisions = match([new], {"e-old": state(old)}, same_capture=True)
+        self.assertEqual("e-old", assignments[new["observation_key"]])
+        self.assertEqual("matched", decisions[new["observation_key"]]["status"])
+
     def test_provisional_identity_and_ambiguity_survive_reprocessing(self):
         old = state(observation())
         changed = descriptor(observation(name="New feature", value=99))

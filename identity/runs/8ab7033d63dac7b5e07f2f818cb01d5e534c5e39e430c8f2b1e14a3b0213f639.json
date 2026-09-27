@@ -1,0 +1,51 @@
+{
+  "change_origin": "extractor-correction",
+  "contract_sha256": "ccbceb8c8674c5ff03cf3f36530bd4571bd9259acd7a7c53ec3e73006502d72b",
+  "corrections_sha256": "ff75bee24e8eb4b416fe1bac1036b0898729c3286ad5a8c9e0f0994df2bcc6a4",
+  "counts": {
+    "changed": 80,
+    "new": 1190,
+    "unchanged": 13542
+  },
+  "exceptions": {
+    "group_count": 0,
+    "groups": [],
+    "kind": "unresolved-wiki-content",
+    "next_action": "No unresolved wiki content in the implemented extraction scope.",
+    "occurrences": 0,
+    "schema_version": 1
+  },
+  "extraction_run": "4ca0a855d128803c66c03eb2c0bed24642d963622a9ea5ddbcfb30d9697337b3",
+  "input_identity": {
+    "inventory": "1184f9cfdddd5f6448411e38187fc9ac68a37088",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "25548639",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "8060226703539543058",
+          "size": "53522231159"
+        }
+      }
+    }
+  },
+  "models": {
+    "bytes": 40331161,
+    "path": ".local/history/objects/053d5ad61080fb39127d5f6be5306b539550524212fce4da62f7ae8dcc165e05.jsonl",
+    "sha256": "053d5ad61080fb39127d5f6be5306b539550524212fce4da62f7ae8dcc165e05"
+  },
+  "parent_run": "380b7cdab7c6be324abe5e906dceb7a614446c45a5cbd75378b76e2d01844893",
+  "request_key": "9f367ec566cd86af922400889b32ccc28825cde898dc95d1fb926f6ebff79108",
+  "run_id": "8ab7033d63dac7b5e07f2f818cb01d5e534c5e39e430c8f2b1e14a3b0213f639",
+  "schema_version": 1,
+  "snapshot_id": "build-25548639-0bf00fe33781",
+  "source_commit": "0bf00fe33781a7357b2d462fdaad49b0c3518b86",
+  "state": {
+    "bytes": 18189088,
+    "path": "identity/states/c5863ff7e554dff2ae3bc9819e0b0bb3b8f7f0fbe1b1fc85dd7cf986c37d1c8e.jsonl",
+    "sha256": "c5863ff7e554dff2ae3bc9819e0b0bb3b8f7f0fbe1b1fc85dd7cf986c37d1c8e"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}

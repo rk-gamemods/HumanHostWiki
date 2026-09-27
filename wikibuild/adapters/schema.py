@@ -31,6 +31,7 @@ class Component:
     topic: str
     fields: Fields
     notes: str = "Serialized configuration; runtime code and settings may modify these values."
+    summary_only: bool = False
 
 
 def fields(selected, excluded=""):

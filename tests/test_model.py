@@ -11,7 +11,7 @@ from wikibuild.exceptions import Exceptions
 class ModelTests(unittest.TestCase):
     def project(self, row, indexes, metadata=None, blob="a"):
         issues = Exceptions()
-        projected = model.project(row, "e-source", indexes, metadata or {},
+        projected = model.project(row, "e-source", (*indexes, {}), metadata or {},
                                   {"Catalog/views/items.jsonl": {"git_blob": blob * 40, "sha256": blob * 64}}, issues)
         return projected, issues.report()
 

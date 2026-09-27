@@ -3,6 +3,10 @@
 from .schema import Ref, component, numbers
 
 SPECS = (
+    component("Bicycle", "SBPScripts.SuspensionManager", "vehicle-rule", "vehicles", {
+        **numbers("enable frontSpring frontDamper rearSpring rearDamper"),
+    }, "fSuspension rSuspension chain frontSuspensionMesh spring",
+       notes="Serialized bicycle suspension enable flag and front/rear joint spring and damping parameters."),
     component("Item_Info", "ItemInfo_Engine", "vehicle-rule", "vehicles",
               numbers("EnginePower EngineSpeedFactor FuelMax"), "FuelBar FuelBarText FuelLeft OutOfFuel _originLocalScale"),
     component("Item_Info", "ItemInfo_Tire", "vehicle-rule", "vehicles",

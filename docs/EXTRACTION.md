@@ -11,6 +11,8 @@ articles. Every published fact must come from an explicit field contract.
 | `wikibuild/source.py` | Pinned Git reads, verified byte ranges, dependencies and old-snapshot fallback |
 | `wikibuild/adapters/components.py` | One index pass, bounded record batches and technical type summaries |
 | `wikibuild/adapters/catalog_policy.py` | Explicit infrastructure accounting and payload omissions |
+| `wikibuild/adapters/technical.py` | Reviewed field exclusions with new-field detection; summary output only |
+| `wikibuild/adapters/prefabs.py` | Individual identities for GameObjects referenced by selected domain relationships |
 | `wikibuild/adapters/schema.py` | Nested types, field selection, nulls, references and grouped exceptions |
 | Topic files in `wikibuild/adapters/` | Selected fields, known omissions and domain relationships |
 | `wikibuild/adapters/entries.py` | Recipe/skill/status entries from selected nested definitions |
@@ -43,6 +45,26 @@ conservatively reruns the selected extraction when any selected dependency chang
 It reuses identical content objects; an unchanged run reads zero source data.
 Finer invalidation should be added only with complete dependency evidence and a
 measurement showing the extra state is worthwhile.
+
+Referenced prefab identities use one additional streaming pass over the index
+after selected relationships are known. They contain identity metadata and inverse
+links to cataloged component configurations, evidenced by each component's
+`m_GameObject` reference. Unreferenced objects and binary payloads are not exported.
+Relationship resolution prefers a direct object identity over component aliases,
+after applying the predicate's expected kind. A model with several components is
+one model; a headless corpse prefab does not require a living AI configuration.
+
+Reviewed technical contracts read the component through the same bounded selector
+as gameplay contracts, but emit only the existing type/count summary. A new field
+still raises an exception. These decisions account for serialized fields without
+claiming that every method's behavior has been interpreted.
+
+Use `py -3 tools/check_extraction.py --all` for the initial baseline: it compares
+every selected gameplay observation, all referenced prefab identities and every
+type summary with pinned source records. The default command samples the first,
+middle and last observation in each gameplay family. Neither mode proves runtime
+behavior. [Baseline reconciliation](BASELINE_RECONCILIATION.md) records the initial
+source reviews and remaining work.
 
 ## Interpretation and coverage
 

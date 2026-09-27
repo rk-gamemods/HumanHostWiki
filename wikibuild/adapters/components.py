@@ -8,7 +8,7 @@ class names or copy unrecognized field bags.
 from collections import Counter
 import itertools
 
-from . import biomes, combat, construction, crafting, creatures, spawning, survival, vehicles, world
+from . import biomes, combat, construction, crafting, creatures, equipment, spawning, survival, technical, traps, vehicles, world
 from .items_loot import observation
 from .entries import expand, english_labels
 from .catalog_policy import category as classify
@@ -18,7 +18,7 @@ from ..storage import ContractError, digest, json_bytes
 NAME = "component-contracts"
 VERSION = 1
 INPUTS = ("Catalog/views/object-index.jsonl",)
-SPECS = tuple(spec for module in (biomes, combat, construction, crafting, creatures, spawning, survival, vehicles, world)
+SPECS = tuple(spec for module in (biomes, combat, construction, crafting, creatures, equipment, spawning, survival, technical, traps, vehicles, world)
               for spec in module.SPECS)
 BY_CLASS = {(spec.assembly, spec.name): spec for spec in SPECS}
 KINDS = tuple(sorted({spec.kind for spec in SPECS} | {"component", "asset", "unclassified", "recipe", "status-effect"}))
@@ -56,6 +56,8 @@ def prepare(source, issues):
         if spec:
             selected[identity] = row
         category = classify(row, spec is not None, VIEW_CLASSES, PAYLOAD_TYPES)
+        if spec and spec.summary_only:
+            category = "technical-component"
         counts[category] += 1
         key = (row["type"], assembly or "", cls or "", category)
         group = groups.setdefault(key, {"count": 0, "examples": []})
@@ -108,6 +110,8 @@ def extract(source, issues):
         facts = selector.select(record.get("fields"), spec.fields)
         if facts is OMIT:
             facts = {}
+        if spec.summary_only:
+            continue
         row = observation(spec.kind, identity, metadata.get("name"), facts, source.object_path(identity),
                           selector.evidence, selector.links)
         row["component"] = {"assembly": spec.assembly, "class": spec.name}
@@ -140,6 +144,9 @@ def extract(source, issues):
         row = observation(kind, key, cls or engine_type, facts, INPUTS[0], ["type", "assembly", "class"])
         row["examples"] = group["examples"]
         row["fact_scope"] = "catalog-type-summary"
+        spec = BY_CLASS.get((assembly, cls))
+        if spec and spec.summary_only:
+            row["notes"] = spec.notes
         row["evidence"][0].pop("object")
         row["evidence"][0]["selection"] = {"type": engine_type, "assembly": assembly or None, "class": cls or None}
         gaps = [gap for gap in source.catalog["coverage"].get("decode_gaps", [])
