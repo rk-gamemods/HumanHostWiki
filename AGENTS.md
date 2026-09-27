@@ -40,6 +40,7 @@ The decompile handoff and local stage runner are implemented in `docs/PIPELINE.m
 `docs/RELEASE.md` owns coordinated local Git releases. `docs/PUBLICATION.md` owns
 GitHub provisioning, topic-first Pages publication and hub rollback. Keep content exceptions separate from
 execution failures when reporting a run.
+`docs/CAPACITY.md` owns allocation boundaries and the remaining release integration.
 Never call a registered snapshot a verified wiki release or an empty topic a
 completed catalog. Keep implementation status accurate in the workflow document.
 

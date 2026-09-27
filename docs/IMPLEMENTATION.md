@@ -306,6 +306,23 @@ release, and a subsequent repeat took 8.045 seconds with the same 13 commits and
 701 checked files unchanged. The [publication guide](PUBLICATION.md) owns these
 retry rules.
 
+### Capacity allocator checkpoint
+
+The pure allocator and committed-input inventory reader pass 15 focused tests.
+The real inventory rehearsal for release
+`120d76c6a29e1ed5b1f2153ba2ba1c81c956c9b8f024237f40e618de94eac59f`
+covered 452 immutable objects totaling 42,829,633 bytes across 13 logical topics.
+Current placement and replay allocated no repositories. Forced 2 MiB site budgets
+planned 16 additional partitions. This read-only rehearsal took 1.894 seconds with
+1,647,383 bytes of traced Python peak memory; native Git memory is excluded.
+
+Tests include history overflow, sealed partitions, input ordering, blob reuse,
+name collisions, immutable conflicts and invalid measurements. A real Git fixture
+independently checks reachable object sizes, including deleted content and exclusion
+of unrelated branches. The [capacity contract](CAPACITY.md) identifies the remaining
+projection, rollover, final-size verification and publication work. No automatic
+capacity integration or remote partition creation is claimed by this checkpoint.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters
