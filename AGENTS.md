@@ -1,4 +1,4 @@
-# Human Host Wiki
+# Unofficial Game Data Wiki for Human Host
 
 This is an independent local Git repository. The parent workspace and the local
 decompiled snapshot have separate histories. Start with [README.md](README.md)
@@ -7,6 +7,10 @@ and [ADR-0001](docs/adr/0001-versioned-public-wiki.md).
 ## Owning contracts
 
 - The ADR owns the architecture and accepted product decisions.
+- The user-approved public name is `Unofficial Game Data Wiki for Human Host`,
+  stored in `project.json`. Public headers state: "An unofficial community
+  project. Not affiliated with or endorsed by Virtual Matrix Studio."
+  Do not assign a different public brand without the user's choice.
 - `project.json` owns repository identities, category ownership, navigation,
   relationships and pipeline dependencies. Update it before derived maps.
 - `wikibuild/` owns shared orchestration. Topic repositories own their content;

@@ -1,8 +1,10 @@
-# Human Host Wiki
+# Unofficial Game Data Wiki for Human Host
+
+An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.
 
 Local umbrella for a public, English, free, ad-free player and modding reference.
 It defines one navigation hub and twelve topic repositories, with versioned
-factual catalogs and unattended updates as the target architecture.
+factual catalogs and unattended updates.
 
 Start with the [accepted ADR](docs/adr/0001-versioned-public-wiki.md). It records
 the complete decisions, provenance model, historical browsing, ownership,
@@ -23,12 +25,15 @@ reuses unchanged work, commits a coordinated release and publishes topic sites
 before advancing the hub. Unresolved content is reported after supported work
 finishes. See [publication and recovery](docs/PUBLICATION.md).
 
-Gameplay interpretation, real cross-build coverage, verification, automatic
-capacity allocation and other ADR requirements remain incomplete. The
-[implementation evidence](docs/IMPLEMENTATION.md) records the remaining gates.
+The [delivery acceptance inventory](docs/ACCEPTANCE.md) records implemented
+requirements, finite checks and evidence limitations. The original 193 content
+groups and five article issues are reconciled for the current capture. Runtime
+verification remains explicitly scoped, and two distinct real catalog builds
+are not yet available. Optional gameplay prose is not a completion gate.
 
 Requires Python 3.11+ and Git, plus authenticated GitHub CLI for publication.
-Generation uses Python's standard library and native browser APIs.
+Captured C# enum extraction also requires the pinned packages in
+`requirements-source.txt`. See [setup and commands](docs/WORKFLOW.md).
 
 ```powershell
 py -3 wiki.py validate

@@ -83,9 +83,10 @@ def project_topic(candidate, repo, writer, projection):
     links += [f"- [{name.removeprefix('reference/')}]({name.removeprefix('reference/')})" for name in reference_paths]
     writer.add("reference/index.md", ("\n".join(links) + "\n").encode())
     if "README.md" in writer.previous:
-        writer.add("README.md", (f"# {repo['title']}\n\n{repo['coverage']}.\n\n"
-            "Unofficial community reference for Human Host. Not affiliated with or endorsed by Virtual Matrix Studio.\n\n"
-            "Browse the [generated reference](reference/index.md). Coverage is partial; "
+        project_name = json.loads((topic / "reader.json").read_bytes()).get("project", "Unofficial game reference")
+        writer.add("README.md", (f"# {project_name}\n\n## {repo['title']}\n\n{repo['coverage']}.\n\n"
+            "An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.\n\n"
+            "Browse the [generated reference](reference/index.md) for selected captured data; "
             "serialized facts are not runtime-verified gameplay claims.\n\n"
             f"Current prepared release: `{release_id}`. Publication is tracked separately by the hub.\n\n"
             "Generated files are recorded in `.wiki-output.json`. Put authored explanations outside "

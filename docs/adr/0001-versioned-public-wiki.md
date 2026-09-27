@@ -8,6 +8,11 @@ shows their connections. Commands and recovery procedures belong in
 
 ## 1. Outcome and scope
 
+Public name, selected by the user on 2026-09-27:
+**Unofficial Game Data Wiki for Human Host**. Generated headers identify it as:
+"An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+`project.json` supplies the public name to the renderer.
+
 Build a public, English, free, ad-free GitHub Pages reference for players and
 modders: game contents, mechanics, acquisition, technical identifiers and
 relationships, with information for every captured game version.

@@ -34,6 +34,7 @@ def render(manifest, receipt):
         return (f'<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
                 f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(title)} | {brand}</title>'
                 f'<style>{CSS}</style></head><body><header><a href="{home}">{brand}: start here</a>'
+                '<p>An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.</p>'
                 f'<h1>{escape(title)}</h1><p class="status">Architecture preview. Gameplay articles are not generated.</p>'
                 f'<p>{source}</p></header>{body}<nav aria-label="Topics"><h2>Explore topics</h2><ul>{nav}</ul></nav>'
                 f'<footer><p>Unofficial community reference for players and modders. Free and ad-free. '

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "project": "Human Host Wiki",
+  "project": "Unofficial Game Data Wiki for Human Host",
   "github_owner": "rk-gamemods",
   "language": "en",
   "publication": {"visibility": "public", "monetized": false, "advertising": false, "host": "github-pages", "enabled": true, "workers": 4},
