@@ -186,6 +186,10 @@ def resume(root, state, path, host, workers):
             deploy(root, hub, host)
             hub["verified"] = True
             save(path, state)
+        except github_pages.BuildObservationError:
+            # An unavailable observation is not a terminal build result. Keep the
+            # prepared commit pending; a retry discovers its actual remote state.
+            raise
         except Exception:
             # Only a push that actually advanced the hub needs a compensating
             # commit. An unconfirmed response is reconciled against the live ref.

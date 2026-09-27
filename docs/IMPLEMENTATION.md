@@ -295,6 +295,17 @@ were preserved. The two captures are revisions of Steam build 25548639, not two
 distinct game builds. Gameplay verification, automatic capacity allocation,
 staging retention and the other remaining gates still require implementation.
 
+Publication observation was then hardened: reads pin an observed build, consult
+the build inventory when the latest record belongs to another commit and report
+unobservable outcomes separately from terminal failures. Observation failures
+preserve the pending commit for retry without a compensating hub push. All 19
+publication tests passed; after adding a disappearing-build case, all 10 adapter
+tests passed. All 11 pipeline tests also passed. A read-only live adapter check
+confirmed the hub commit above was built. The normal update reused the public
+release, and a subsequent repeat took 8.045 seconds with the same 13 commits and
+701 checked files unchanged. The [publication guide](PUBLICATION.md) owns these
+retry rules.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters

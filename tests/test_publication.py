@@ -150,6 +150,29 @@ class PublicationTests(unittest.TestCase):
         self.assertIn("No validated public release", git(self.root / "repositories/hub", "show", head + ":index.html"))
         self.assertEqual(self.run_publish()[0]["status"], "published")
 
+    def test_unavailable_hub_build_observation_preserves_commit_for_retry(self):
+        first, _ = self.run_publish()
+        self.next_release()
+        original = self.host.wait
+
+        def unavailable(name, commit):
+            if name == "Wiki-hub":
+                raise github_pages.BuildObservationError("Build observation unavailable")
+            return original(name, commit)
+
+        with patch.object(self.host, "wait", side_effect=unavailable), self.assertRaises(github_pages.BuildObservationError):
+            self.run_publish()
+        pending = publication.load(self.root / ".local/publication/pending.json")
+        hub_commit = self.host.ref("Wiki-hub", "gh-pages")
+        self.assertEqual(pending["phase"], "hub")
+        self.assertIsNone(pending["rollback"])
+        self.assertFalse(pending["repositories"]["hub"]["verified"])
+        self.assertEqual(publication.published(self.root), first)
+        result, _ = self.run_publish()
+        self.assertEqual(result["repositories"]["hub"]["pages"], hub_commit)
+        self.assertEqual(sum(e[:3] == ("push", "Wiki-hub", "gh-pages") and e[3] == hub_commit
+                             for e in self.host.events), 1)
+
     def test_lost_push_response_reuses_exact_prepared_commit(self):
         self.host.interrupt_name = "Wiki-items"
         with self.assertRaises(KeyboardInterrupt):
@@ -243,6 +266,68 @@ class AdapterTests(unittest.TestCase):
         with patch.object(host, "api", side_effect=states) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
             self.assertEqual(host.wait("wiki", "abc")["status"], "built")
             self.assertTrue(all(c.args[0] == "GET" for c in calls.call_args_list))
+
+    def test_observed_build_is_pinned_and_live_polls_have_no_absence_limit(self):
+        host = github_pages.GitHubPages("fixture")
+        path = "repos/fixture/wiki/pages/builds/17"
+        states = [{"commit": "abc", "status": state, "url": "https://api.github.com/" + path}
+                  for state in ["queued"] * 15 + ["building"] * 15 + ["built"]]
+        with patch.object(host, "api", side_effect=states) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            self.assertEqual(host.wait("wiki", "abc")["status"], "built")
+            self.assertEqual(calls.call_count, 31)
+            self.assertTrue(all(c.args == ("GET", path) for c in calls.call_args_list[1:]))
+
+    def test_other_latest_build_does_not_hide_the_target(self):
+        host = github_pages.GitHubPages("fixture")
+        target = {"commit": "abc", "status": "building", "url": "https://api.github.com/repos/fixture/wiki/pages/builds/17"}
+        states = [{"commit": "other", "status": "built"}, [target], {**target, "status": "built"}]
+        with patch.object(host, "api", side_effect=states) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            self.assertEqual(host.wait("wiki", "abc")["status"], "built")
+            self.assertTrue(calls.call_args_list[1].args[1].endswith("?per_page=100"))
+            self.assertTrue(calls.call_args_list[2].args[1].endswith("/17"))
+
+    def test_disappearing_pinned_build_is_rechecked_without_substitution(self):
+        host = github_pages.GitHubPages("fixture")
+        path = "repos/fixture/wiki/pages/builds/17"
+        queued = {"commit": "abc", "status": "queued", "url": "https://api.github.com/" + path}
+        with patch.object(host, "api", side_effect=[queued] + [None] * 12) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            with self.assertRaises(github_pages.BuildObservationError):
+                host.wait("wiki", "abc")
+            self.assertEqual(calls.call_count, 13)
+            self.assertTrue(all(c.args == ("GET", path) for c in calls.call_args_list[1:]))
+
+    def test_absent_build_returns_observation_failure_without_dispatch(self):
+        host = github_pages.GitHubPages("fixture")
+        with patch.object(host, "api", side_effect=[None, []] * 12) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            with self.assertRaisesRegex(github_pages.BuildObservationError, "not observable after 12 checks"):
+                host.wait("wiki", "abc")
+            self.assertEqual(calls.call_count, 24)
+            self.assertTrue(all(c.args[0] == "GET" for c in calls.call_args_list))
+
+    def test_earlier_live_build_does_not_consume_absence_budget(self):
+        host = github_pages.GitHubPages("fixture")
+        older = {"commit": "older", "status": "building"}
+        states = [older, [older]] * 15 + [{"commit": "abc", "status": "built"}]
+        with patch.object(host, "api", side_effect=states), patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            self.assertEqual(host.wait("wiki", "abc")["status"], "built")
+
+    def test_unknown_status_and_transient_read_failure_do_not_claim_build_failure(self):
+        host = github_pages.GitHubPages("fixture")
+        for value in ({"commit": "abc", "status": "new-state"}, ContractError("HTTP 503 after retries")):
+            with self.subTest(value=value), patch.object(host, "api", side_effect=[value]):
+                with self.assertRaises(github_pages.BuildObservationError):
+                    host.wait("wiki", "abc")
+        with patch.object(host, "api", return_value={"commit": "abc", "status": "built"}), patch.object(host, "ref", side_effect=ContractError("HTTP 503")):
+            with self.assertRaises(github_pages.BuildObservationError):
+                host.wait("wiki", "abc")
+
+    def test_terminal_build_failure_and_changed_source_are_not_observation_failures(self):
+        host = github_pages.GitHubPages("fixture")
+        for state, ref in (("errored", "abc"), ("cancelled", "abc"), ("built", "other")):
+            with self.subTest(state=state), patch.object(host, "api", return_value={"commit": "abc", "status": state}), patch.object(host, "ref", return_value=ref):
+                with self.assertRaises(ContractError) as failure:
+                    host.wait("wiki", "abc")
+                self.assertNotIsInstance(failure.exception, github_pages.BuildObservationError)
 
     def test_empty_remote_response_and_transient_get_retry(self):
         host = github_pages.GitHubPages("fixture")

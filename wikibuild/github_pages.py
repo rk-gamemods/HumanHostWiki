@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 from urllib.error import HTTPError, URLError
@@ -11,6 +12,10 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from .storage import ContractError
+
+
+class BuildObservationError(ContractError):
+    """Build outcome is unknown; preserve its commit and reconcile on the next run."""
 
 
 class GitHubPages:
@@ -97,22 +102,62 @@ class GitHubPages:
             raise ContractError(f"Unexpected Pages URL: {name}")
 
     def wait(self, name, commit):
-        # A queued/building job stays live. Poll the same build until its actual
-        # state is terminal; an observation delay is not a failed deployment.
-        endpoint = f"repos/{self.owner}/{name}/pages/builds/latest"
-        observed, ticks = None, 0
+        # Live builds have no execution deadline. Bound only successful observations
+        # that find neither our build nor another queued/running build ahead of it.
+        builds = f"repos/{self.owner}/{name}/pages/builds"
+        endpoint = builds + "/latest"
+        observed, ticks, missing = None, 0, 0
+
+        def check_source():
+            try:
+                current = self.ref(name, "gh-pages")
+            except ContractError as exc:
+                raise BuildObservationError(f"Unable to observe Pages source {name}: {exc}") from exc
+            if current != commit:
+                raise ContractError(f"Pages source changed while waiting: {name}")
+
         while True:
-            value = self.api("GET", endpoint, missing=True)
-            state = (value or {}).get("status", "awaiting-build")
-            if value and value.get("commit") == commit:
+            try:
+                value = self.api("GET", endpoint, missing=True)
+                if value is not None and not isinstance(value, dict):
+                    raise BuildObservationError(f"Invalid Pages build record: {name}")
+                active = False
+                if endpoint.endswith("/latest") and (not value or value.get("commit") != commit):
+                    # 'latest' alone cannot establish absence: another build may
+                    # have arrived while we were observing our pinned commit.
+                    recent = self.api("GET", builds + "?per_page=100")
+                    if not isinstance(recent, list) or any(not isinstance(row, dict) for row in recent):
+                        raise BuildObservationError(f"Invalid Pages build inventory: {name}")
+                    active = any(row.get("status") in {"queued", "building"} for row in recent)
+                    value = next((row for row in recent if row.get("commit") == commit), None)
+            except (ContractError, ValueError) as exc:
+                raise BuildObservationError(f"Unable to observe Pages build {name} at {commit}: {exc}") from exc
+            if value and value.get("commit") != commit:
+                raise BuildObservationError(f"Pinned Pages build identity changed: {name}")
+            state = value.get("status") if value else ("waiting-for-earlier-build" if active else "awaiting-build")
+            if value:
+                missing = 0
+                url = value.get("url", "")
+                if re.fullmatch(re.escape("https://api.github.com/" + builds) + r"/\d+", url):
+                    endpoint = url.removeprefix("https://api.github.com/")
                 if state == "built":
+                    check_source()
                     return {"commit": commit, "status": "built"}
                 if state in {"errored", "cancelled"}:
                     raise ContractError(f"Pages build {name} failed: {value.get('error')}")
+                if state not in {"queued", "building"}:
+                    raise BuildObservationError(f"Unknown Pages build status for {name}: {state!r}")
+            elif active:
+                missing = 0
+            else:
+                missing += 1
             if ticks % 4 == 0 or state != observed:
                 self.progress(f"Pages {name}: {state}")
-                if self.ref(name, "gh-pages") != commit:
-                    raise ContractError(f"Pages source changed while waiting: {name}")
+                check_source()
+            if missing >= 12:
+                raise BuildObservationError(
+                    f"Pages build {name} at {commit} was not observable after 12 checks; "
+                    "publication remains pending. Rerun to reconcile the same commit.")
             observed = state
             ticks += 1
             time.sleep(5)

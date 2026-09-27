@@ -75,10 +75,23 @@ py -3 -m unittest discover -s tests -p test_publication.py -v
 `publish` is a recovery/diagnostic entrypoint for the latest local release. Normal
 maintenance uses the integrated update. On a transient network failure, rerun the
 same command; completed stage receipts and confirmed pushes are reused. A queued
-or running build is polled without restarting it.
+or running build is polled without restarting it or imposing an execution deadline.
+Once GitHub returns a build identity, subsequent reads address that build. If the
+latest record belongs to another commit, the adapter checks the recent build
+inventory before treating the target as unobserved. Twelve consecutive successful
+checks with no target or earlier live build return an observation failure. This
+bounds missing-job discovery, not the runtime of a queued or running job.
+
+An exhausted observation retry, missing build record or unknown build status keeps
+the prepared publication pending. It does not trigger another build or a hub
+rollback. Rerunning reconciles the same commit. An explicitly failed build or a
+failed public-content check still uses the rollback procedure above. Build reads
+use the documented [Pages build endpoints](https://docs.github.com/en/rest/pages/pages#get-a-github-pages-build).
 
 Tests use real Git objects and an isolated host adapter for exact deployment order,
 independent completion, duplicate runs, interrupted pushes, changed remote refs,
 modified journals, both rollback cases and history audits. Local HTTP tests cover
-content hashing and oversized responses. They do not establish live GitHub availability;
+content hashing and oversized responses. Observation tests cover long-lived builds,
+another latest build, missing records, unknown states and retry without another
+hub push. They do not establish live GitHub availability;
 real deployment evidence belongs in [IMPLEMENTATION.md](IMPLEMENTATION.md).
