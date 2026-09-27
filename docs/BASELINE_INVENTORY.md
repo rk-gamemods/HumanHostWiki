@@ -6,10 +6,10 @@ inventory with explicit class contracts and the already audited selected output.
 Every row has a rule, scope decision and evidence. Exact selected/excluded field
 names and reviewed reasons are in [the machine-readable ledger](baseline-inventory-reconciliation.json).
 
-Evidence: `baseline-selective-source-audit.json` checked every selected value and
+Evidence: `delivery-coded-source-audit.json` checked every selected value and
 all 527 type summaries against the captured source; its 365,969 assertions passed.
-`baseline-selective-history-audit.json` checked canonical edges and provenance
-(318,439 assertions). Both are retained under `.local/`. The reconciliation also
+`delivery-coded-history-audit.json` checked canonical edges and provenance
+(449,827 assertions). Both are retained under `.local/`. The reconciliation also
 checked exact per-class counts and every originally inventoried top-level field.
 New types/fields still produce exceptions under `components.py` and `schema.py`.
 

@@ -3,8 +3,8 @@
   "source_commit": "1080b929da89375e2c09b6a80abc28f343e9d9a5",
   "snapshot": "build-25548639-1080b929da89",
   "original_pipeline": "f1f4b7855b328dab494753d7e29efee30acd2d9ec1eca73cade4cc44e2124113",
-  "verified_pipeline": "00cb20428e5de8944e8a54eedfceb92882d1d8ecae431e4261d294b2ac6fb78a",
-  "selected_sha256": "f843aca7527f64766e85cd6d5cf98fee9da4a2548d930bd118d4148bec5c29dc",
+  "verified_pipeline": "16b55897545e9cdedaeba97643d311e32ca74ec39b629506b6476b0b6af3e8eb",
+  "selected_sha256": "d588d687a3e96b6dda41a906cef80f25df8cf4108da06723c8115f3fc2e94a4c",
   "objects_accounted": 414343,
   "components": [
     {

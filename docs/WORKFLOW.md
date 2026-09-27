@@ -2,8 +2,9 @@
 
 Run these commands from the `HumanHostWiki` umbrella directory. Python 3.11+
 and Git are the foundation dependencies. Publication also uses the authenticated
-GitHub CLI. Default extraction uses the standard library; optional named C# checks
-use the pinned packages described in [CURATED.md](CURATED.md).
+GitHub CLI. Captured enum extraction and optional named C# checks use the pinned
+packages installed once with `py -3 -m pip install -r requirements-source.txt`.
+See [selected extraction](EXTRACTION.md) and [authored checks](CURATED.md).
 
 The public [wiki](https://rk-gamemods.github.io/HumanHost-Wiki/) and
 [hub repository](https://github.com/rk-gamemods/HumanHost-Wiki) are live.
