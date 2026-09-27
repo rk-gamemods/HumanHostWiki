@@ -5,9 +5,11 @@ and Git are the only foundation dependencies. No packages are installed.
 
 These are current foundation/development commands. The
 [target update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
-is unattended: a configured runner detects changes and invokes capture through
-publication, including capacity management. That runner is not implemented yet.
-The manual examples below are not a maintenance requirement for the completed wiki.
+starts when an operator invokes the decompile command and completes supported work
+through publication, including capacity management, without intermediate input.
+That integration is not implemented yet. At completion the operator presents
+unresolved wiki exceptions and requests direction; execution failures are separate.
+The manual examples below are foundation diagnostics, not extra maintenance steps.
 
 ## Inspect and validate
 
@@ -83,6 +85,28 @@ py -3 wiki.py refresh
 That separate capture may be expensive and follows the parent's recovery rules.
 The wiki command never invokes it implicitly. The current source generator does
 not provide the game's display version, so the receipt records it as unknown.
+
+## Extract selected facts
+
+```powershell
+py -3 wiki.py extract
+```
+
+This development command registers the pinned existing source and extracts the
+implemented item/loot contracts. It streams selected Git blobs, resolves English
+item names and records exact field evidence. Media, unrelated fields and raw code
+are excluded. New fields produce grouped wiki exceptions while known fields and
+independent records continue. Missing required input files or malformed records
+are execution failures, not successful content exceptions.
+
+The JSON result names the content-addressed records and exception report under
+`.local/extractions/`. It explicitly lists the remaining topics and does not claim
+a wiki release or runtime verification. The last-success pointer advances only
+after all output hashes validate. Rerunning validates and reuses complete output;
+modified output is refused. An unrelated source commit reuses facts when every
+selected dependency is unchanged. Previously absent dependencies are rechecked.
+
+See [implementation evidence](IMPLEMENTATION.md) for unfinished delivery gates.
 
 ## Build the architecture preview
 

@@ -19,9 +19,11 @@ relationships, with information for every captured game version.
 - Read the existing `HumanHostCodebase` in place. Reuse the parent's
   `tools/Decompile-GameCode.ps1` for capture. Export useful text metadata, not
   graphical/audio payloads, raw source trees or duplicate analysis datasets.
-- After initial setup, a non-LLM runner automatically detects updates, captures,
-  parses, classifies, links, versions, validates, commits and publishes them.
-  Routine updates require no operator commands, page edits or approval per release.
+- An operator starts the existing decompile command. Its deterministic pipeline
+  captures, parses, classifies, links, versions, validates, commits and publishes
+  supported changes without intervention during the run. Wiki generation follows
+  capture and reads only the inputs selected by each topic's extraction contract.
+  Source trees and whole asset indexes never pass through into wiki output.
 - Credit the studio and identify the site as an independent community resource.
   The in-game viewer remains deferred until the wiki is stable and maintainable.
 
@@ -63,9 +65,11 @@ Registration or a navigation preview cannot establish gameplay verification.
 The complete scope and implementation status are separate: the current foundation
 supports registry validation, local repository setup/locking, input registration,
 generated architecture maps and deterministic navigation previews.
-The unattended runner, gameplay adapters, identity matching, historical browsing
-and publishing remain planned. These manual foundation commands are diagnostic
-entrypoints, not the intended maintenance workflow.
+Selected item/loot extraction is implemented with grouped exceptions and reuse.
+Other gameplay adapters, the integrated runner, identity matching, historical
+browsing and publishing remain unfinished. These development commands are
+diagnostic entrypoints, not the intended maintenance workflow. Current evidence
+and remaining completion gates are in [IMPLEMENTATION.md](../IMPLEMENTATION.md).
 
 ## 4. Data and provenance contracts
 
@@ -154,11 +158,13 @@ and [1 GB per Pages site](https://docs.github.com/en/pages/getting-started-with-
 
 ## 6. Refresh, build and coordinated release
 
-One scheduled local runner owns this sequence. It checks for stable installed
-build/catalog changes, skips unchanged inputs and invokes capture automatically.
+The operator-invoked decompile command owns this sequence. It checks for stable
+installed build/catalog changes, skips unchanged work and invokes wiki generation
+after a successful capture, including an unchanged capture.
 Latest available builds are checked separately; unavailable local inputs produce
 a waiting/stale state and automatic retry, never a false current badge. Configure
-input paths, credentials, namespace and budgets once; no LLM scheduler is required.
+input paths, publication credentials, namespace and storage budgets once.
+There is no separate scheduler, autonomous LLM processor or model spending budget.
 
 | Stage | Required result |
 | --- | --- |
@@ -186,9 +192,24 @@ input paths, credentials, namespace and budgets once; no LLM scheduler is requir
 
 Use conservative invalidation until complete dependencies are recorded. Identical
 inputs must produce identical bytes and no new content commit. Automation invokes
-commands and consumes exit codes/receipts. Duplicate or missed wakes resume from
-durable state; human attention is for unsupported content/schema or unrecoverable
-failures, not normal changes, successful releases or capacity growth.
+commands and consumes exit codes/receipts. Repeated or interrupted invocations
+resume from durable state. Compare against the last successful wiki processing
+point so a skipped or failed run cannot lose changes. Separate dependency hashes
+from semantic content hashes: an irrelevant source change can require a check
+without producing a new page revision.
+
+The script completes all safely independent supported work and writes a grouped,
+deterministic exception report. Unsupported content does not block known-pattern
+updates or confirmation of unchanged facts. The operator, usually an LLM, presents
+the remaining issues after the run and asks the user how to proceed. Explanations,
+category proposals and model-assisted resolution follow that direction; they are
+not automatic stages. Reuse decisions while their evidence and rules remain valid.
+Execution failures are reported separately from unresolved wiki content. After
+diagnosis and repair, rerun this same process and review its remaining exceptions.
+
+During development, record concrete lightweight-classifier opportunities with
+examples, expected labels and measurable accuracy/cost criteria. Implementing
+Jev or another local classifier is outside this scope.
 
 ### Failure and recovery
 
@@ -237,11 +258,12 @@ Required proof before full publication:
   retry and rollback; preserve the prior coordinated release without duplicates/loss.
 - Demonstrate unattended updates through new assets in existing categories and
   forced capacity thresholds, including automatic splits/provisioning and intact
-  historical links. No hand edits, operator commands, release approvals or LLM calls.
+  historical links. After the operator starts the command, no hand edits,
+  release approvals or LLM calls are required to complete supported work.
 - Unknown content enters technical reference with an actionable exception while
-  supported changes proceed; retries and missed/duplicate wakes require no intervention.
+  supported changes proceed; repeat invocations resume without duplicate work.
 
-Delivery order: **foundation (implemented) -> unattended runner with item/loot slice
+Delivery order: **foundation (implemented) -> integrated pipeline with item/loot slice
 -> all registered topics -> historical reader -> coordinated Pages publication**.
 The first slice does not reduce final coverage. Select streaming versus
 SQLite from measured access patterns and choose the production renderer when building

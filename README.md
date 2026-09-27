@@ -18,9 +18,10 @@ refresh/release pipeline, failure recovery and delivery sequence.
 
 The foundation validates and initializes independent local repositories,
 registers the existing game catalog without copying it, and builds a linked
-architecture preview. The unattended runner, gameplay adapters, historical article
-rendering and remote publication are planned in the ADR. No remote is configured
-by this tool.
+architecture preview. `extract` now streams selected item and loot facts with
+source evidence, grouped exceptions and validated reuse. It does not create a wiki
+release. Other topic adapters, the integrated pipeline, historical article rendering
+and remote publication remain in progress. No remote is configured by this tool.
 
 Requires Python 3.11+ and Git. The foundation uses only Python's standard library.
 
@@ -31,6 +32,7 @@ py -3 wiki.py plan
 py -3 wiki.py map --check
 py -3 wiki.py check-lock
 py -3 wiki.py build
+py -3 wiki.py extract
 py -3 -m unittest discover -s tests -v
 ```
 

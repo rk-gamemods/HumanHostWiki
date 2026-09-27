@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from wikibuild import manifest, navigation, snapshots, workspace
+from wikibuild import extraction, manifest, navigation, snapshots, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 
@@ -19,7 +19,7 @@ def run(root, args):
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in project["repositories"]]}
     if args.command == "plan":
-        return {"stages": project["pipeline"], "note": "Only input registration is implemented here; build renders the architecture preview."}
+        return {"stages": project["pipeline"], "note": "Registration and selected item/loot extraction are implemented; build renders the architecture preview. Full normalization and release remain unfinished."}
     if args.command == "check-lock":
         result = workspace.checkout_lock(root, project, check=True)
         return {"lock": "current", "repositories": len(result["repositories"])}
@@ -40,9 +40,12 @@ def run(root, args):
         if args.command == "init-repositories":
             return {"created": workspace.initialize(root, project), "remotes_created": 0,
                     "note": "New repositories contain uncommitted seed files; review and commit them locally."}
-        if args.command == "refresh":
+        if args.command in {"refresh", "extract"}:
             source = Path(args.source) if args.source else root / project["source"]["default_path"]
             receipt = snapshots.register(root, project, source)
+            if args.command == "extract":
+                result, metrics = extraction.run(root, project, source, receipt)
+                return {**result, "metrics": metrics}
             return {"snapshot_id": receipt["snapshot_id"], "status": receipt["status"],
                     "wiki_verification": receipt["wiki_verification"], "game_version": receipt["game_version"]}
         if args.command == "build":
@@ -59,6 +62,8 @@ def main():
     sub.add_parser("map").add_argument("--check", action="store_true")
     refresh = sub.add_parser("refresh", help="Register the current local catalog input; does not re-extract game data")
     refresh.add_argument("--source", help="Existing local codebase repository; default from project.json")
+    extract = sub.add_parser("extract", help="Extract supported facts and report exceptions; does not publish")
+    extract.add_argument("--source", help="Existing local codebase repository; default from project.json")
     build = sub.add_parser("build", help="Build a local architecture/navigation preview, not gameplay articles")
     build.add_argument("--snapshot", help="Registered snapshot ID for the preview provenance banner")
     args = parser.parse_args()

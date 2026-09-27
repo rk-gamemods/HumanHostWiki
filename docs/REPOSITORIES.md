@@ -94,7 +94,7 @@ flowchart LR
 
 | Stage | Owner | Implementation |
 | --- | --- | --- |
-| detect | future non-LLM local update runner | planned |
+| detect | operator-invoked decompile pipeline | planned |
 | capture | HumanHostMods/tools/Decompile-GameCode.ps1 | external-existing |
 | register | wikibuild/snapshots.py | implemented |
 | normalize | future wiki adapters | planned |
