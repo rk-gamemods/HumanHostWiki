@@ -359,6 +359,27 @@ complete before a newer release; its updated Pages parent is remeasured before p
 The independent checker also accepted all 680 files and 26 historical configurations
 of the previous real public release.
 
+The integrated code at `efff6fc` then completed a normal live update for
+`build-25548639-a7d9406a5bfb`. All thirteen sites published
+[release d0d20c96](../releases/d0d20c96aa6c66a8b5c7e87f9027fb8ef4a448dd635a544ca2d759c083557b80.json);
+the [publication receipt](../publications/d0d20c96aa6c66a8b5c7e87f9027fb8ef4a448dd635a544ca2d759c083557b80.json)
+records the verified commits and HTTP checks. The real inventory fits the default
+budgets, so this run required no additional physical repository.
+`py -3 tools/check_release.py` passed for 706 owned files (47,197,419 bytes),
+589 candidate files and 39 retained historical configurations. These configurations
+span three wiki releases; they are not 39 game builds.
+
+`py -3 tools/benchmark_release.py` completed the unchanged update in 8.349 seconds.
+All thirteen child commits and 727 checked files retained their bytes and timestamps.
+Normalization, identity, projection, release and publication reused completed results.
+Normalization and identity each reported zero selected source bytes read. The local benchmark receipt is
+`.local/capacity-live-repeat.json`. Live browser checks confirmed search for Crude Axe,
+its Items-to-Crafting relationship, and selection of the earlier capture while
+preserving the coordinated release in navigation. Both captures use Steam build
+25548639; this does not prove real cross-build continuity. The operator report still
+lists 193 unresolved content groups. No exception investigation or classification
+was performed as part of this release verification.
+
 These checks do not prove live GitHub overflow provisioning or complete capacity
 management. Full logical-entrypoint rollover, oversized control-index splitting,
 staging retention and the other ADR completion gates remain open. The owning
