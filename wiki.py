@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from wikibuild import extraction, history, manifest, navigation, snapshots, workspace
+from wikibuild import extraction, history, manifest, navigation, reader, snapshots, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 
@@ -19,7 +19,7 @@ def run(root, args):
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in project["repositories"]]}
     if args.command == "plan":
-        return {"stages": project["pipeline"], "note": "Registration, selected facts and identity history are implemented; coverage remains partial. Build renders the architecture preview. Gameplay pages, full historical coverage and release remain unfinished."}
+        return {"stages": project["pipeline"], "note": "Registration, selected facts, identity history and the static reader are implemented with partial coverage. Build renders the architecture preview; reader projects selected gameplay facts. Full historical capture coverage, verification and publication remain unfinished."}
     if args.command == "check-lock":
         result = workspace.checkout_lock(root, project, check=True)
         return {"lock": "current", "repositories": len(result["repositories"])}
@@ -55,6 +55,8 @@ def run(root, args):
         if args.command == "build":
             receipt = snapshots.read(root, args.snapshot) if args.snapshot else None
             return navigation.build(root, project, receipt)
+        if args.command == "reader":
+            return reader.build(root, project)
     raise ContractError("Unknown command")
 
 
@@ -72,6 +74,7 @@ def main():
     normalize.add_argument("--source", help="Existing local codebase repository; default from project.json")
     build = sub.add_parser("build", help="Build a local architecture/navigation preview, not gameplay articles")
     build.add_argument("--snapshot", help="Registered snapshot ID for the preview provenance banner")
+    sub.add_parser("reader", help="Project normalized snapshots to a static reader candidate; does not publish")
     args = parser.parse_args()
     try:
         result = run(Path(__file__).resolve().parent, args)

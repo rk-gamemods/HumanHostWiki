@@ -31,10 +31,12 @@ codebase's source and raw catalog remain local inputs, read in place.
 
 Current tooling builds an architecture/navigation preview, registers input snapshots
 and extracts selected facts in every topic with durable identity decisions.
+`wiki.py reader` projects those records into a validated static reader candidate.
 Gameplay coverage and public deployment
 remain unfinished; see `docs/IMPLEMENTATION.md` for completion evidence and
 `docs/EXTRACTION.md` for adapter ownership and extension rules. Identity matching,
 semantic revisions and recovery are owned by `docs/IDENTITY.md`.
+Static rendering, browser behavior and pack ownership are in `docs/READER.md`.
 Never call a registered snapshot a verified wiki release or an empty topic a
 completed catalog. Keep implementation status accurate in the workflow document.
 

@@ -143,7 +143,40 @@ corrections and rule ownership, see [identity contracts](IDENTITY.md).
 This command currently processes the current source commit. Older captured game
 builds without a catalog require explicit uncaptured status; current asset facts
 cannot establish what those builds contained. Historical registration and public
-history browsing remain unfinished. No identity run grants gameplay verification.
+publication remain unfinished. No identity run grants gameplay verification.
+
+## Build and inspect the selected-fact reader
+
+```powershell
+py -3 wiki.py reader
+py -3 tools/check_reader.py
+py -3 tools/benchmark_reader.py
+py -3 tools/serve_reader.py
+```
+
+The reader consumes the latest accepted identity run for each normalized snapshot
+in the decision chain. It stages a complete candidate under `.local/readers/`,
+validates ownership, semantic hashes, search membership and cross-topic targets,
+then updates `.local/reader-latest.json`. Existing files must match recorded hashes;
+unknown or changed files are preserved and refused. A repeat reuses the candidate.
+
+The local server binds only `127.0.0.1`, prints its chosen URL and runs until stopped
+with Ctrl+C. It pins the candidate selected at startup. Restart it after rebuilding
+to inspect a newer candidate. Optional `--candidate <id>` selects retained output;
+`--port <number>` chooses the port. Entry routes use the same `404.html` fallback
+contract expected on Pages. Group pages are ordinary static files.
+
+The browser supports topic search, entry evidence, reverse relationships and a
+captured-version selector. A missing historical entry is explicit; it never
+substitutes current data. The real dataset currently has one normalized game build.
+Two-build navigation and removal behavior have also been exercised with fixtures.
+`tools/check_reader.py` independently compares every selected model with emitted
+facts, provenance, search records and reverse links. It does not import the renderer.
+
+The benchmark retains its isolated candidate under `.local/rb-*/`, reads existing
+selected models in place and checks byte/pointer stability. Its reported memory
+covers the Python process. Reader candidates do not create child commits, remote
+repositories, verification badges or wiki releases. See [reader contracts](READER.md).
 
 ## Build the architecture preview
 

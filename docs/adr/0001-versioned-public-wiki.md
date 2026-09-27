@@ -68,8 +68,10 @@ generated architecture maps and deterministic navigation previews.
 Selected facts in every topic are implemented with grouped exceptions and reuse.
 Gameplay coverage remains partial. Selected-observation identity matching and
 durable decisions are implemented; individual asset identities and historical
-coverage remain incomplete. The integrated runner, historical browsing and
-publishing remain unfinished. These development commands are
+coverage remain incomplete. A static reader supports grouped reference pages,
+search and snapshot-preserving navigation over normalized runs. Real older-build
+capture coverage, the integrated runner and publishing remain unfinished.
+These development commands are
 diagnostic entrypoints, not the intended maintenance workflow. Current evidence
 and remaining completion gates are in [IMPLEMENTATION.md](../IMPLEMENTATION.md).
 
@@ -267,9 +269,10 @@ Required proof before full publication:
 
 Delivery order: **foundation (implemented) -> integrated pipeline with item/loot slice
 -> all registered topics -> historical reader -> coordinated Pages publication**.
-The first slice does not reduce final coverage. Select streaming versus
-SQLite from measured access patterns and choose the production renderer when building
-the historical reader; the current HTML preview does not select that framework.
+The first slice does not reduce final coverage. Selected data uses streaming and
+bounded in-memory joins. The reader uses standard-library Python generation and
+native browser APIs with immutable JSON packs; it adds no application framework.
+See [reader contracts](../READER.md) for routing, storage and validation boundaries.
 
 Multiple repositories bound topic history/clone/site size but require shared release
 coordination. Revision reuse avoids copying each patch's entire corpus. Grouped pages

@@ -33,8 +33,9 @@ complete product.
   source objects locally without copying the whole index into wiki content.
 - Complete individual asset identities, real cross-build identity coverage and
   dependency-based verification beyond the selected-observation identity stage.
-- Render readable grouped pages, search, version selection, provenance, historical
-  links, authored-claim checks and useful external backlinks.
+- Complete historical capture coverage, reader presentation of interpreted units
+  and conditions, authored-claim checks and useful external backlinks beyond the
+  selected-fact reader. Add verified freshness inputs and page-check receipts.
 - Coordinate child commits and immutable releases with interrupted-run recovery,
   writer exclusion, unknown-file protection and failure-before-promotion checks.
 - Create the declared public repositories, provision Pages, validate target content
@@ -131,6 +132,44 @@ complete product.
   stable reviewed-new allocation across matching-rule changes. Reprocessing the
   real snapshot after that correction preserved all 8,146 semantic revisions;
   the independent checker passed again and the unchanged repeat reused its run.
+
+### Static reader checkpoint
+
+- `wiki.py reader` projects the 8,146 selected observations into 517 files across
+  the 13 topic/hub directories, totaling 39,017,231 bytes (37.2 MiB). There is no
+  raw source tree, asset index or media payload in those inputs or outputs.
+- The reader includes topic/group navigation, search, selected facts, evidence,
+  reverse links and snapshot selection. Immutable semantic/provenance packs are
+  shared across snapshots. The largest real pack is 457,933 bytes, below 512 KiB.
+  Generated Markdown groups preserve a readable Git navigation fallback.
+- An independent checker compared all selected models against emitted facts,
+  provenance, search records and reverse relationships: 73,316 assertions passed.
+  This complements the separate real-source extraction/identity checks; it is not
+  gameplay verification.
+- Browser checks exercised Wood item search, its 222 reverse relationships,
+  evidence identifiers and a cross-topic Crude Axe recipe link retaining the
+  selected snapshot. A two-build fixture exercised an entry absent in the newer
+  snapshot and present with its original facts in the older snapshot.
+- The first real run exposed a reverse-link list over 600 KB. Reverse links now
+  occupy separate bounded packs, loaded when opened. Browser review also caught
+  string notes being iterated as characters; notes now render as complete text.
+- `tools/benchmark_reader.py` measured 1.809 seconds fresh and 0.300 seconds on
+  repeat, with stable bytes/file timestamps/pointer and no raw source reads.
+  Releasing projection buffers before validation reduced measured Python peak
+  working set from 183,099,392 to 140,353,536 bytes (about 134 MiB) without slowing
+  this run. These measurements exclude browser memory and are local observations.
+- The benchmark initially hit Windows path limits in per-file temporary names.
+  Reader output now writes exclusively into its new private staging directory,
+  validates the directory, then promotes it by rename. The benchmark uses a
+  shallow ignored output path; no global OS setting or file protection changed.
+- [Reader contracts](READER.md) own the new boundaries. Real older-build capture
+  support, gameplay verification, curated assertions, external article checks,
+  site/repository capacity allocation and coordinated publication remain open.
+- Focused tests cover output protection, partial-write retry, safe URL bases,
+  bounded reverse links, unchanged revisions, capture gaps and historical group
+  routes after a whole group disappears. The complete wiki suite passed 92 tests.
+  Registry/map/lock checks and JavaScript syntax validation also passed. The final
+  real candidate passed the independent check and an immediate unchanged repeat.
 
 ## Deferred classifier experiments
 

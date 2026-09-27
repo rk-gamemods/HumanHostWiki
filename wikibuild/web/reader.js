@@ -1,0 +1,268 @@
+"use strict";
+
+// All imported text is rendered through textContent. No game text becomes HTML.
+const siteBase = new URL(".", document.currentScript.src);
+const params = new URLSearchParams(location.search);
+const content = document.getElementById("content");
+const cache = new Map();
+let config, snapshot, index, searchGeneration = 0;
+
+function element(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = String(text);
+  if (className) node.className = className;
+  return node;
+}
+
+async function json(path, expected) {
+  const url = new URL(path, siteBase).href;
+  if (!cache.has(url)) {
+    const pending = (async () => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Cannot load ${path}: HTTP ${response.status}`);
+      const bytes = await response.arrayBuffer();
+      if (expected) {
+        const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), value => value.toString(16).padStart(2, "0")).join("");
+        if (bytes.byteLength !== expected.bytes || sha !== expected.sha256) throw new Error(`Content verification failed for ${path}`);
+      }
+      return JSON.parse(new TextDecoder().decode(bytes));
+    })();
+    cache.set(url, pending);
+    // Bound retained packs, including search. The browser HTTP cache handles revisits.
+    if (cache.size > 24) cache.delete(cache.keys().next().value);
+  }
+  try { return await cache.get(url); } catch (error) { cache.delete(url); throw error; }
+}
+
+function url(topic, entity = null, selected = snapshot, group = null) {
+  const owner = config.topics.find(value => value.id === topic);
+  if (!owner) throw new Error(`Unknown topic ${topic}`);
+  const path = entity ? `entry/${encodeURIComponent(entity)}/` : group ? `groups/${encodeURIComponent(group)}/` : "";
+  const target = new URL(path, new URL(owner.base, location.origin));
+  target.search = new URLSearchParams({snapshot: selected, release: config.candidate_id}).toString();
+  return target.href;
+}
+
+function link(text, target) {
+  const node = element("a", text);
+  node.href = target;
+  return node;
+}
+
+async function keyed(shards, key) {
+  for (const shard of shards) {
+    if (shard.first <= key && key <= shard.last) {
+      const value = (await json(shard.path, shard))[key];
+      if (value !== undefined) return value;
+    }
+  }
+  return undefined;
+}
+
+function notice(text) {
+  return element("p", text, "notice");
+}
+
+function valueNode(value) {
+  if (value === null) return element("span", "Not set", "muted");
+  if (typeof value !== "object") return element("span", typeof value === "boolean" ? (value ? "Yes" : "No") : value);
+  const entries = Object.entries(value);
+  if (!entries.length) return element("span", "None recorded", "muted");
+  const details = element("details");
+  details.append(element("summary", `${entries.length} ${Array.isArray(value) ? "entries" : "fields"}`));
+  const list = element("dl", undefined, "facts");
+  for (const [key, child] of entries) {
+    list.append(element("dt", Array.isArray(value) ? `Entry ${Number(key) + 1}` : key));
+    const description = element("dd");
+    description.append(valueNode(child));
+    list.append(description);
+  }
+  details.append(list);
+  return details;
+}
+
+function factsTable(facts) {
+  const list = element("dl", undefined, "facts");
+  for (const [field, value] of Object.entries(facts)) {
+    const description = element("dd");
+    description.append(valueNode(value));
+    list.append(element("dt", field), description);
+  }
+  return list;
+}
+
+function failure(error) {
+  content.replaceChildren(element("h2", "This view could not be loaded"), notice(error.message));
+  document.getElementById("status").textContent = "Reader failure. No different snapshot was substituted.";
+}
+
+function displayResults(results, heading) {
+  const section = element("section");
+  section.append(element("h2", heading), element("p", `${results.length.toLocaleString()} entries`, "muted"));
+  const table = element("table");
+  const header = element("tr");
+  for (const title of ["Name", "Kind", "Status"]) header.append(element("th", title));
+  const head = element("thead"); head.append(header); table.append(head);
+  const body = element("tbody"); table.append(body); section.append(table);
+  let position = 0;
+  const more = element("button", "Show more entries");
+  function append() {
+    for (const row of results.slice(position, position + 100)) {
+      const tr = element("tr"), name = element("td");
+      name.append(link(row.name, url(row.topic, row.entity_key)));
+      tr.append(name, element("td", row.kind), element("td", row.status));
+      body.append(tr);
+    }
+    position += 100;
+    more.hidden = position >= results.length;
+  }
+  more.addEventListener("click", append); append(); section.append(more);
+  content.replaceChildren(section);
+}
+
+async function search(query, group) {
+  const generation = ++searchGeneration;
+  const needle = query.trim().toLocaleLowerCase("en");
+  document.getElementById("status").textContent = `Searching Steam build ${index.steam.build_id}...`;
+  const found = [];
+  // Serial pack reads keep memory and peak bandwidth bounded on large topics.
+  for (const shard of index.search) {
+    const values = await json(shard.path, shard);
+    if (generation !== searchGeneration) return;
+    for (const row of Object.values(values)) {
+      if ((!group || row.kind === group) && (!needle || [row.name, row.kind, row.source_id || "", row.entity_key].join(" ").toLocaleLowerCase("en").includes(needle))) found.push(row);
+    }
+  }
+  found.sort((a, b) => a.name.localeCompare(b.name, "en") || a.entity_key.localeCompare(b.entity_key));
+  displayResults(found, group ? group.replaceAll("-", " ") : query ? `Search: ${query}` : "All entries");
+  status();
+}
+
+function status() {
+  document.getElementById("status").textContent = `Steam build ${index.steam.build_id} · Partial coverage · Gameplay verification not performed · Latest available build unknown`;
+}
+
+async function showEntry(key) {
+  const record = await keyed(index.entries, key);
+  if (!record) {
+    content.replaceChildren(element("h2", "Entry not cataloged for this snapshot"), notice("No observation for this wiki key is available in the selected snapshot. This does not establish that the game content was absent."));
+    return;
+  }
+  const article = element("article");
+  article.append(element("p", record.kind.replaceAll("-", " "), "eyebrow"), element("h2", record.name));
+  document.title = `${record.name} | Human Host Wiki`;
+  const stamps = element("dl", undefined, "stamps");
+  for (const [label, value] of [["Snapshot", snapshot], ["Status", record.status], ["Last substantive change", record.last_changed], ["Last data check", record.last_data_checked], ["Last gameplay verification", record.last_verified || "Not performed"]]) {
+    stamps.append(element("dt", label), element("dd", value || "Not recorded"));
+  }
+  article.append(stamps);
+  const history = element("details"), historyList = element("ul");
+  history.append(element("summary", "View this entry in another captured snapshot"));
+  for (const version of config.versions) {
+    const item = element("li"); item.append(link(`Steam ${version.build_id} (${version.snapshot_id})`, url(record.topic, key, version.snapshot_id))); historyList.append(item);
+  }
+  history.append(historyList); article.append(history);
+  if (record.status !== "present") {
+    const messages = {"not-present": "The source object was absent from this captured catalog.", uncaptured: "The required capture or extraction scope was unavailable.", unresolved: "The earlier observation could not be safely reconciled with this snapshot.", superseded: "A reviewed identity correction superseded this key. Earlier snapshots retain their original decisions."};
+    article.append(notice(messages[record.status] || "This entry has no current observation."));
+    if (record.superseded_by) article.append(link("Reviewed replacement", url(record.topic, record.superseded_by)));
+    content.replaceChildren(article); return;
+  }
+  const semantic = await keyed(index.semantics, record.revision_id);
+  if (!semantic) throw new Error("The selected semantic revision is missing");
+  article.append(element("p", `Evidence: ${semantic.evidence_level}`, "badge"));
+  if (record.decision.status === "ambiguous") article.append(notice("Identity continuity is unresolved. This observation retains a separate wiki key; it has not been merged with a candidate."));
+  const notes = Array.isArray(semantic.notes) ? semantic.notes : semantic.notes ? [semantic.notes] : [];
+  for (const note of notes) article.append(notice(note));
+  if (semantic.fact_scope) article.append(element("p", `Scope: ${semantic.fact_scope}`, "muted"));
+  article.append(element("h3", "Extracted facts"), factsTable(semantic.facts));
+  article.append(element("h3", "Relationships"));
+  const relationships = element("ul", undefined, "relations");
+  for (const relation of semantic.relationships) {
+    const item = element("li"); item.append(element("strong", relation.predicate.replaceAll("-", " ") + ": "));
+    for (const target of relation.targets) {const to = record.links[target]; item.append(link(to.name, url(to.topic, target)), document.createTextNode(" "));}
+    for (const target of relation.technical_targets || []) {const to = record.links[target]; item.append(link(`Technical summary: ${to.name}`, url(to.topic, target)), document.createTextNode(" "));}
+    if (!relation.targets.length && !relation.technical_targets?.length && !relation.gaps?.length) item.append(element("span", "No target recorded"));
+    if (relation.gaps?.length) {const gaps = element("details"); gaps.append(element("summary", `${relation.gaps.length} unresolved or omitted targets`), valueNode(relation.gaps)); item.append(gaps);}
+    item.append(element("small", `Source field: ${relation.field}`, "field")); relationships.append(item);
+  }
+  article.append(relationships);
+  if (record.backlink_count) {
+    const details = element("details"), list = element("ul"), more = element("button", "Show more references");
+    details.append(element("summary", `Referenced by ${record.backlink_count} relationships`));
+    const prefix = key + "/", end = prefix + "\uffff";
+    const shards = index.backlinks.filter(shard => shard.last >= prefix && shard.first <= end);
+    let shown = 0, nextShard = 0, pending = [], loading = false;
+    async function add() {
+      if (loading) return;
+      loading = true; more.disabled = true;
+      try {
+        while (pending.length < 50 && nextShard < shards.length) {
+          const shard = shards[nextShard++];
+          const values = await json(shard.path, shard);
+          pending.push(...Object.entries(values).filter(([id]) => id.startsWith(prefix)).map(([, value]) => value));
+        }
+        const batch = pending.splice(0, 50);
+        for (const source of batch) {const li = element("li"); li.append(link(source.name, url(source.topic, source.entity)), document.createTextNode(` (${source.predicate})`)); list.append(li);}
+        shown += batch.length; more.hidden = shown >= record.backlink_count;
+      } catch (error) {details.append(notice(error.message));}
+      finally {loading = false; more.disabled = false;}
+    }
+    more.addEventListener("click", add); details.addEventListener("toggle", () => {if (details.open && !shown) add();});
+    details.append(list, more); article.append(details);
+  }
+  const evidence = element("details"); evidence.append(element("summary", "Identifiers, source evidence and identity decision"));
+  evidence.addEventListener("toggle", async () => {
+    if (!evidence.open || evidence.dataset.loaded) return;
+    evidence.dataset.loaded = "true";
+    try {
+      const provenance = await keyed(index.provenance, record.provenance_id);
+      evidence.append(factsTable({wiki_key: key, semantic_revision: record.revision_id, source_commit: index.source_commit, ...provenance, identity_decision: record.decision}));
+    } catch (error) {evidence.append(notice(error.message)); delete evidence.dataset.loaded;}
+  });
+  article.append(evidence); content.replaceChildren(article);
+}
+
+function overview() {
+  const title = config.topics.find(topic => topic.id === config.topic);
+  content.append(element("h2", title.title), element("p", title.coverage));
+  if (config.topic === "hub") {
+    content.append(notice("Choose a topic to browse its extracted reference. Coverage is partial; unresolved content remains visible in the relevant entries."));
+    const cards = element("div", undefined, "cards");
+    for (const topic of config.topics.filter(topic => topic.id !== "hub")) {
+      const card = element("section"); card.append(link(topic.title, url(topic.id)), element("p", topic.coverage)); cards.append(card);
+    }
+    content.append(cards); return;
+  }
+  const groups = element("ul", undefined, "groups");
+  for (const [kind, count] of Object.entries(index.counts)) {
+    const item = element("li"); item.append(link(`${kind.replaceAll("-", " ")} (${count.toLocaleString()})`, url(config.topic, null, snapshot, kind))); groups.append(item);
+  }
+  content.append(groups);
+  if (!groups.children.length) content.append(notice("No supported observations are available in this topic for the selected snapshot."));
+}
+
+async function start() {
+  config = await json("reader.json");
+  if (params.has("release") && params.get("release") !== config.candidate_id) throw new Error("This URL names a different reader revision. Use that revision's archived site; current content has not been substituted.");
+  snapshot = params.get("snapshot") || config.default_snapshot;
+  if (!config.versions.some(version => version.snapshot_id === snapshot)) throw new Error("The requested snapshot is unavailable in this reader revision");
+  index = await json(`snapshots/${snapshot}.json`);
+  document.getElementById("home").href = url("hub");
+  const selector = document.getElementById("version");
+  for (const version of config.versions) {const option = element("option", `Steam ${version.build_id} · ${version.snapshot_id.split("-").at(-1)}`); option.value = version.snapshot_id; option.selected = version.snapshot_id === snapshot; selector.append(option);}
+  selector.addEventListener("change", () => {const target = new URL(location.href); target.searchParams.set("snapshot", selector.value); target.searchParams.set("release", config.candidate_id); location.assign(target);});
+  for (const topic of config.topics) {const a = link(topic.title, url(topic.id)); if (topic.id === config.topic) a.setAttribute("aria-current", "page"); document.getElementById("topics").append(a);}
+  for (const official of config.official_links) {document.getElementById("credits").append(link(official.title, official.url), document.createTextNode(" · "));}
+  document.getElementById("search-form").addEventListener("submit", event => {event.preventDefault(); search(document.getElementById("search").value).catch(failure);});
+  status();
+  const path = decodeURIComponent(location.pathname.slice(siteBase.pathname.length));
+  const entry = /^entry\/(e-[0-9a-f]{32})\/?$/.exec(path);
+  const group = /^groups\/([a-z][a-z0-9-]*)\/(?:index\.html)?$/.exec(path);
+  if (entry) await showEntry(entry[1]);
+  else if (group) await search("", group[1]);
+  else if (path === "" || path === "index.html") overview();
+  else throw new Error("Unknown reader route");
+}
+
+start().catch(failure);
