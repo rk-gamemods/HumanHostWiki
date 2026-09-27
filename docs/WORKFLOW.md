@@ -14,6 +14,11 @@ the validated reader, coordinated local Git release and configured Pages publica
 unresolved wiki exceptions and requests direction; execution failures are separate.
 The manual examples below are foundation diagnostics, not extra maintenance steps.
 
+For Steam build observations, run `pwsh -NoProfile -File tools/Install-SteamMetadataClient.ps1`
+once. The normal update then checks the captured branch using the configured cache
+and reports unavailable checks separately from content exceptions. See
+[availability setup and evidence](AVAILABILITY.md). This never installs a game update.
+
 ## Inspect and validate
 
 ```powershell

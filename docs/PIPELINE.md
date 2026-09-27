@@ -17,6 +17,7 @@ protects capture; pinned source identity is rechecked before wiki promotion.
 | Stage | Completion evidence |
 | --- | --- |
 | Register | Clean, pinned source and immutable snapshot receipt |
+| Availability | Timestamped Steam branch observation or explicit unavailable status |
 | Normalize | Selected observations, coverage, dependency hashes and content exceptions |
 | Identity | Durable identity decisions and normalized models |
 | Project | Validated static reader candidate |
@@ -28,6 +29,11 @@ The runner includes [coordinated Git release](RELEASE.md) and configured
 [Pages publication](PUBLICATION.md). Complete gameplay coverage, gameplay
 verification and capacity allocation remain required delivery work. A local release
 alone cannot establish public availability or gameplay verification.
+
+[Build availability](AVAILABILITY.md) is checked independently after source
+registration. Remote unavailability is reported separately while supported content
+continues. Its immutable observation participates in request and reader identities;
+it cannot change source receipts or grant gameplay verification.
 
 ## State and recovery
 

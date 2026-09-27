@@ -125,6 +125,9 @@ Every gameplay page exposes selected version/build and snapshot, last verified
 build, last substantive change, history, provenance, evidence level and gaps.
 Freshness compares verification against the latest known available build and
 includes the availability observation's source/time. Unknown freshness stays unknown.
+The current [availability adapter](../AVAILABILITY.md) records anonymous SteamCMD
+branch observations, caches them between operator runs and pins them in each release.
+Matching the observed build does not satisfy gameplay verification.
 
 Keep `last changed` separate from `last verified`. Unchanged content can gain
 verification for another build only after relevant data/code dependencies and

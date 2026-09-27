@@ -125,6 +125,21 @@ function fixture(count = 121) {
   assert.equal(subject.nodes.version.children.length, data.records.length);
   console.log("Capture selection, bounded paging, retry and legacy checks passed");
 
+  const availability = {status: "observed", checked_at: "2026-09-27T09:00:00+00:00",
+    observation: {app_id: "2393970", branch: "public", build_id: data.records.at(-1).version.build_id}};
+  subject = reader({...flat, availability}, url => data.files[url]); await subject.context.start();
+  assert.match(subject.nodes.status.textContent, /Selected build matches that observation/);
+  assert.match(subject.nodes.status.textContent, /Gameplay verification not performed/);
+  assert.match(subject.nodes.status.textContent, /2026-09-27T09:00:00/);
+  subject = reader({...flat, availability}, url => data.files[url], data.records[0].version.snapshot_id);
+  await subject.context.start();
+  assert.match(subject.nodes.status.textContent, /Selected build differs/);
+  subject = reader({...flat, availability: {...availability, status: "unavailable"}}, url => data.files[url]);
+  await subject.context.start();
+  assert.match(subject.nodes.status.textContent, /Latest available build unknown/);
+  assert.doesNotMatch(subject.nodes.status.textContent, /Selected build matches/);
+  console.log("Availability evidence, historical comparison and unavailable state passed");
+
   if (process.argv[2]) {
     const input = JSON.parse(fs.readFileSync(process.argv[2], "utf8")), root = path.resolve(input.root);
     const disk = url => {

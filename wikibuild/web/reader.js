@@ -246,7 +246,16 @@ async function search(query, group) {
 }
 
 function status() {
-  document.getElementById("status").textContent = `Steam build ${index.steam.build_id} · Partial coverage · Gameplay verification not performed · Latest available build unknown`;
+  const evidence = config.availability;
+  let freshness = "Latest available build unknown";
+  if (evidence?.status === "observed") {
+    const observed = evidence.observation;
+    const sameBranch = (index.steam.branch || "public") === observed.branch;
+    const sameBuild = sameBranch && index.steam.build_id === observed.build_id;
+    freshness = `Latest observed ${observed.branch} build ${observed.build_id} · Checked ${evidence.checked_at} via SteamCMD · ` +
+      (sameBuild ? "Selected build matches that observation" : sameBranch ? "Selected build differs from that observation" : "Selected branch differs from that observation");
+  } else if (evidence) freshness += ` · Steam check unavailable at ${evidence.checked_at}`;
+  document.getElementById("status").textContent = `Steam build ${index.steam.build_id} · Partial coverage · Gameplay verification not performed · ${freshness}`;
 }
 
 async function showEntry(key) {

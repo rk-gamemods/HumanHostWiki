@@ -14,6 +14,10 @@ from tools.audit_ownership import expand
 def observe(root):
     paths = [root / name for name in ("workspace.lock.json", "releases/latest.json",
              ".local/pipeline/latest.json", ".local/reader-latest.json", "identity/latest.json")]
+    availability_pointer = root / "availability/latest.json"
+    if availability_pointer.exists():
+        observation = json.loads(availability_pointer.read_text())["observation_id"]
+        paths.extend((availability_pointer, root / "availability" / (observation + ".json")))
     latest = json.loads((root / "releases/latest.json").read_text())
     manifest_path = root / "releases" / (latest["release_id"] + ".json")
     paths.append(manifest_path)

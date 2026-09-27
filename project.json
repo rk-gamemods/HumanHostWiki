@@ -4,6 +4,7 @@
   "github_owner": "rk-gamemods",
   "language": "en",
   "publication": {"visibility": "public", "monetized": false, "advertising": false, "host": "github-pages", "enabled": true, "workers": 4},
+  "availability": {"enabled": true, "cache_seconds": 3600, "retry_seconds": 60},
   "source": {"kind": "humanhost-codebase", "default_path": "../HumanHostCodebase", "steam_app_id": "2393970", "catalog_schema": 1},
   "official_links": [
     {"title": "Human Host on Steam", "url": "https://store.steampowered.com/app/2393970/Human_Host/"},
@@ -42,7 +43,7 @@
     {"from": "technical-reference", "to": "items-equipment", "kind": "backs-game-entity"}
   ],
   "pipeline": [
-    {"id": "detect", "depends_on": [], "owner": "decompile capture reuse and wikibuild/pipeline.py; available-build checks unfinished", "status": "partial"},
+    {"id": "detect", "depends_on": [], "owner": "decompile capture reuse and wikibuild/availability.py; Steam branch observations are independent of gameplay verification", "status": "partial"},
     {"id": "capture", "depends_on": ["detect"], "owner": "HumanHostMods/tools/Decompile-GameCode.ps1", "status": "external-existing"},
     {"id": "register", "depends_on": ["capture"], "owner": "wikibuild/snapshots.py", "status": "implemented"},
     {"id": "normalize", "depends_on": ["register"], "owner": "wikibuild/extraction.py and topic adapters", "status": "partial"},

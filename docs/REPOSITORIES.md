@@ -97,7 +97,7 @@ flowchart LR
 
 | Stage | Owner | Implementation |
 | --- | --- | --- |
-| detect | decompile capture reuse and wikibuild/pipeline.py; available-build checks unfinished | partial |
+| detect | decompile capture reuse and wikibuild/availability.py; Steam branch observations are independent of gameplay verification | partial |
 | capture | HumanHostMods/tools/Decompile-GameCode.ps1 | external-existing |
 | register | wikibuild/snapshots.py | implemented |
 | normalize | wikibuild/extraction.py and topic adapters | partial |

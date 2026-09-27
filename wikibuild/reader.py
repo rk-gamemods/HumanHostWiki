@@ -8,7 +8,7 @@ import re
 import uuid
 from urllib.parse import urlsplit
 
-from . import extraction, history, model, packs, pages, snapshots
+from . import availability, extraction, history, model, packs, pages, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 DEFAULT_PACK_BYTES = 512 * 1024
@@ -214,7 +214,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
             raise ContractError("Reader base must be an HTTPS site or absolute local URL path")
     inputs = {"project": project, "runs": [digest(json_bytes(run)) for run in runs], "renderer": contract(),
               "receipts": [digest(json_bytes(snapshots.read(root, run["snapshot_id"]))) for run in runs],
-              "bases": bases, "pack_bytes": max_pack_bytes}
+              "bases": bases, "pack_bytes": max_pack_bytes, "availability": availability.latest(root, project)}
     candidate_id = digest(json_bytes(inputs))
     cache_root = Path(cache_root).resolve() if cache_root else within(root, ".local")
     if not cache_root.is_relative_to(within(root, ".local")):
@@ -225,6 +225,14 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         manifest = verify(destination, candidate_id)
         write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
         return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"], "reused": True}
+    prior, prior_path = None, None
+    if pointer.exists():
+        prior_id = json.loads(pointer.read_bytes())["candidate_id"]
+        prior_path = candidate_path(cache_root, prior_id)
+        prior = verify(prior_path, prior_id)
+        if {k: v for k, v in prior["inputs"].items() if k != "availability"} != {
+                k: v for k, v in inputs.items() if k != "availability"}:
+            prior = None
     stage = within(cache_root, f"reader-stage/{uuid.uuid4().hex}")
     stage.mkdir(parents=True)
     files = {}
@@ -244,6 +252,36 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         with target.open("xb") as stream:
             stream.write(data)
         files[name] = record
+
+    if prior:
+        # Availability changes never revisit models or duplicate immutable packs.
+        # Hard links are safe because candidates are immutable and verified before
+        # reuse. New controls are written separately, never through shared inodes.
+        for name, record in prior["files"].items():
+            source = within(prior_path, name)
+            if name.endswith("/reader.json"):
+                config = json.loads(source.read_bytes())
+                config["candidate_id"] = candidate_id
+                config["availability"] = inputs["availability"]
+                output(name, packs.compact(config))
+            elif "/reference/" in name:
+                output(name, source.read_bytes().replace(("release=" + prior["candidate_id"]).encode(),
+                                                         ("release=" + candidate_id).encode()))
+            else:
+                target = within(stage, name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.link(source, target)
+                files[name] = record
+        manifest = {**prior, "candidate_id": candidate_id, "inputs": inputs, "files": files,
+                    "total_bytes": sum(record["bytes"] for record in files.values())}
+        write_changed(stage / "candidate.json", json_bytes(manifest))
+        verify(stage, candidate_id)
+        if contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]:
+            raise ContractError("Reader inputs changed during availability projection")
+        os.rename(stage, destination)
+        write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
+        return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"],
+                "reused": False, "projection_reused": True}
 
     projected, current_groups = {}, None
     all_groups = {repo["id"]: set() for repo in project["repositories"]}
@@ -272,6 +310,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         output(f"{topic}/404.html", content)
         output(f"{topic}/reader.json", packs.compact({"schema_version": 1, "candidate_id": candidate_id,
                "features": ["shard-directories-v1", "paged-captures-v1", "entrypoint-rollover-v1"],
+               "availability": inputs["availability"],
                "topic": topic, "topics": topics, "versions": projected, "default_snapshot": projected[0]["snapshot_id"],
                "official_links": project["official_links"], "publication": "local-candidate"}))
         for kind in sorted(all_groups[topic]):
@@ -286,8 +325,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                 "status": "validated-reader-candidate", "wiki_release": "not-created"}
     write_changed(stage / "candidate.json", json_bytes(manifest))
     verify(stage, candidate_id)
-    if contract() != inputs["renderer"]:
-        raise ContractError("Renderer changed during generation")
+    if contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]:
+        raise ContractError("Reader inputs changed during generation")
     destination.parent.mkdir(parents=True, exist_ok=True)
     os.rename(stage, destination)
     write_changed(pointer, json_bytes({"candidate_id": candidate_id}))

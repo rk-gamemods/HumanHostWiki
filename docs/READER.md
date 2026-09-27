@@ -46,6 +46,10 @@ snapshot membership and link targets pass. Existing candidate files must match
 their recorded hashes exactly. Unknown files are refused, never overwritten.
 The caller holds the shared writer lock. Interrupted staging is ignored; complete
 candidates can be validated and reused. Nothing here deletes historical output.
+The configuration pins [Steam availability evidence](AVAILABILITY.md) separately
+from snapshot facts. A change only to this evidence reuses validated immutable
+packs through hard links and skips model projection. Shared files are never edited
+in place; controls and reference links receive new files in private staging.
 New local cache directories use the first 24 hexadecimal hash characters to keep
 Windows paths short; full identities remain in manifests and pointers. A prefix
 collision fails the full-identity check. Existing full-hash directories remain

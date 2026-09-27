@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from . import extraction, history, physical, publication, reader, release, snapshots
+from . import availability, extraction, history, physical, publication, reader, release, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -59,11 +59,16 @@ def run(root, project, source, progress=None):
             progress(stage)
         receipt = snapshots.register(root, project, source)
         completed[stage] = {"snapshot_id": receipt["snapshot_id"], "source_commit": receipt["source_commit"]}
+        stage = "availability"
+        observed, metrics[stage] = availability.refresh(root, project, receipt["steam"], progress)
+        if observed:
+            completed[stage] = {"status": observed["status"], "observation_id": digest(json_bytes(observed))}
         contracts = {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
+                     "availability": availability.contract(),
                      "extraction": extraction.contract(root, project), "identity": history.contract(),
                      "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}
         reviewed = history.corrections(root)
-        request_key = digest(json_bytes([receipt, project, contracts, reviewed]))
+        request_key = digest(json_bytes([receipt, project, contracts, reviewed, observed]))
         request_path = within(root, f".local/pipeline/requests/{request_key}.json")
         if request_path.exists():
             request = json.loads(request_path.read_text(encoding="utf-8"))
@@ -100,6 +105,8 @@ def run(root, project, source, progress=None):
                                  max_pack_bytes=min(reader.DEFAULT_PACK_BYTES, physical.budgets(project).file_bytes))
         completed[stage] = {"candidate_id": projected["candidate_id"], "bytes": projected["bytes"]}
         metrics[stage] = {"reused": projected["reused"]}
+        if projected.get("projection_reused"):
+            metrics[stage]["projection_reused"] = True
         stage = "verify"
         if progress:
             progress(stage)
@@ -107,11 +114,14 @@ def run(root, project, source, progress=None):
         # These final checks establish the common input, not gameplay verification.
         extraction.ensure_source(source, receipt["source_commit"])
         if contracts != {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
+                         "availability": availability.contract(),
                          "extraction": extraction.contract(root, project), "identity": history.contract(),
                          "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}:
             raise ContractError("Pipeline rules changed during processing")
         if history.corrections(root) != reviewed:
             raise ContractError("Reviewed mappings changed during processing")
+        if availability.latest(root, project) != observed:
+            raise ContractError("Availability evidence changed during processing")
         completed[stage] = {"scope": "stage-artifacts-and-stable-source", "gameplay_verified": False}
         stage = "release"
         if progress:
@@ -166,6 +176,11 @@ def operator_report(root, result):
              f"Git release: {saved['wiki_release']}",
              f"Report: {result['report']}", f"Reader: {result['reader']}",
              f"Unresolved content: {saved['exceptions']['group_count']} groups, {saved['exceptions']['occurrences']} occurrences."]
+    if "availability" in saved["completed"]:
+        observed = availability.read(root, saved["completed"]["availability"]["observation_id"])
+        lines.insert(5, availability.describe(observed, snapshots.read(root, saved["snapshot_id"])["steam"]))
+        if observed["status"] == "unavailable":
+            lines.insert(6, f"Availability check failure detail: {within(root, '.local/availability-error.json')}")
     for group in saved["exceptions"]["groups"]:
         lines.append(f"- [{group['topic']}/{group['stage']}] {group['code']}: {group['pattern']} "
                      f"({group['occurrences']}; {group['change']})")

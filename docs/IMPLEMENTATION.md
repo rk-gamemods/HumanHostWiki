@@ -34,7 +34,8 @@ complete product.
   dependency-based verification beyond the selected-observation identity stage.
 - Complete historical capture coverage, reader presentation of interpreted units
   and conditions, authored-claim checks and useful external backlinks beyond the
-  selected-fact reader. Add verified freshness inputs and page-check receipts.
+  selected-fact reader. Steam availability observations are implemented;
+  display-version capture, gameplay freshness and page-check receipts remain.
 - Complete capacity acceptance for live GitHub overflow and indivisible control
   records. Storage allocation, bounded indexes and entrypoint rollover have
   forced-threshold tests with retained historical links; see their checkpoints below.
@@ -573,6 +574,33 @@ The retained decompilations for builds 25448142 (`7550530`) and 25407931 (`3c01f
 have no `Catalog` tree, checked with `git ls-tree <revision> Catalog BUILD_INFO.md`
 in the local source repository. They do not satisfy the two-build catalog acceptance
 gate. Current wiki captures still cover one game build and an extractor correction.
+
+### Steam availability checkpoint
+
+The normal operator update now observes the captured Steam branch through an
+isolated anonymous SteamCMD client, caches successful checks and records unavailable
+checks separately from content exceptions. Each reader release pins the observation
+and its UTC check time. A matching build does not grant gameplay verification.
+[AVAILABILITY.md](AVAILABILITY.md) owns the provider, setup and recovery contract.
+
+An availability-only change skips model projection and hard-links validated
+immutable reader packs into the new candidate. Its test rejects a second model
+projection, verifies shared files and unchanged snapshot versions, then checks a
+stable repeat. Failed remote checks still permit supported pipeline work. The
+provider bounds response bytes while reading and tokenizes by position without
+copying the remainder for each field.
+
+The broad run passed 197 tests in 514.184 seconds; its log is
+`.local/availability-full-tests.log`. After the parser copy optimization, all nine
+focused availability tests passed in 1.373 seconds, including a response with
+10,000 irrelevant metadata fields. The Node.js capture/availability checks passed.
+The final no-op measurement now includes the observation and its pointer in the
+hash/mtime comparison. Registry validation, the generated map, all thirteen child
+locks and whitespace validation passed before the live update. Protected synthetic
+fixtures remain retained without overriding their file protections.
+
+Live publication and repeat evidence will be recorded after the normal update.
+Display-version capture and dependency-based gameplay verification remain open.
 
 ## Deferred classifier experiments
 

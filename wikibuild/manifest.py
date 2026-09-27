@@ -25,6 +25,13 @@ def validate(root, manifest):
     require(manifest.get("schema_version") == 1, "Unsupported project schema")
     require(manifest.get("language") == "en", "The accepted publishing language is English")
     budgets(manifest)
+    availability = manifest.get("availability", {})
+    require(type(availability) is dict and not set(availability) - {"enabled", "cache_seconds", "retry_seconds"},
+            "Unknown availability configuration")
+    require(type(availability.get("enabled", False)) is bool, "Availability enabled must be boolean")
+    for key, default in (("cache_seconds", 3600), ("retry_seconds", 60)):
+        require(type(availability.get(key, default)) is int and 1 <= availability.get(key, default) <= 86400,
+                "Availability cache and retry seconds must be between 1 and 86400")
     publication = manifest["publication"]
     require(all(publication.get(key) == value for key, value in {
         "visibility": "public", "monetized": False, "advertising": False, "host": "github-pages"}.items()),
