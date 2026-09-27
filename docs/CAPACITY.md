@@ -69,6 +69,25 @@ Candidates declare `shard-directories-v1` in their reader features. An older can
 may retain flat indexes, but cannot receive directory references its runtime cannot
 read. Regenerating that candidate supplies the compatible runtime.
 
+`wikibuild/capture_catalog.py` pages release capture lists when the configuration
+exceeds the smaller of 64 KiB and the file budget. It stores each version and its
+snapshot reference once in an ID index, plus a compact ordinal-to-ID index for
+chronological browsing. Ordinals count from the oldest capture; prepending a new
+capture leaves earlier ordinals stable. Both indexes reuse bounded hashed maps
+and directory pages. Allocation resolves each level before hashing its parent.
+The catalog root is also bounded by that page limit. Small configurations retain
+their exact bytes. Fixed metadata and an indivisible oversized capture record
+still fail explicitly before promotion.
+
+Paged configurations replace `versions` and `snapshots` with a hashed
+`capture_catalog` reference and an inline `default_capture`. Default startup
+needs no catalog request. An exact older selection uses the ID index; version
+choices and entry history load newest-first in batches of 50 on request. A failed
+batch retains its cursor and can retry without omissions or duplicate options.
+The reader verifies hashes, namespace, chronology and record identity and keeps
+its existing bounded JSON cache. Candidates must declare `paged-captures-v1`;
+the new runtime continues to read earlier flat configurations.
+
 `wikibuild/physical.py` derives the physical registry from configured topic names.
 `project.json` retains logical ownership; each release's `physical` map records
 allocated repository IDs, logical topics, ordinals and sealed state. The checkout
@@ -98,9 +117,9 @@ budget check leaves the prior release selected and reports an execution failure.
 Configure byte limits and reserves through the optional `project.json.capacity`
 object, using the field names in `capacity.Budgets`.
 
-Mutable entrypoints, release configurations and ownership manifests still need
-bounded storage and rollover. Oversized control files outside the snapshot pack
-directories still fail before promotion, including indivisible snapshot metadata.
+Mutable entrypoints and ownership manifests still need bounded storage and
+rollover. Oversized fixed control metadata still fails before promotion, including
+indivisible snapshot metadata and capture records.
 Full immutable storage partitions remain readable,
 but a full logical entrypoint still requires the unfinished rollover path. These
 limitations keep complete automatic capacity acceptance open.
@@ -108,7 +127,7 @@ limitations keep complete automatic capacity acceptance open.
 Forced-threshold integration tests cover new local repositories, installation
 interruption, publication dependency order/failure, retained historical URLs and
 no-op replay. They use real Git objects and a deterministic host adapter. Real
-GitHub overflow provisioning, release/ownership index splitting and entrypoint
+GitHub overflow provisioning, ownership index splitting and entrypoint
 rollover remain acceptance gaps.
 
 ## Current validation
@@ -148,3 +167,12 @@ compare every leaf with the candidate. The JavaScript reader also consumes that
 materialized fixture, exercising entry lookup and search through the directory format.
 `tools/audit_shard_index.py` is an independent audit reader shared by the two release
 checkers; the generator and browser do not import it.
+
+`tests/test_capture_catalog.py` checks multilevel capture catalogs, exact flat
+compatibility, runtime capability rejection and indivisible records. The independent
+`tools/audit_capture_catalog.py` expands catalogs only for audits and checks both
+indexes, chronology and the inline default. Projection tests materialize 80 captures
+across three topics, drive the production JavaScript reader through those files,
+then append capture 81 and verify retained bytes and reuse. The Git release suite
+adds a 60-capture case. Browser boundary tests exercise lazy default/old selection,
+batched browsing, failed-fetch retry, integrity failures and flat compatibility.

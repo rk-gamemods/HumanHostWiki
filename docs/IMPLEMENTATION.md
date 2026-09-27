@@ -389,9 +389,9 @@ staging retention and the other ADR completion gates remain open. The owning
 
 Oversized snapshot pack-reference lists now split into immutable directory pages.
 The reader follows matching ranges for entries and backlinks and traverses search
-directories sequentially. Small indexes retain their bytes. Release configuration
-and ownership-manifest splitting, entrypoint rollover and indivisible snapshot
-metadata remain separate unfinished cases in [CAPACITY.md](CAPACITY.md).
+directories sequentially. Small indexes retain their bytes. Capture catalog paging
+is described below; ownership-manifest splitting, entrypoint rollover and indivisible
+snapshot metadata remain unfinished cases in [CAPACITY.md](CAPACITY.md).
 
 The forced projection test generates 160 entries with 1,024-byte data packs through
 the production reader. It projects the resulting oversized index under a 20,000-byte
@@ -422,6 +422,36 @@ Crude Axe search, entry loading and all three reverse references. The unchanged
 commits and 753 checked files, including timestamps. The local receipt is
 `.local/shard-index-live-repeat.json`. The run still reports 193 unresolved content
 groups; no exception investigation was part of this work.
+
+### Capture catalog paging checkpoint
+
+Release configurations now page large capture lists, retaining an inline default
+and separate indexes for exact snapshot selection and chronological browsing.
+The threshold and ownership contracts are in [CAPACITY.md](CAPACITY.md).
+The production JavaScript reader loads older choices in batches of 50 and retries
+a failed batch without advancing its cursor. Earlier flat releases remain readable.
+
+An 80-capture fixture across three topics passed independent reference/byte checks
+and production JavaScript selection and browsing against materialized physical files.
+Appending capture 81 preserved historical files and reused earlier objects. A
+60-capture fixture also passed real Git release, deterministic host publication and
+unchanged-commit replay. These are synthetic captures, not additional real game builds
+or live GitHub overflow evidence. The forced file budget is now 24,000 bytes to fit
+the expanded runtime; repository rollover and oversized-index splitting remain
+asserted by the tests. Indivisible control metadata and ownership/entrypoint growth
+remain separate unfinished cases.
+
+A rendered local preview with 80 synthetic captures across eight physical sites
+loaded all version choices in two batches, selected build 1003, searched and opened
+its entry, and followed an entry-history link back to build 1079 while retaining
+the same release identity. The local fixture builder is
+`.local/build_capture_preview.py`; its output is not published game content.
+
+The full suite passed 176 tests in 294.408 seconds; its local log is
+`.local/capture-catalog-tests.log`. The independent release audit also passed
+against the retained real release `19db4c5f`, covering 732 owned files and
+52 historical configurations. Protected synthetic Git fixtures were retained
+by ordinary test cleanup rather than having their file protections changed.
 
 ## Deferred classifier experiments
 

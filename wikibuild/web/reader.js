@@ -17,6 +17,7 @@ function element(tag, text, className) {
 
 async function json(path, expected) {
   const url = resolveURL(path, siteBase).href;
+  if (expected && new URL(url).origin !== siteBase.origin) throw new Error("Content leaves the configured namespace");
   const cacheKey = JSON.stringify([url, expected?.sha256, expected?.bytes]);
   if (!cache.has(cacheKey)) {
     const pending = (async () => {
@@ -51,8 +52,9 @@ function link(text, target) {
   return node;
 }
 
-async function* shardReferences(refs, first = null, last = first, active = new Set()) {
-  for (const ref of refs) {
+async function* shardReferences(refs, first = null, last = first, active = new Set(), reverse = false) {
+  for (let offset = 0; offset < refs.length; offset++) {
+    const ref = refs[reverse ? refs.length - offset - 1 : offset];
     if (first !== null && (ref.last < first || ref.first > last)) continue;
     if (!ref.kind) {yield ref; continue;}
     if (ref.kind !== "wiki-shard-directory") throw new Error("Unknown shard directory kind");
@@ -71,7 +73,7 @@ async function* shardReferences(refs, first = null, last = first, active = new S
         count += child.count;
       }
       if (low !== ref.first || high !== ref.last || count !== ref.count) throw new Error("Shard directory summary differs");
-      yield* shardReferences(value.shards, first, last, active);
+      yield* shardReferences(value.shards, first, last, active, reverse);
     } finally {active.delete(target.href);}
   }
 }
@@ -82,6 +84,85 @@ async function keyed(shards, key) {
     if (value !== undefined) return value;
   }
   return undefined;
+}
+
+async function captureCatalog() {
+  const root = await json(config.capture_catalog.path, config.capture_catalog);
+  if (root.schema_version !== 1 || root.kind !== "wiki-capture-catalog" || !Number.isSafeInteger(root.count) || root.count < 1) throw new Error("Invalid capture catalog");
+  for (const field of ["by_id", "by_order"]) {
+    if (!Array.isArray(root[field])) throw new Error("Invalid capture catalog index");
+    let previous = null, count = 0;
+    for (const ref of root[field]) {
+      if (typeof ref.first !== "string" || typeof ref.last !== "string" || ref.first > ref.last || (previous !== null && ref.first <= previous) || !Number.isSafeInteger(ref.count) || ref.count < 1) throw new Error("Invalid capture catalog range");
+      previous = ref.last; count += ref.count;
+    }
+    if (count !== root.count) throw new Error("Capture catalog count differs");
+  }
+  return root;
+}
+
+function captureRecord(record, identity) {
+  if (!record || record.version?.snapshot_id !== identity || !Number.isSafeInteger(record.ordinal) || record.ordinal < 0 || !record.index?.path || !/^[0-9a-f]{64}$/.test(record.index.sha256) || !Number.isSafeInteger(record.index.bytes) || record.index.bytes < 1) throw new Error("Invalid or missing capture record");
+  return record;
+}
+
+async function captureFor(identity) {
+  if (!config.capture_catalog) {
+    const position = config.versions.findIndex(version => version.snapshot_id === identity);
+    if (position < 0) throw new Error("The requested snapshot is unavailable in this reader revision");
+    return {version: config.versions[position], index: config.snapshots?.[identity], ordinal: config.versions.length - position - 1};
+  }
+  if (identity === config.default_snapshot) return captureRecord(config.default_capture, identity);
+  const root = await captureCatalog();
+  const record = captureRecord(await keyed(root.by_id, identity), identity);
+  if (record.ordinal >= root.count) throw new Error("Capture ordinal exceeds catalog");
+  return record;
+}
+
+async function captureBatch(before = null, limit = 50) {
+  if (!config.capture_catalog) {
+    const count = config.versions.length, end = before === null ? count : before;
+    return config.versions.slice(count - end, count - end + limit).map((version, position) => ({version, ordinal: end - position - 1}));
+  }
+  const root = await captureCatalog(), end = before === null ? root.count : before;
+  if (!Number.isSafeInteger(end) || end < 0 || end > root.count) throw new Error("Invalid capture cursor");
+  if (!end) return [];
+  const rows = [], last = String(end - 1).padStart(16, "0");
+  for await (const ref of shardReferences(root.by_order, "0000000000000000", last, new Set(), true)) {
+    const values = await json(ref.path, ref), keys = Object.keys(values).sort().reverse();
+    for (const key of keys) {
+      if (key > last) continue;
+      const ordinal = end - rows.length - 1;
+      if (key !== String(ordinal).padStart(16, "0")) throw new Error("Capture chronology is incomplete");
+      const record = await captureFor(values[key]);
+      if (record.ordinal !== ordinal) throw new Error("Capture chronology differs from record");
+      rows.push(record);
+      if (rows.length === limit) return rows;
+    }
+  }
+  if (rows.length !== end) throw new Error("Capture chronology is incomplete");
+  return rows;
+}
+
+function capturePager(append) {
+  const box = element("div"), more = element("button", "Load more captured versions"), message = element("p", "");
+  let before = null, loading = false;
+  message.setAttribute("role", "status");
+  more.addEventListener("click", async () => {
+    if (loading) return;
+    loading = true; more.disabled = true; message.textContent = "";
+    try {
+      // Commit the cursor only after a complete batch. A failed fetch can retry
+      // the same range without silently skipping versions or duplicating links.
+      const rows = await captureBatch(before);
+      for (const row of rows) append(row.version);
+      before = rows.length ? rows.at(-1).ordinal : 0;
+      more.hidden = before === 0;
+    } catch (error) {message.textContent = error.message;}
+    finally {loading = false; more.disabled = false;}
+  });
+  box.append(more, message);
+  return box;
 }
 
 function notice(text) {
@@ -183,10 +264,13 @@ async function showEntry(key) {
   article.append(stamps);
   const history = element("details"), historyList = element("ul");
   history.append(element("summary", "View this entry in another captured snapshot"));
-  for (const version of config.versions) {
+  const appendHistory = version => {
     const item = element("li"); item.append(link(`Steam ${version.build_id} (${version.snapshot_id})`, url(record.topic, key, version.snapshot_id))); historyList.append(item);
-  }
-  history.append(historyList); article.append(history);
+  };
+  history.append(historyList);
+  if (config.capture_catalog) history.append(capturePager(appendHistory));
+  else config.versions.forEach(appendHistory);
+  article.append(history);
   if (record.status !== "present") {
     const messages = {"not-present": "The source object was absent from this captured catalog.", uncaptured: "The required capture or extraction scope was unavailable.", unresolved: "The earlier observation could not be safely reconciled with this snapshot.", superseded: "A reviewed identity correction superseded this key. Earlier snapshots retain their original decisions."};
     article.append(notice(messages[record.status] || "This entry has no current observation."));
@@ -273,12 +357,20 @@ async function start() {
   config = globalThis.humanHostReader?.config || await json("reader.json");
   if (params.has("release") && params.get("release") !== (config.release_id || config.candidate_id)) throw new Error("This URL names a different reader revision. Use that revision's archived site; current content has not been substituted.");
   snapshot = params.get("snapshot") || config.default_snapshot;
-  if (!config.versions.some(version => version.snapshot_id === snapshot)) throw new Error("The requested snapshot is unavailable in this reader revision");
-  const pinned = config.snapshots?.[snapshot];
+  const selectedCapture = await captureFor(snapshot), pinned = selectedCapture.index;
   index = await json(pinned ? pinned.path : `snapshots/${snapshot}.json`, pinned);
   document.getElementById("home").href = url("hub");
   const selector = document.getElementById("version");
-  for (const version of config.versions) {const option = element("option", `Steam ${version.build_id} · ${version.snapshot_id.split("-").at(-1)}`); option.value = version.snapshot_id; option.selected = version.snapshot_id === snapshot; selector.append(option);}
+  let selectedShown = false;
+  const appendVersion = version => {
+    if (version.snapshot_id === snapshot) {if (selectedShown) return; selectedShown = true;}
+    const option = element("option", `Steam ${version.build_id} · ${version.snapshot_id.split("-").at(-1)}`);
+    option.value = version.snapshot_id; option.selected = version.snapshot_id === snapshot; selector.append(option);
+  };
+  if (config.capture_catalog) {
+    appendVersion(selectedCapture.version);
+    selector.parentElement.after(capturePager(appendVersion));
+  } else config.versions.forEach(appendVersion);
   selector.addEventListener("change", () => {const target = new URL(location.href); target.searchParams.set("snapshot", selector.value); target.searchParams.set("release", config.release_id || config.candidate_id); location.assign(target);});
   for (const topic of config.topics) {const a = link(topic.title, url(topic.id)); if (topic.id === config.topic) a.setAttribute("aria-current", "page"); document.getElementById("topics").append(a);}
   for (const official of config.official_links) {document.getElementById("credits").append(link(official.title, official.url), document.createTextNode(" · "));}

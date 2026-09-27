@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.audit_shard_index import leaves
+from tools.audit_capture_catalog import expand
 
 
 def sha(data):
@@ -117,7 +118,7 @@ def check(root):
         for depth in range(4):
             if value.get("kind") != "wiki-release-reference":
                 assert value["release_id"] == expected
-                return value
+                return expand(value, lambda ref: json.loads(public(topic, ref)))
             value = json.loads(public(topic, value["target"]))
         raise AssertionError("Release reference chain did not terminate")
 
@@ -164,7 +165,7 @@ def check(root):
     for (topic, name), path in locations.items():
         if not name.startswith("site/releases/"):
             continue
-        old = read(path)
+        old = expand(read(path), lambda ref: json.loads(public(topic, ref)))
         assert old["release_id"] == path.stem
         for name in old["runtime"].values():
             assert sha(public(topic, name)) == name.split("/")[-2]

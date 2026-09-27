@@ -64,7 +64,8 @@ class CapacityProjectionTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(data).hexdigest(), ref["sha256"])
                 return json.loads(data)
 
-            config = fetch(config_ref)
+            from tools.audit_capture_catalog import expand
+            config = expand(fetch(config_ref), fetch)
             self.assertEqual(config["topic"], topic)
             self.assertEqual(config["release_id"], projection.release_id)
             original = json.loads((self.path / topic / "reader.json").read_bytes())
@@ -108,7 +109,7 @@ class CapacityProjectionTests(unittest.TestCase):
 
     def test_forced_rollover_references_preserve_two_snapshots_and_replay_writes_nothing(self):
         sealed = tuple(replace(part, sealed=True) for part in self.originals)
-        limits = capacity.Budgets(file_bytes=20_000, site_bytes=26_000, history_bytes=26_000,
+        limits = capacity.Budgets(file_bytes=24_000, site_bytes=26_000, history_bytes=26_000,
                                   site_reserve_bytes=1000, history_reserve_bytes=1000)
         result = self.build(sealed, budgets=limits)
         self.assertGreater(len(result.created), len(self.topics))
@@ -180,8 +181,8 @@ class CapacityProjectionTests(unittest.TestCase):
                                  bases=self.bases, max_pack_bytes=1024)
         self.path = Path(candidate["path"])
         original_index = self.path / "items/snapshots" / (run["snapshot_id"] + ".json")
-        self.assertGreater(original_index.stat().st_size, 20_000)
-        limits = capacity.Budgets(file_bytes=20_000, site_bytes=80_000, history_bytes=120_000,
+        self.assertGreater(original_index.stat().st_size, 24_000)
+        limits = capacity.Budgets(file_bytes=24_000, site_bytes=80_000, history_bytes=120_000,
                                   site_reserve_bytes=1000, history_reserve_bytes=1000)
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals), budgets=limits)
         directories = [item for item in result.payloads.values() if item.data and
@@ -237,6 +238,42 @@ class CapacityProjectionTests(unittest.TestCase):
         key = "items/site/objects/" + digest(data) + ".json"
         self.assertEqual(sum(item.artifact.key == key for item, _ in result.writes()), 1)
         self.assertNotIn(key, result.reused)
+
+    def test_capture_catalog_preserves_physical_history_and_browser_selection(self):
+        runs = [self.fixture.make_run(str(build), []) for build in reversed(range(1000, 1080))]
+        self.path = Path(reader.build(self.fixture.root, self.project, runs, bases=self.bases)["path"])
+        limits = capacity.Budgets(file_bytes=24_000, site_bytes=80_000, history_bytes=160_000,
+                                  site_reserve_bytes=1000, history_reserve_bytes=1000)
+        result = self.build(tuple(replace(part, sealed=True) for part in self.originals), budgets=limits)
+        output = self.fixture.root / "capture-sites"
+        self.materialize(result, output)
+        self.assertEqual(audit(self.path, result, "wiki-fixture")["snapshots"], 240)
+        self.assertEqual(self.inspect(result, output)["snapshots"], 240)
+        self.assertTrue(all(item.artifact.bytes <= limits.file_bytes for item in result.payloads.values()))
+        self.assertTrue(all("capture_catalog" in json.loads(result.payloads[topic.id + f"/site/releases/{self.release_id}.json"].read())
+                            for topic in self.topics))
+        node = shutil.which("node")
+        if node:
+            control = self.fixture.root / "capture-reader.json"
+            control.write_text(json.dumps({"root": str(output), "base": self.bases["items"],
+                "configuration": result.configurations["items"], "selected": runs[-3]["snapshot_id"],
+                "expected": [run["snapshot_id"] for run in runs]}))
+            checked = subprocess.run([node, str(Path(__file__).with_name("reader_captures.test.js")), str(control)],
+                                     capture_output=True, text=True)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        replay = self.build(result.partitions, result.placements, budgets=limits)
+        self.assertEqual(list(replay.writes()), [])
+        self.assertEqual(replay.configurations, result.configurations)
+        before = {path: path.read_bytes() for path in output.rglob("*") if path.is_file()}
+        self.release_id = "b" * 64
+        newer = self.fixture.make_run("1080", [])
+        self.path = Path(reader.build(self.fixture.root, self.project, [newer, *runs], bases=self.bases)["path"])
+        later = self.build(tuple(replace(part, sealed=True) for part in result.partitions), result.placements, budgets=limits)
+        self.materialize(later, output)
+        self.assertEqual(self.inspect(later, output)["snapshots"], 243)
+        self.assertTrue(all(path.read_bytes() == data for path, data in before.items()))
+        old_objects = {key for key in result.payloads if "/objects/" in key}
+        self.assertGreater(len(old_objects & set(later.reused)), 240)
 
     def test_independent_auditor_rejects_changed_snapshot_membership(self):
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals))

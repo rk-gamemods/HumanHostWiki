@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.audit_shard_index import leaves
+from tools.audit_capture_catalog import expand
 
 
 def audit(candidate, projection, owner):
@@ -44,7 +45,7 @@ def audit(candidate, projection, owner):
             assert (item.artifact.sha256, item.artifact.bytes) == (ref["sha256"], ref["bytes"])
             return json.loads(projection.payloads[item.artifact.key].read())
 
-        config = resolve(config_ref)
+        config = expand(resolve(config_ref), resolve)
         original_config = json.loads((candidate / topic / "reader.json").read_bytes())
         assert config["release_id"] == projection.release_id
         assert {k: v for k, v in config.items() if k not in {"release_id", "publication", "runtime", "snapshots"}} == {

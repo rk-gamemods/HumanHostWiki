@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import re
 
-from . import capacity, reader, release_content, shard_index
+from . import capacity, capture_catalog, reader, release_content, shard_index
 from .storage import ContractError, digest, within
 
 
@@ -145,17 +145,20 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
         snapshot_data[(topic, source.stem)] = release_content.snapshot(verified(source, metadata),
                                             lambda name, sha, size: reference(topic, name, sha, size))
 
-    def directories(batch):
+    def metadata_objects(batch):
         nonlocal by_partition
-        for topic in {topic for topic, _ in batch}:
-            source, metadata = configs[topic]
-            if "shard-directories-v1" not in json.loads(verified(source, metadata)).get("features", []):
-                raise ContractError("Reader runtime does not support shard directories; regenerate the candidate")
         artifacts = [add(topic, "site/objects/" + digest(data) + ".json", data=data) for topic, data in batch]
         allocate(artifacts)
         by_partition = {part.id: part for part in physical}
         return [{"path": reference(item.topic, item.path.removeprefix("site/"), item.sha256, item.bytes),
                  "sha256": item.sha256, "bytes": item.bytes} for item in artifacts]
+
+    def directories(batch):
+        for topic in {topic for topic, _ in batch}:
+            source, metadata = configs[topic]
+            if "shard-directories-v1" not in json.loads(verified(source, metadata)).get("features", []):
+                raise ContractError("Reader runtime does not support shard directories; regenerate the candidate")
+        return metadata_objects(batch)
 
     snapshot_data = shard_index.compact(snapshot_data, (budgets or capacity.Budgets()).file_bytes, directories)
     indexes, snapshot_objects = [], {topic: {} for topic in owners}
@@ -166,15 +169,15 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
     allocate(indexes)
     by_partition = {part.id: part for part in physical}
 
-    releases = []
+    release_data = {}
     for topic, (source, metadata) in sorted(configs.items()):
         resolved = {snapshot: {"path": reference(topic, name, sha, size), "sha256": sha, "bytes": size}
                     for snapshot, (name, sha, size) in snapshot_objects[topic].items()}
         runtime = {extension: reference(topic, name, meta["sha256"], meta["bytes"])
                    for extension, (name, meta) in runtimes[topic].items()}
-        data = release_content.configuration(verified(source, metadata), release_id, resolved, runtime)
-        artifact = add(topic, f"site/releases/{release_id}.json", data=data)
-        releases.append(artifact)
+        release_data[topic] = release_content.configuration(verified(source, metadata), release_id, resolved, runtime)
+    release_data = capture_catalog.compact(release_data, (budgets or capacity.Budgets()).file_bytes, metadata_objects)
+    releases = [add(topic, f"site/releases/{release_id}.json", data=data) for topic, data in sorted(release_data.items())]
     allocate(releases)
     by_partition = {part.id: part for part in physical}
     for artifact in releases:

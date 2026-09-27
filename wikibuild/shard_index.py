@@ -33,7 +33,7 @@ def groups(refs, limit):
         yield rows, prefix + b",".join(encoded) + suffix
 
 
-def compact(indexes, limit, emit):
+def compact(indexes, limit, emit, fields=FIELDS):
     """Return bounded bytes for {(topic, snapshot): bytes}, preserving leaf order.
 
     emit receives [(topic, directory_bytes)] and returns path/hash/size references
@@ -47,10 +47,10 @@ def compact(indexes, limit, emit):
         requests, plans = [], []
         for key, data in active:
             value = json.loads(data)
-            fixed = {name: [] if name in FIELDS else item for name, item in value.items()}
+            fixed = {name: [] if name in fields else item for name, item in value.items()}
             if len(packs.compact(fixed)) > limit:
                 raise ContractError("Snapshot metadata exceeds the file budget")
-            candidates = [kind for kind in FIELDS if len(value[kind]) > 1]
+            candidates = [kind for kind in fields if len(value[kind]) > 1]
             if not candidates:
                 raise ContractError("Snapshot metadata cannot fit the file budget")
             kind = max(candidates, key=lambda field: len(packs.compact(value[field])))

@@ -271,7 +271,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         output(f"{topic}/index.html", content)
         output(f"{topic}/404.html", content)
         output(f"{topic}/reader.json", packs.compact({"schema_version": 1, "candidate_id": candidate_id,
-               "features": ["shard-directories-v1"],
+               "features": ["shard-directories-v1", "paged-captures-v1"],
                "topic": topic, "topics": topics, "versions": projected, "default_snapshot": projected[0]["snapshot_id"],
                "official_links": project["official_links"], "publication": "local-candidate"}))
         for kind in sorted(all_groups[topic]):

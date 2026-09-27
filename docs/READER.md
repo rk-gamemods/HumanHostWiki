@@ -25,6 +25,12 @@ for entry/provenance lookup and loads search directories sequentially. It contin
 to read flat indexes from earlier releases. Directory support is declared in the
 candidate's reader features so new metadata cannot be paired with an older runtime.
 
+Release configurations also page large capture lists through the
+[capture catalog contract](CAPACITY.md). The default capture remains inline.
+Opening an older snapshot reads its exact catalog record; the version selector
+and entry history load additional choices only when requested. A failed history
+batch can retry from the same position without changing the selected snapshot.
+
 The renderer uses standard-library Python and native browser APIs. It adds no
 framework dependency or server/database requirement. Diagnostic links carry snapshot
 and candidate identity. Committed sites carry snapshot and coordinated release

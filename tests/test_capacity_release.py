@@ -17,7 +17,7 @@ class CapacityReleaseTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.root, self.project = self.fixture.root, self.fixture.project
-        self.project["capacity"] = {"file_bytes": 20_000, "site_bytes": 50_000, "history_bytes": 250_000,
+        self.project["capacity"] = {"file_bytes": 24_000, "site_bytes": 50_000, "history_bytes": 250_000,
                                     "site_reserve_bytes": 25_000, "history_reserve_bytes": 25_000}
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = test_publication.Host(self.project["github_owner"])
@@ -73,6 +73,25 @@ class CapacityReleaseTests(unittest.TestCase):
         result, _ = self.run_release()
         self.assertEqual(expected, {key: value["commit"] for key, value in result["repositories"].items()})
         check(self.root)
+
+    def test_paged_captures_commit_publish_and_remain_reachable_after_replay(self):
+        runs = [self.fixture.fixture.make_run(str(build), []) for build in reversed(range(1000, 1060))]
+        self.candidate = reader.build(self.root, self.project, runs, bases=release.bases(self.project))
+        result, _ = self.run_release()
+        inventory = capacity_inventory.read(self.root, self.project)
+        catalogs = []
+        for item in inventory.stored:
+            if item.artifact.path.startswith("site/releases/"):
+                path = self.root / result["repositories"][item.partition]["path"] / item.artifact.path
+                catalogs.append(json.loads(path.read_bytes()))
+        self.assertEqual(len(catalogs), 3)
+        self.assertTrue(all("capture_catalog" in value for value in catalogs))
+        self.assertEqual(check(self.root)["historical_configs"], 3)
+        self.assertEqual(publication.run(self.root, self.project, result, host=self.host)[0]["status"], "published")
+        before = {identity: value["commit"] for identity, value in result["repositories"].items()}
+        repeated, stats = self.run_release()
+        self.assertTrue(stats["reused"])
+        self.assertEqual(before, {identity: value["commit"] for identity, value in repeated["repositories"].items()})
 
     def test_storage_failure_keeps_all_fronts_unpublished_then_resumes(self):
         result, _ = self.run_release()
