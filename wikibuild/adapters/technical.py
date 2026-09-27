@@ -15,6 +15,90 @@ def reviewed(assembly, name, omitted, reason, inspected=None):
 
 
 SPECS = (
+    reviewed("Build_System", "Battle_Info", """Belong_Group Contacts_SiblingIndex FatherBI
+FatherBISysHouseIndex Is_Fallen MaxSize ShardsConnected Smashed _BI_Particle_Color
+_RFG _fracturedRoot _rigidBody _soundMatName isDoorAxisBaI lastOnHitTime localPos
+nameIndex selfMeshCollider selfMeshRender selfMeshfilter""",
+             "Destructible-fragment geometry, parent bindings and mutable contact/damage state. MinusHP updates the parent Build_Info; building/material defaults are selected there."),
+    reviewed("Build_System", "Shards_Group", """BI BanJingGroup Connected_1 Connected_2
+Core_Now Core_Origin Dictionary_Key Ground_Origin IsSmashGroup Shards SpreadGeneration
+_lastFurniPreFallFrame notTriggerOnDestroy""",
+             "Runtime fragment connectivity, collapse traversal and saved-group ownership; no independent material or building definition."),
+    reviewed("UI", "Craft_Slot", "_IconImage _IconNameText _TagMenu",
+             "Crafting menu widget bindings; recipes and quantities are selected from Craft_Items."),
+    reviewed("UI", "Craft_Window_Handler", "_belongCraftItem",
+             "Craft window lifecycle callback; workbench configuration is selected from Craft_Items."),
+    reviewed("Use_F", "Interact_SFX", "",
+             "Named interaction-audio routing marker; no serialized parameters beyond Unity identity."),
+    reviewed("Use_F", "Use_F", """CarRepositionArrowPrefab EZ_Outline _AirDropIcon
+_AirDropIconChecked _ButtonCrateLabel_OK _CursorPos _InputFieldCrateLabel
+_InputFieldCrateLabel_Obj _LootBar _LootBarText _LootDeadBodySFX _Pick_Menu
+_SavePlayerDataIns _Tag_Menu carCore_floatText""",
+             "Interaction service UI, audio and save-service bindings; code-defined interaction mechanics are not inferred from these bindings.",
+             {"_InteractSounds": [fields({}, "interactSFX sounds")]}),
+    reviewed("Hand_Tools", "Gun_Light_Curves", "GraphIntensityMultiplier GraphTimeMultiplier LightCurve _LightSource",
+             "Muzzle-flash light intensity curve and duration; no shot damage or alert radius."),
+    reviewed("Hand_Tools", "Drop_Sound_Sets", "",
+             "Material-to-drop-audio mapping and playback volumes; no impact damage or alert parameters.",
+             {"_DropSounds": [fields({}, "name soundMat audioClips volumes")]}),
+    reviewed("Hand_Tools", "Equip_Sound_Sets", "_Equip_Sounds _Equip_Volumes _UnEquip_Sounds _UnEquip_Volumes",
+             "Equip and unequip audio clips and playback volumes; audio payloads omitted."),
+    reviewed("Hand_Tools", "Melee_Swing_Sound_Set", "_MeleeStartAudios _Melee_SA_Volumes",
+             "Swing audio clips and playback volumes; combat timings are selected from Melee_Anim_Sets."),
+    reviewed("Hand_Tools", "BulletShell_Drop_Sounds", "_shellDropSoundsName",
+             "Spent-shell material/audio lookup; Play_Drop_Sound forwards clip, volume and position only."),
+    reviewed("Creature", "Char_VoiceFX", "",
+             "Character voice clips and playback volumes; no perception or attack parameters.",
+             {"_Char_VoiceFX": fields({}, """Attack_Voices Attack_Volumes Hurt_Voices Hurt_Volumes
+Death_Voices Death_Volumes Idle_Voices Idle_Volumes Breath_Voices Breath_Volumes
+Jump_Voices Jump_Volumes HitGround_Voices HitGround_Volumes BoneBreak_Voices BoneBreak_Volumes""")}),
+    reviewed("Creature", "Skill_Slot", "_DelSkillObj _FrameObj _SkillClass _SkillIconImage _SkillInstruction _SkillLevelText _SkillName _SkillStackText _skillLevel",
+             "Skill widget bindings and current slot level; skill definitions and level values are selected separately."),
+    reviewed("Creature", "Skill_Slot_Hover", "_HighlightObj _skillSlot",
+             "Skill tooltip/highlight bindings; displayed values are read from Skill_Mgr."),
+    reviewed("Creature", "Tab_Event", "_SelectFrame isMgr",
+             "Skill-menu tab visibility callback; no skill definitions or costs.",
+             {"_HideMgr": fields({}, "_tabsFrames _tabForHide")}),
+    reviewed("Creature", "IK_Component", """_EyeTrans _IK_LookAtTrans _allowLeftHandIK
+_allowRightHandIK _animator _charController _currRealAllowHandIK_L _leftHandIK_Trans
+_leftHandIK_Weight _leftHandTarget_w _leftHand_TargetLoPos _leftHand_TargetLoRot
+_lerpHandL_Speed _lerpHandR_Speed _origLerpHandR_S _rightHandIK_Trans
+_rightHandIK_Weight _rightHandTarget_w""",
+             "Animation hand-target bindings, interpolation and live IK state; no attack or perception limits."),
+    reviewed("Build_System", "FacingCam", "",
+             "Update rotates a display toward the camera; no captured configuration."),
+    reviewed("Build_System", "MassCenter_Handler", "_FacingCams _MRs",
+             "Mass-center indicator renderer bindings; physical mass is configured on building/material components."),
+    reviewed("Optimize", "GPUI_NoneGameObject_Mgr", "_BufferSize _prefabManager",
+             "GPU instance-buffer capacity and renderer manager; no world population parameters."),
+    reviewed("Optimize", "Imposter_Manager", """QuadHeightFactor QuadMinMaxHeight QuadResFactor
+Quad_MR_Prefab RT_Prefab _Cam _ColorMapKey _Speed_Distortion updateCamAngle
+updateCamAngleActive updateCheckInterval updateDirectLightAngle volume""",
+             "Impostor textures, camera update thresholds and rendering quality; no gameplay configuration."),
+    reviewed("Optimize", "MCS_Manager", "_OnZoneSmashShards _cellSizeZoneSmash _delayCombineSecondsZS cellSize delayCombineSeconds meshCombinerBuilding",
+             "Mesh-combination batching dimensions, delays and service bindings; no destruction damage settings."),
+    reviewed("Optimize", "MeshCombineStudio.CachedComponents", "garbageCollectMesh go mf mr t",
+             "Cached object, transform and mesh-renderer bindings; no domain values."),
+    reviewed("Optimize", "MeshCombineStudio.GarbageCollectMesh", "mesh",
+             "Mesh resource cleanup on destruction; mesh payload omitted."),
+    reviewed("Optimize", "MeshCombineStudio.MeshCombinerData", "combined_MRs foundColliders foundLodGroups foundLodObjects foundObjects",
+             "Mesh-combination result/cache collections; no world definitions."),
+    reviewed("Optimize", "Quad_Lod_Active", "_startFrame",
+             "Impostor visibility callback and runtime frame counter; no domain parameters."),
+    reviewed("Optimize", "Point_Light_Handler", """_AudioSource _FastLight _HD_Light _HD_Light2
+_InitFastLightIntens _InitLightLoPos _InitPointLightIntens _IsCampfire _NeedShadowFlicking
+_PointLight _PointLight2 _SelfCol _ShadowFlickAmount _SphereCol _forceUpdateShadow
+_lastUpdateShadow1 _spotLight1_LoPosY_NearWall _spotLight2_LoPosY_NearWall""",
+             "Light/shadow placement, flicker and audio bindings; campfire flag chooses audio, not fuel consumption."),
+    reviewed("Optimize", "Point_Lights_Mgr", "_FakeGI_Range _FakeGI_RangeMax _Fake_GI _SphereDetectRadius _SwitchLerpSpeed _TorchBagSmashSFX _TorchSFX _bagLightOn _closestVisiblePLight _lightsForJob",
+             "Visible-light selection, fake illumination and torch audio; no fuel or heat parameters."),
+    reviewed("Visual", "AO_AutoAdjustment", """_AdaptiveGI _ExposureCurveMin _Htrace _HtraceAO
+_InForestGI_TimeF _RainMats _Snow_Mat _currHour _currTimeRate _inForest_IntensFactor_GI
+_origSnowColor _outdoor_IntensFactor_GI _weatherCon forest_HAO_Intens
+indoorNight_ILC_Intens indoor_HAO_Intens indoor_ILC_intens inforest_ILC_intens
+lerpSpeedAO_Indoor lerpSpeedAO_Outdoor outdoorNight_ILC_intens outdoor_HAO_Intens
+outdoor_ILC_intens rateHitBuild rateHitNature rayBI_Dis rayCastInterval volume""",
+             "Environmental rendering adaptation: occlusion, illumination, exposure and weather-material appearance."),
     reviewed("Notifications", "NoticeSlot", "backGround iconBGImg iconImg text",
              "Notification display widget and asset-handle cleanup; no gameplay parameters."),
     reviewed("Notifications", "NotificationSystem", "slotInstances slotPrefab",

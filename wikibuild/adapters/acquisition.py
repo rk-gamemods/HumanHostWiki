@@ -16,6 +16,10 @@ BIOME_STOCK = {"BiomeName": str, "Items": [STOCK_TYPE],
 PRICE_GROUP = {"factorRange": V2, "probability": N}
 
 SPECS = (
+    component("Use_F", "G_Mode", "configuration", "technical-reference", {
+        "itemGroups": [Ref("inventory-template")],
+    }, "_ArrowButtonsTop _TimeSlider _weatherMgr gModeContainerPrefab testData",
+       notes="G_Mode inventory-template bindings for its item browser. Startup requires editor mode or the game's G_Mode flag; these are not ordinary loot drops or initial player inventory."),
     component("Merchant", "Merchant_Mgr", "loot-source", "loot-acquisition", {
         "_BiomeItemSet": [BIOME_STOCK],
         "_BuyPriceFactorGroups": [PRICE_GROUP], "_SellPriceFactorGroups": [PRICE_GROUP],
@@ -32,5 +36,5 @@ _TypeSelectField _VoiceTextSlot""",
     component("UI", "Char_Item_Icons", "loot-source", "loot-acquisition", {
         "_InitItemsRef": [{"IconRef": Ref("initial-item"), "itemName": str, "stack": int}],
     }, "_allSlots",
-       notes="Serialized initial inventory entries; existing saved inventory and runtime slot state are not represented."),
+       notes="Serialized inventory-template entries. Referring components determine whether a template supplies a new character or G_Mode's item browser. Saved inventory and runtime slots are omitted."),
 )

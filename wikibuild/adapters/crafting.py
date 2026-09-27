@@ -17,6 +17,13 @@ _ProgressBar _ProgressBarItemName _ProgressBarNumber _belongBIkey _cancelCraftIc
 _craftButtonImg _craftCount _inCrafting _slotInfos"""
 
 SPECS = (
+    component("UI", "Craft_Mgr", "processing-rule", "crafting-processing", {
+        "_PlayerCraftItem": Ref("player-crafting"),
+    }, """_BuildToopTip _CancelCraftSFX _On_CheckIsBuildModule _On_GetAroundCrateBelongBIkey
+_On_GetBelongBIkey _TagSwitchSFX _TorchExtinguishSFX _WorkbenchSFXs
+_campfireAroundCratesBelongKey _craftItems _isBuildModuleResult _lastActiveCraftItem
+_workbenchTrans""",
+       notes="Player crafting definition binding; active workbenches, material locks, audio and saved crafting state are omitted."),
     component("UI", "Craft_Items", "workbench", "crafting-processing", CRAFT, CRAFT_UI),
     component("UI", "Special_Workbench", "workbench", "crafting-processing", CRAFT,
               CRAFT_UI + " _ActiveParticles _AudioSource _EmissiveMrMatsIndex _FastLight _LerpSeconds _Light1 _Light2 _LightHandlerObj _SphereCol"),

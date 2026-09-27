@@ -7,6 +7,14 @@ Mutable slots, save identifiers, current quality and menus are excluded.
 from .schema import NUMBER as N, Ref, component, fields
 
 SPECS = (
+    component("UI", "Slot_Info", "equipment", "items-equipment", {
+        "_slotIndex": int, "_SlotType": int, "_NeedSwapCheck": int,
+        "_slotTag": str, "_slotTag2": str,
+    }, """Image ModelPrefab Selected Stack_Text _BackGroundIcon _DurabilityBar _QualityImage
+_SlotBelongBI_Info _SlotRootOfChar _assetRefForSplit _equip_Ins _forceNewDuraData
+_iconInfoPrefab _inLoading _initAlready _isEmptySlot _qualityIndex _runtimeSmashAgent
+_skipReleaseOnNextLoad _slotRootTag""",
+       notes="Serialized slot index, type and swap restrictions. Current item, stack, quality, durability and save ownership are omitted."),
     component("UI", "Item_Slot_Mgr", "equipment", "items-equipment", {
         "_MaxCraftLevel": int, "_MaxLootLevel": int,
         "_EquipUpgradePityFailCounts": [int], "_EquipUpgradeSuccessRates": [N],

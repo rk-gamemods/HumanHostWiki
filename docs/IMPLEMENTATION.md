@@ -985,6 +985,46 @@ table displayed the Bearing item link, quantity bounds 10 and 20, sampling value
 price factor 1 and three merchant prefab links in the selected release. No browser
 console errors were reported.
 
+### Initial exception reconciliation, combat and runtime state
+
+The [review record](BASELINE_RECONCILIATION.md#combat-material-and-runtime-state-review)
+adds nine selected configuration classes and 28 exact technical classifications.
+Attack timing, handmade ammunition modifiers, scope FOV, terrain material tables,
+slot restrictions and inventory-template context now have explicit contracts.
+Fragment connectivity and rendering/audio state retain technical summaries.
+The initial backlog is 88 classes and 7,735 occurrences, with zero relationship
+exceptions; all remain authorized work before the first baseline is delivered.
+
+Extraction `9bdf173a94f682861c51def84ccc5b29bf092b66c4916330eac14522a97b0128`
+and identity `386697456b7e5da1b06ef40219c98253037b939cd92a4f910375a21d681734c6`
+passed independent audits: 17,384 selected records and 205,786 source assertions;
+20,050 current observations and 239,804 identity assertions. Reader candidate
+`eab8fd04cdf9e5a4e3566e7a2d642e35a2ee06edaea5aa03a6ed818b12faf520`
+passed 327,084 assertions over 36,342 retained observations. It contains 1,345 files,
+119,489,985 bytes and a largest pack of 517,450 bytes.
+
+Two combat tests verify exact default-time markers and continued extraction when
+new nested fields appear. The source review also caught a mistaken assumption
+that Weapon_Range's ScopeInfo was a reference; it is mounting geometry and remains
+excluded. Scope settings are linked through their owning manager.
+
+The normal decompile command completed pipeline
+`483cf6447f6a9b3bd6bfa5ca589b8a065c41483e90c15c5f4e293e9a3b94889c`
+and published release
+`4c0e7085ed767ed79ddca5f8fa7727a0c87e3040e298393a6b163a7bf47ff93a`.
+An unchanged wiki update passed in 12.677 seconds, preserving 13 child commits
+and 2,739 file hashes/timestamps. The release audit verified 2,686 owned files,
+223,163,210 bytes, 208 retained configurations and 28 ownership pages. Registry,
+map, checkout-lock and whitespace checks passed.
+
+The full 284-test run passed 283 cases and exposed a positional adapter lookup
+in the recipe test. It now selects `UI/Craft_Items` by its stable class identity;
+all 14 component tests passed afterward. No runtime fix was required for that
+test failure. The public Axe_Combo_1 page displayed selected timing values,
+the exact default-time marker and seven weapon references in the published
+release, with no browser console errors. Evidence is retained in
+`.local/baseline-combat-render-*`.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters

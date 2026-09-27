@@ -13,8 +13,9 @@ articles. Every published fact must come from an explicit field contract.
 | `wikibuild/adapters/catalog_policy.py` | Explicit infrastructure accounting and payload omissions |
 | `wikibuild/adapters/technical.py` | Reviewed field exclusions with new-field detection; summary output only |
 | `wikibuild/adapters/prefabs.py` | Individual identities for GameObjects referenced by selected domain relationships |
-| `wikibuild/adapters/acquisition.py` | Merchant stock/pricing and initial inventory contracts |
-| `wikibuild/adapters/inventory.py` | Item-quality, upgrade and initial-character configuration |
+| `wikibuild/adapters/acquisition.py` | Merchant stock/pricing and context-specific inventory templates |
+| `wikibuild/adapters/inventory.py` | Item-quality, upgrade, slot restrictions and initial-character configuration |
+| `wikibuild/adapters/combat.py` | Damage, attack timing, ammunition modifiers and combat preset links |
 | `wikibuild/adapters/controls.py` | Serialized key defaults and action bindings |
 | `wikibuild/adapters/schema.py` | Nested types, field selection, nulls, references and grouped exceptions |
 | Topic files in `wikibuild/adapters/` | Selected fields, known omissions and domain relationships |
@@ -61,6 +62,11 @@ Reviewed technical contracts read the component through the same bounded selecto
 as gameplay contracts, but emit only the existing type/count summary. A new field
 still raises an exception. These decisions account for serialized fields without
 claiming that every method's behavior has been interpreted.
+
+`NumberWithSentinel` permits only explicitly named catalog-encoded float markers
+on opted-in fields. Animancer timing uses `{"float":"nan"}` for default behavior;
+it is preserved as source evidence, not converted to zero or a guessed duration.
+Ordinary numeric contracts still reject non-finite values and encoded markers.
 
 Use `py -3 tools/check_extraction.py --all` for the initial baseline: it compares
 every selected gameplay observation, all referenced prefab identities and every

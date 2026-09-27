@@ -115,10 +115,47 @@ The independent source checker previously assumed every `loot-table` came from
 `Loot_Rate_Sets`. Merchant stock exposed that assumption. It now compares component
 tables at their evidenced source-field path while retaining the older view check.
 
+## Combat, material and runtime-state review
+
+This batch adds nine selected configuration contracts and 28 exact technical
+decisions. It also expands melee weapon selection with hit-box values,
+bounce/stuck timing and links to its animation configurations.
+
+| Classes | Source evidence and decision |
+| --- | --- |
+| Hand_Tools / Melee_Anim_Sets | `Weapon_Melee` reads keep-check seconds for continuing hit tests, bounce seconds for recovery, and animation speed/rates when selecting attacks. Retain them and normalized event positions; omit clips and skeletal correction geometry |
+| Hand_Tools / Scope_Info_Sets | `Weapon_Range` multiplies original camera FOV by `camFovRate` and uses it in scoped sensitivity. Retain type and multiplier; omit vignette/chromatic settings |
+| Hand_Tools / Tool_Interact_Mgr | `_Start` registers material/damage/hit/scope settings and supplies `_HandCraftBullet`. `Weapon_Range` applies its damage, range, recoil, dud and jam modifiers. Retain the owning values and links |
+| Sound_FX / SoundTerrain_Sets, Sound_Terrain, Sound_Mgr | `Sound_Terrain.Start` resolves texture-indexed material names through the shared registry. Retain ordered names and table/material/terrain bindings; omit the rebuilt array, clips and music state |
+| UI / Craft_Mgr | `_PlayerCraftItem` identifies the player crafting definition; other captured fields are active workbench state, save ownership or presentation bindings |
+| UI / Slot_Info | Permanent slot fields define index, type and swap tags; exclude loaded items, current quality/durability and save identifiers |
+| Use_F / G_Mode | `Start` gates its item browser on editor mode or the G_Mode flag; `FillCurrentGroupItems` uses Char_Item_Icons templates. Retain those bindings and label templates by referring context, avoiding a universal new-character label |
+
+Captured `Kybernetik.Animancer` source establishes NaN default timing:
+`Sequence.Serializable.GetEventsOptional` uses the last time as the end event;
+`GetRealNormalizedEndTime` and `GetNormalizedStartTime` fall back on NaN;
+transition `Apply` leaves speed unchanged for a NaN override. The catalog encodes
+this as `{"float":"nan"}`. A narrowly opted-in schema preserves that exact marker.
+Other dictionaries/markers, booleans and non-finite Python numbers still produce
+exceptions. No clip duration or final attack rate is inferred.
+
+The 28 technical decisions retain only type summaries and explicit field names:
+
+| Classes | Evidence and exclusion reason |
+| --- | --- |
+| Hand_Tools / Gun_Light_Curves, Drop_Sound_Sets, Equip_Sound_Sets, Melee_Swing_Sound_Set, BulletShell_Drop_Sounds | Light intensity and clip/volume selection; shell playback forwards clip, volume and position only. Nested drop-audio additions remain exceptions |
+| Creature / Char_VoiceFX, Skill_Slot, Skill_Slot_Hover, Tab_Event, IK_Component | Voice payloads, current skill widgets, tab visibility and hand IK interpolation. Skill definitions are selected separately; voice/tab structs keep nested drift checks |
+| Build_System / FacingCam, MassCenter_Handler | Camera-facing and renderer visibility for the mass-center indicator |
+| Optimize / GPUI_NoneGameObject_Mgr, Imposter_Manager, MCS_Manager, MeshCombineStudio.CachedComponents, MeshCombineStudio.GarbageCollectMesh, MeshCombineStudio.MeshCombinerData, Quad_Lod_Active | GPU/render batching, texture generation, cached mesh bindings and resource/visibility lifecycle. MeshCombiner remains unresolved |
+| Optimize / Point_Light_Handler, Point_Lights_Mgr; Visual / AO_AutoAdjustment | Light selection, shadows, illumination, exposure and weather-material appearance. The campfire flag selects audio, not fuel behavior |
+| Build_System / Battle_Info, Shards_Group | Fragment geometry/contact state and mutable collapse/save bookkeeping. MinusHP updates parent Build_Info HP; construction/loading assigns core/ground state and collapse traversal updates SpreadGeneration. Building/material defaults have separate selected owners |
+| UI / Craft_Slot, Craft_Window_Handler | Crafting widgets and close callbacks; no recipe quantities |
+| Use_F / Interact_SFX, Use_F | Audio marker and interaction UI/audio/save bindings. This accounts for captured fields, not all code-defined interaction mechanics |
+
 ## Remaining work
 
-The latest source reconciliation in this checkpoint has 125 unsupported component
-groups, covering 16,890 occurrences, and no relationship exceptions. All 125 groups
+The latest source reconciliation in this checkpoint has 88 unsupported component
+groups, covering 7,735 occurrences, and no relationship exceptions. All 88 groups
 remain authorized initial-delivery work. They are not deferred for user selection.
 Complete their evidence review and code corrections, then verify the full normal
 update, unchanged repeat, public reader and remaining ADR acceptance gates.

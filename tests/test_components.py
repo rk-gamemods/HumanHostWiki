@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from wikibuild.adapters import components, crafting, entries
+from wikibuild.adapters import components, entries
 from wikibuild.adapters.schema import NUMBER, OMIT, Ref, Selection, component
 from wikibuild.exceptions import Exceptions
 from wikibuild.source import Source
@@ -41,8 +41,9 @@ class ComponentTests(unittest.TestCase):
             "perIconData": [{"craftNum": 2, "craftSeconds": 60.0, "iconInfo": {"m_FileID": 0, "m_PathID": 0}, "iconRef": {"m_AssetGUID": "abc"},
                 "matsData": [{"matNeedCount": 3, "matIcon": {"m_AssetGUID": "def"}, "future": "DO NOT EXPORT"}]}]}]}
         issues = Exceptions()
-        selected = Selection(record, crafting.SPECS[0], issues)
-        facts = selected.select(data, crafting.SPECS[0].fields)
+        spec = components.BY_CLASS[("UI", "Craft_Items")]
+        selected = Selection(record, spec, issues)
+        facts = selected.select(data, spec.fields)
         recipe = facts["_CraftItemsData"][0]["perIconData"][0]
         self.assertEqual({"craftNum": 2, "craftSeconds": 60.0, "matsData": [{"matNeedCount": 3}]}, recipe)
         self.assertNotIn("PRIVATE", json.dumps(facts))

@@ -18,6 +18,12 @@ class Ref:
 
 
 @dataclass(frozen=True)
+class NumberWithSentinel:
+    """Opt-in to exact catalog-encoded float markers used by a source contract."""
+    markers: frozenset
+
+
+@dataclass(frozen=True)
 class Fields:
     selected: dict
     excluded: frozenset = frozenset()
@@ -87,6 +93,14 @@ class Selection:
                 # Preserve source list positions. Null explicitly marks a gap.
                 result.append(None if selected is OMIT else selected)
             return result
+        if isinstance(schema, NumberWithSentinel):
+            if isinstance(value, dict):
+                if (set(value) == {"float"} and isinstance(value["float"], str)
+                        and value["float"] in schema.markers):
+                    self.evidence.append(path)
+                    return {"float": value["float"]}
+                return self.invalid(path)
+            return self.select(value, NUMBER, path)
         if isinstance(schema, Ref):
             if not isinstance(value, dict):
                 return self.invalid(path)

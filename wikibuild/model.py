@@ -19,6 +19,11 @@ TARGET_KINDS = {
     "merchant-stock-item": {"item"}, "initial-item": {"item"},
     "merchant-prefab": {"asset"}, "initial-inventory": {"loot-source"},
     "hotkey-binding": {"configuration"},
+    "melee-animation": {"combat-rule"}, "scope-setting": {"equipment"},
+    "material-damage-set": {"damage-type"}, "weapon-hit-set": {"combat-rule"},
+    "gathered-item": {"item"},
+    "inventory-template": {"loot-source"}, "player-crafting": {"workbench"},
+    "terrain-material-table": {"construction-rule"},
 }
 
 

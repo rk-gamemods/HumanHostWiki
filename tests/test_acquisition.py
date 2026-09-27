@@ -3,14 +3,14 @@
 import json
 import unittest
 
-from wikibuild.adapters import acquisition, components, entries
+from wikibuild.adapters import components, entries
 from wikibuild.adapters.schema import Selection
 from wikibuild.exceptions import Exceptions
 
 
 class AcquisitionTests(unittest.TestCase):
     def test_merchant_stock_keeps_biome_order_and_nested_reference_evidence(self):
-        spec = acquisition.SPECS[0]
+        spec = components.BY_CLASS[("Merchant", "Merchant_Mgr")]
         data = {name: 0 for name in spec.fields.selected}
         data.update(_BuyPriceFactorGroups=[], _SellPriceFactorGroups=[], _BiomeItemSet=[
             {"BiomeName": "Forest", "MerchantPrefabs": [{"merchantRef": {"m_AssetGUID": "merchant"},
@@ -43,7 +43,7 @@ class AcquisitionTests(unittest.TestCase):
         self.assertEqual({"new-field", "unsupported-field-type"}, {g["code"] for g in issues.report()["groups"]})
 
     def test_initial_inventory_retains_quantity_when_item_reference_is_unresolved(self):
-        spec = acquisition.SPECS[2]
+        spec = components.BY_CLASS[("UI", "Char_Item_Icons")]
         issues = Exceptions()
         selector = Selection({"id": "fixture#1"}, spec, issues)
         facts = selector.select({"_InitItemsRef": [{"IconRef": {"m_AssetGUID": "unresolved"}, "itemName": "Bandage", "stack": 20}],
