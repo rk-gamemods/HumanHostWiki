@@ -68,6 +68,13 @@ publication. Pending release transactions remain untouched.
 
 ## Operator report
 
+The `external-articles` stage records bounded community-wiki checks as a versioned
+input. Its configured source and routes are owned by [EXTERNAL_LINKS.md](EXTERNAL_LINKS.md).
+The report lists unavailable article titles/reasons and incomplete inventories
+separately from game-content exception groups. Provider outages permit supported
+gameplay work to finish; invalid configuration or damaged local receipts are
+execution failures. External article checks never grant gameplay verification.
+
 Supported content proceeds while unresolved content is grouped by stage, topic,
 code and pattern. Every occurrence contributes to counts; each group retains at
 most eight source examples. Groups are marked new, changed or unchanged relative

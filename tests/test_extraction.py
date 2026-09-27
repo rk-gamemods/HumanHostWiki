@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROJECT = json.loads((ROOT / "project.json").read_text())
 PROJECT["publication"]["enabled"] = False  # Fixtures must never call a live host.
 PROJECT["availability"]["enabled"] = False  # Availability tests inject their own provider.
+PROJECT.pop("external_articles", None)  # Article integration tests inject their own provider and routes.
 
 
 class ExtractionTests(unittest.TestCase):

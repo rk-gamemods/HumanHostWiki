@@ -9,7 +9,7 @@ from .storage import ContractError, json_bytes
 SHARD_KINDS = shard_index.FIELDS
 
 
-def snapshot(data, resolve):
+def indexed(data, resolve, fields):
     """Resolve only declared pack references; retain original bytes when unchanged.
 
     resolve receives a candidate-relative path and its expected hash/size, and
@@ -21,7 +21,7 @@ def snapshot(data, resolve):
     if value.get("schema_version") != 1:
         raise ContractError("Unsupported snapshot schema during release projection")
     changed = False
-    for kind in SHARD_KINDS:
+    for kind in fields:
         for reference in value[kind]:
             path = reference["path"]
             if (re.fullmatch(r"data/[0-9a-f]{64}\.json", path) is None or
@@ -33,7 +33,11 @@ def snapshot(data, resolve):
     return packs.compact(value) if changed else data
 
 
-def configuration(data, release_id, snapshots, runtime):
+def snapshot(data, resolve):
+    return indexed(data, resolve, SHARD_KINDS)
+
+
+def configuration(data, release_id, snapshots, runtime, external_articles=None):
     value = json.loads(data)
     if value.get("schema_version") != 1:
         raise ContractError("Unsupported reader schema during release projection")
@@ -41,6 +45,10 @@ def configuration(data, release_id, snapshots, runtime):
         raise ContractError("Release snapshot coverage differs from reader versions")
     if set(runtime) != {"js", "css"}:
         raise ContractError("Release requires both reader runtimes")
+    if value.get("external_articles"):
+        if not external_articles:
+            raise ContractError("External article projection is missing")
+        value["external_articles"] = external_articles
     value.update(release_id=release_id, publication="prepared-git-release",
                  snapshots=snapshots, runtime=runtime)
     return json_bytes(value)

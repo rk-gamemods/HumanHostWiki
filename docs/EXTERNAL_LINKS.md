@@ -1,10 +1,10 @@
 # External article observations
 
 The ADR requires useful article backlinks with recorded populated, empty, missing
-or unavailable checks. The provider and observation modules are implemented and
-tested. **Normal-update integration, production topic routing and reader output
-remain unfinished.** The acceptance command below does not publish anything or
-process the pending game-content exceptions.
+or unavailable checks. The normal update records bounded provider observations,
+projects topic and entity matches, and carries them through coordinated releases.
+The development acceptance command below remains isolated from publication and
+does not process the pending game-content exceptions.
 
 ## Owners and data flow
 
@@ -19,12 +19,28 @@ matching. Its `refresh` caller must hold the existing workspace writer lock.
 titles once, then resolves entity names within caller-selected prefixes. Rendering
 must use these pure lookup operations against a pinned observation.
 
-Production source configuration and topic/entry routing will belong in
-`project.json`. The real-site selection in `tools/check_external_links.py` is an
-acceptance fixture, not an adopted routing policy. Integration must connect the
-normal runner, final operator report, release identity and offline reader without
-adding a separate operator maintenance step. An observation-only change should
-reuse selected models and immutable gameplay packs.
+`project.json.external_articles` owns production source configuration, cache
+intervals and topic/entry routing. Routes declare exact topic titles and entity
+title prefixes by owned kind; configuration validation rejects unknown topics,
+foreign kinds and unobserved prefixes. The real-site selection in
+`tools/check_external_links.py` remains an independent acceptance fixture.
+
+`pipeline.py` refreshes observations after registering the local capture and before
+normalization. Source/rule checks bind the observation to the complete run.
+`reader.py` matches only selected search metadata and writes separate article
+packs keyed by capture and entity. Gameplay packs contain no external article
+state. Observation-only changes reuse those packs through hard links and skip
+model projection; a Steam-only change also skips article matching. Obsolete
+article packs are omitted from the next candidate.
+
+`capacity_projection.py` allocates article packs before their metadata and release
+configuration. The same bounded directory format handles large article indexes.
+The reader loads checked metadata on topic and entry views, follows the release's
+hashes and shows URLs only for populated destinations. Topic navigation and entry
+facts render before optional article metadata finishes loading. Failed article
+loads retain those facts. The final operator report includes provider
+completeness and unresolved article titles/reasons separately from game-content
+exception groups. No additional operator maintenance command is required.
 
 ## Selection and checks
 
@@ -106,12 +122,25 @@ test-only; check timestamps use actual UTC time. A changed live sample causes th
 acceptance command to fail for inspection rather than update expected results.
 The report-only command reads saved evidence without network requests or writes.
 
+Integrated validation includes:
+
+```powershell
+py -3 -m unittest discover -s tests -p test_external_integration.py -v
+node tests/reader_captures.test.js
+py -3 tools/check_external_projection.py <reader-candidate-directory>
+py -3 tools/check_release.py
+```
+
+The projection auditor derives expected matches independently from selected search
+rows, route configuration and the pinned observation. Release audits compare
+located article references with candidate bytes and revisit historical references.
+
 The focused tests cover missing/unavailable distinctions, partial inventories,
 pagination, independent batch completion, title ambiguity, revision/source/rule
 changes, redirects, content exclusions, response bounds, reuse after an outage,
 clock rollback, receipt tampering and failed pointer promotion. They reject
-network access during offline matching. The full normal-update, release, browser
-and public-backlink checks remain required after integration.
+network access during offline matching. Full normal-update, release and browser
+evidence belongs in [implementation status](IMPLEMENTATION.md).
 
 Protocol references: [allpages](https://www.mediawiki.org/wiki/API:Allpages),
 [revisions](https://www.mediawiki.org/wiki/API:Revisions) and

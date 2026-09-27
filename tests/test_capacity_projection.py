@@ -109,7 +109,7 @@ class CapacityProjectionTests(unittest.TestCase):
 
     def test_forced_rollover_references_preserve_two_snapshots_and_replay_writes_nothing(self):
         sealed = tuple(replace(part, sealed=True) for part in self.originals)
-        limits = capacity.Budgets(file_bytes=25_000, site_bytes=26_000, history_bytes=26_000,
+        limits = capacity.Budgets(file_bytes=30_000, site_bytes=31_000, history_bytes=31_000,
                                   site_reserve_bytes=1000, history_reserve_bytes=1000)
         result = self.build(sealed, budgets=limits)
         self.assertGreater(len(result.created), len(self.topics))
@@ -181,8 +181,8 @@ class CapacityProjectionTests(unittest.TestCase):
                                  bases=self.bases, max_pack_bytes=1024)
         self.path = Path(candidate["path"])
         original_index = self.path / "items/snapshots" / (run["snapshot_id"] + ".json")
-        self.assertGreater(original_index.stat().st_size, 25_000)
-        limits = capacity.Budgets(file_bytes=25_000, site_bytes=80_000, history_bytes=120_000,
+        self.assertGreater(original_index.stat().st_size, 30_000)
+        limits = capacity.Budgets(file_bytes=30_000, site_bytes=80_000, history_bytes=120_000,
                                   site_reserve_bytes=1000, history_reserve_bytes=1000)
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals), budgets=limits)
         directories = [item for item in result.payloads.values() if item.data and
@@ -242,7 +242,7 @@ class CapacityProjectionTests(unittest.TestCase):
     def test_capture_catalog_preserves_physical_history_and_browser_selection(self):
         runs = [self.fixture.make_run(str(build), []) for build in reversed(range(1000, 1080))]
         self.path = Path(reader.build(self.fixture.root, self.project, runs, bases=self.bases)["path"])
-        limits = capacity.Budgets(file_bytes=25_000, site_bytes=80_000, history_bytes=160_000,
+        limits = capacity.Budgets(file_bytes=30_000, site_bytes=80_000, history_bytes=160_000,
                                   site_reserve_bytes=1000, history_reserve_bytes=1000)
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals), budgets=limits)
         output = self.fixture.root / "capture-sites"

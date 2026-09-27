@@ -165,7 +165,21 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
         return metadata_objects(batch)
 
     snapshot_data = shard_index.compact(snapshot_data, (budgets or capacity.Budgets()).file_bytes, directories)
+    article_data = {}
+    for topic, (source, metadata) in configs.items():
+        view = json.loads(verified(source, metadata)).get("external_articles")
+        if view:
+            article_data[(topic, "external")] = release_content.indexed(json_bytes(view),
+                lambda name, sha, size, topic=topic: reference(topic, name, sha, size), ("entries",))
+    if article_data:
+        article_data = shard_index.compact(article_data, (budgets or capacity.Budgets()).file_bytes,
+                                          directories, fields=("entries",))
     indexes, snapshot_objects = [], {topic: {} for topic in owners}
+    article_objects = {}
+    for (topic, _), data in article_data.items():
+        name = "objects/" + digest(data) + ".json"
+        indexes.append(add(topic, "site/" + name, data=data))
+        article_objects[topic] = (name, digest(data), len(data))
     for (topic, snapshot), data in snapshot_data.items():
         name = "objects/" + digest(data) + ".json"
         indexes.append(add(topic, "site/" + name, data=data))
@@ -179,7 +193,11 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
                     for snapshot, (name, sha, size) in snapshot_objects[topic].items()}
         runtime = {extension: reference(topic, name, meta["sha256"], meta["bytes"])
                    for extension, (name, meta) in runtimes[topic].items()}
-        release_data[topic] = release_content.configuration(verified(source, metadata), release_id, resolved, runtime)
+        external = None
+        if topic in article_objects:
+            name, sha, size = article_objects[topic]
+            external = {"path": reference(topic, name, sha, size), "sha256": sha, "bytes": size}
+        release_data[topic] = release_content.configuration(verified(source, metadata), release_id, resolved, runtime, external)
         if entrypoints != bases:
             value = json.loads(release_data[topic])
             if "entrypoint-rollover-v1" not in value.get("features", []):

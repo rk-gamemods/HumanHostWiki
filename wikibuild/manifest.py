@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from .storage import ContractError, within
 from .physical import budgets
+from . import external_links
 
 SLUG = re.compile(r"^[a-z][a-z0-9-]*$")
 
@@ -68,6 +69,7 @@ def validate(root, manifest):
     hubs = [r["id"] for r in repositories if r["role"] == "hub"]
     require(hubs == ["hub"], "Exactly one navigation hub named hub is required")
     require(owners.get("unclassified") == "technical-reference", "Unclassified assets need an explicit owner")
+    external_links.configuration(manifest)
     edges = set()
     for edge in manifest["relationships"]:
         require(edge["from"] in identifiers and edge["to"] in identifiers, "Relationship target is missing")

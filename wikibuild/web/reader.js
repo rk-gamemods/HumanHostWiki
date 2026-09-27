@@ -373,25 +373,58 @@ async function showEntry(key) {
     } catch (error) {evidence.append(notice(error.message)); delete evidence.dataset.loaded;}
   });
   article.append(evidence); content.replaceChildren(article);
+  const external = await articleLinks(record);
+  if (external) article.append(external);
 }
 
-function overview() {
+async function articleLinks(record = null) {
+  if (!config.external_articles) return null;
+  const section = element("section");
+  try {
+    const ref = config.external_articles;
+    const view = ref.path ? await json(ref.path, ref) : ref;
+    if (view.schema_version !== 1) throw new Error("Unsupported external article check format");
+    if (record && (record.status !== "present" || !view.kinds.includes(record.kind))) return null;
+    const rows = record ? [await keyed(view.entries, snapshot + "/" + record.entity_key) || {
+      status: view.default_status, reason: view.default_status === "missing" ? "No exact article title matched" : "Article index unavailable"
+    }] : view.topics;
+    section.append(element("h3", "Community wiki articles"));
+    for (const row of rows) {
+      if (row.status === "populated") {
+        const target = new URL(row.url);
+        if (target.protocol !== "https:" || target.username || target.password) throw new Error("Invalid community article destination");
+        const paragraph = element("p"); paragraph.append(link(row.title.split(":").slice(1).join(":"), target.href)); section.append(paragraph);
+      } else section.append(element("p", `${row.title || "Matching article"}: ${row.status} (${row.reason}).`, "muted"));
+    }
+    section.append(element("p", `Article content checked ${view.checked_at}. Links open the checked revisions; game-build compatibility is not verified.`, "muted"));
+  } catch (error) {
+    section.replaceChildren(notice(`Community article checks could not be loaded: ${error.message}`));
+  }
+  return section;
+}
+
+async function overview() {
   const title = config.topics.find(topic => topic.id === config.topic);
-  content.append(element("h2", title.title), element("p", title.coverage));
+  const view = element("section");
+  content.append(view);
+  view.append(element("h2", title.title), element("p", title.coverage));
   if (config.topic === "hub") {
-    content.append(notice("Choose a topic to browse its extracted reference. Coverage is partial; unresolved content remains visible in the relevant entries."));
+    view.append(notice("Choose a topic to browse its extracted reference. Coverage is partial; unresolved content remains visible in the relevant entries."));
     const cards = element("div", undefined, "cards");
     for (const topic of config.topics.filter(topic => topic.id !== "hub")) {
       const card = element("section"); card.append(link(topic.title, url(topic.id)), element("p", topic.coverage)); cards.append(card);
     }
-    content.append(cards); return;
+    view.append(cards);
+  } else {
+    const groups = element("ul", undefined, "groups");
+    for (const [kind, count] of Object.entries(index.counts)) {
+      const item = element("li"); item.append(link(`${kind.replaceAll("-", " ")} (${count.toLocaleString()})`, url(config.topic, null, snapshot, kind))); groups.append(item);
+    }
+    view.append(groups);
+    if (!groups.children.length) view.append(notice("No supported observations are available in this topic for the selected snapshot."));
   }
-  const groups = element("ul", undefined, "groups");
-  for (const [kind, count] of Object.entries(index.counts)) {
-    const item = element("li"); item.append(link(`${kind.replaceAll("-", " ")} (${count.toLocaleString()})`, url(config.topic, null, snapshot, kind))); groups.append(item);
-  }
-  content.append(groups);
-  if (!groups.children.length) content.append(notice("No supported observations are available in this topic for the selected snapshot."));
+  const external = await articleLinks();
+  if (external) view.append(external);
 }
 
 async function start() {
@@ -422,7 +455,7 @@ async function start() {
   const group = /^groups\/([a-z][a-z0-9-]*)\/(?:index\.html)?$/.exec(path);
   if (entry) await showEntry(entry[1]);
   else if (group) await search("", group[1]);
-  else if (path === "" || path === "index.html") overview();
+  else if (path === "" || path === "index.html") await overview();
   else throw new Error("Unknown reader route");
 }
 

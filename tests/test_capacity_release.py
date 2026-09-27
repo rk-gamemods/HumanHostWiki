@@ -17,8 +17,8 @@ class CapacityReleaseTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.root, self.project = self.fixture.root, self.fixture.project
-        self.project["capacity"] = {"file_bytes": 25_000, "site_bytes": 50_000, "history_bytes": 250_000,
-                                    "site_reserve_bytes": 25_000, "history_reserve_bytes": 25_000}
+        self.project["capacity"] = {"file_bytes": 30_000, "site_bytes": 60_000, "history_bytes": 250_000,
+                                    "site_reserve_bytes": 30_000, "history_reserve_bytes": 30_000}
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = test_publication.Host(self.project["github_owner"])
         workspace.checkout_lock(self.root, self.project)

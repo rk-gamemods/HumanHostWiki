@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from . import availability, curation, extraction, history, physical, publication, reader, release, release_retention, snapshots
+from . import availability, curation, external_links, extraction, history, physical, publication, reader, release, release_retention, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -63,13 +63,23 @@ def run(root, project, source, progress=None):
         observed, metrics[stage] = availability.refresh(root, project, receipt["steam"], progress)
         if observed:
             completed[stage] = {"status": observed["status"], "observation_id": digest(json_bytes(observed))}
+        stage = "external-articles"
+        article_options = external_links.configuration(project)
+        articles = None
+        if article_options:
+            if progress:
+                progress(stage)
+            articles, metrics[stage] = external_links.refresh(root, article_options["source"], progress,
+                cache_seconds=article_options["cache_seconds"], retry_seconds=article_options["retry_seconds"])
+            completed[stage] = {"observation_id": digest(json_bytes(articles)), **external_links.summary(articles)}
         contracts = {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
                      "availability": availability.contract(), "retention": release_retention.contract(),
+                     "external_articles": external_links.contract(),
                      "extraction": extraction.contract(root, project), "identity": history.contract(),
                      "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}
         reviewed = history.corrections(root)
         authored = curation.definition_inputs(curation.definitions(root, project))
-        request_key = digest(json_bytes([receipt, project, contracts, reviewed, observed, authored]))
+        request_key = digest(json_bytes([receipt, project, contracts, reviewed, observed, articles, authored]))
         request_path = within(root, f".local/pipeline/requests/{request_key}.json")
         if request_path.exists():
             request = json.loads(request_path.read_text(encoding="utf-8"))
@@ -118,6 +128,7 @@ def run(root, project, source, progress=None):
         extraction.ensure_source(source, receipt["source_commit"])
         if contracts != {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
                          "availability": availability.contract(), "retention": release_retention.contract(),
+                         "external_articles": external_links.contract(),
                          "extraction": extraction.contract(root, project), "identity": history.contract(),
                          "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}:
             raise ContractError("Pipeline rules changed during processing")
@@ -125,6 +136,8 @@ def run(root, project, source, progress=None):
             raise ContractError("Reviewed mappings changed during processing")
         if availability.latest(root, project) != observed:
             raise ContractError("Availability evidence changed during processing")
+        if external_links.configured(root, project) != articles:
+            raise ContractError("External article evidence changed during processing")
         if curation.definition_inputs(curation.definitions(root, project)) != authored:
             raise ContractError("Curated definitions changed during processing")
         completed[stage] = {"scope": "stage-artifacts-and-stable-source", "gameplay_verified": False}
@@ -195,6 +208,15 @@ def operator_report(root, result):
     for group in saved["exceptions"]["groups"]:
         lines.append(f"- [{group['topic']}/{group['stage']}] {group['code']}: {group['pattern']} "
                      f"({group['occurrences']}; {group['change']})")
+    articles = saved["completed"].get("external-articles")
+    if articles:
+        lines.append("External article checks: " + ", ".join(f"{count} {status}" for status, count in sorted(articles["counts"].items())))
+        if not articles["inventory_complete"]:
+            lines.append("External article index unavailable or incomplete; missing articles could not be confirmed.")
+        for row in articles["unresolved"]:
+            lines.append(f"- [external-articles] {row['title']}: {row['reason']} (revision {row['revision']})")
+        if articles["unresolved"] or not articles["inventory_complete"]:
+            lines.append("Present these external article issues to the user and ask how to proceed.")
     lines.append(saved["exceptions"]["next_action"])
     for retained in result.get("metrics", {}).get("retention", {}).get("retained", []):
         lines.append(f"Staging cleanup issue [{retained['stage']}]: {retained['reason']}")

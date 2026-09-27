@@ -26,7 +26,7 @@ function reader(configuration, fetchBytes, selected = configuration.default_snap
       search: "?" + new URLSearchParams({snapshot: selected, release: configuration.release_id})},
     document: {getElementById: id => nodes[id], createElement: tag => new Node(tag), createTextNode: text => new Node(text)},
     fetch: async url => {
-      calls.push(url); const data = fetchBytes(url);
+      calls.push(url); const data = await fetchBytes(url);
       return {ok: !!data, status: data ? 200 : 404,
         arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)};
     }};
@@ -173,6 +173,66 @@ function fixture(count = 121) {
   assert.match(explanationText, /Previously checked text.*Old checked text/);
   assert.doesNotMatch(explanationText, /checks passed/);
   console.log("Literal authored text, scoped checks and retained failed-check history passed");
+
+  const entity = "e-" + "b".repeat(32), selected = flat.default_snapshot;
+  const articleKey = selected + "/" + entity;
+  const articleRecord = {status: "populated", title: "Human Host:<script>literal</script>",
+    url: "https://wiki.example/index.php?oldid=10"};
+  const articlePack = data.store({[articleKey]: articleRecord}, {first: articleKey, last: articleKey, count: 1});
+  const articleView = {schema_version: 1, kinds: ["item"], default_status: "missing", checked_at: "2026-09-27T12:00:00Z",
+    topics: [articleRecord, {status: "empty", title: "Human Host:Empty", reason: "no-body", url: "https://should-not-link.example/"}],
+    entries: [articlePack]};
+  subject = reader({...flat, external_articles: data.store(articleView)}, url => data.files[url]);
+  await subject.context.start();
+  let articles = await subject.context.articleLinks({entity_key: entity, kind: "item", status: "present"});
+  assert.ok(tags(articles).includes("a"));
+  assert.ok(!tags(articles).includes("script"));
+  assert.match(flattened(articles).join(" "), /<script>literal<\/script>/);
+  assert.match(flattened(articles).join(" "), /game-build compatibility is not verified/);
+  articles = await subject.context.articleLinks();
+  assert.equal(tags(articles).filter(tag => tag === "a").length, 1, "Empty article emitted a link");
+  articles = await subject.context.articleLinks({entity_key: "e-" + "c".repeat(32), kind: "item", status: "present"});
+  assert.match(flattened(articles).join(" "), /missing/);
+  assert.ok(!tags(articles).includes("a"));
+  assert.equal(await subject.context.articleLinks({entity_key: entity, kind: "item", status: "not-present"}), null);
+  const badArticles = data.store(articleView); badArticles.sha256 = "f".repeat(64);
+  subject = reader({...flat, external_articles: badArticles}, url => data.files[url]); await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /Community article checks could not be loaded/);
+  assert.ok(!flattened(subject.nodes.content).includes("This view could not be loaded"), "Optional article failure replaced the topic");
+  subject = reader({...flat, external_articles: {...articleView, topics: [{...articleRecord, url: "javascript:alert(1)"}]}}, url => data.files[url]);
+  await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /Invalid community article destination/);
+  console.log("External article hashes, literal labels, missing/empty states and isolated failure passed");
+
+  // A slow optional control must not delay topic navigation or selected facts.
+  const entry = {entity_key: entity, topic: "items", kind: "item", name: "Axe", status: "present",
+    revision_id: "revision-1", decision: {status: "same"}, links: {}};
+  const entryRef = data.store({[entity]: entry}, {first: entity, last: entity, count: 1});
+  const semanticRef = data.store({"revision-1": {evidence_level: "selected-data", facts: {MaxStack: 1}, relationships: []}},
+    {first: "revision-1", last: "revision-1", count: 1});
+  const entryIndex = data.store({snapshot_id: selected, steam: {build_id: latest.version.build_id},
+    counts: {item: 1}, entries: [entryRef], semantics: [semanticRef], provenance: [], backlinks: []});
+  const articleControl = data.store(articleView);
+  for (const route of ["overview", "entry"]) {
+    let requested, finish;
+    const requestStarted = new Promise(resolve => {requested = resolve;});
+    const response = new Promise(resolve => {finish = resolve;});
+    subject = reader({...flat, snapshots: {...flat.snapshots, [selected]: entryIndex}, external_articles: articleControl},
+      url => {if (url === base + articleControl.path) {requested(); return response;} return data.files[url];});
+    if (route === "entry") subject.context.location.pathname += "entry/" + entity + "/";
+    const loaded = subject.context.start();
+    await requestStarted;
+    try {
+      assert.match(flattened(subject.nodes.content).join(" "), route === "entry" ? /Extracted facts.*MaxStack.*1/ : /item \(1\)/,
+        "Core " + route + " content waited for optional article metadata");
+      if (route === "overview") subject.nodes.content.replaceChildren(new Node("new-search-view"));
+    } finally {finish(data.files[base + articleControl.path]);}
+    await loaded;
+    if (route === "overview") assert.deepEqual(tags(subject.nodes.content), ["content", "new-search-view"],
+      "Delayed topic links were appended to the replacement search view");
+    else assert.match(flattened(subject.nodes.content).join(" "), /Community wiki articles/);
+  }
+  console.log("Core topic and entry content renders before optional article requests finish");
 
   if (process.argv[2]) {
     const input = JSON.parse(fs.readFileSync(process.argv[2], "utf8")), root = path.resolve(input.root);

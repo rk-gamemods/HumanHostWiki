@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.audit_shard_index import leaves
 from tools.audit_capture_catalog import expand
+from tools.audit_external_articles import compare as compare_articles
 
 
 def audit(candidate, projection, owner):
@@ -48,8 +49,9 @@ def audit(candidate, projection, owner):
         config = expand(resolve(config_ref), resolve)
         original_config = json.loads((candidate / topic / "reader.json").read_bytes())
         assert config["release_id"] == projection.release_id
-        assert {k: v for k, v in config.items() if k not in {"release_id", "publication", "runtime", "snapshots"}} == {
-            k: v for k, v in original_config.items() if k != "publication"}
+        assert {k: v for k, v in config.items() if k not in {"release_id", "publication", "runtime", "snapshots", "external_articles"}} == {
+            k: v for k, v in original_config.items() if k not in {"publication", "external_articles"}}
+        compare_articles(original_config.get("external_articles"), config.get("external_articles"), resolve)
         for extension, name in config["runtime"].items():
             item = objects[urljoin(topic_base, name)]
             original = manifest["files"][topic + "/reader." + extension]

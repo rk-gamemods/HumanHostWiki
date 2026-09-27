@@ -18,6 +18,10 @@ class PipelineTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.tearDown)
         self.root, self.source = self.fixture.wiki, self.fixture.source
+        self.article_patch = patch.object(pipeline.external_links.mediawiki, 'Client',
+                                          side_effect=AssertionError('Unexpected live article provider in fixture'))
+        self.article_patch.start()
+        self.addCleanup(self.article_patch.stop)
         # Release transaction failures have their own real-Git tests. Keep these
         # stage-recovery cases focused on capture, extraction, identity and reader.
         self.release_patch = patch.object(pipeline.release, 'run', side_effect=lambda root, project, candidate: (

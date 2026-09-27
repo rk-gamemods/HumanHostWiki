@@ -7,10 +7,81 @@ import re
 import unicodedata
 from urllib.parse import urlencode
 
-from . import mediawiki
+from collections import Counter
+
+from . import mediawiki, packs
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 MAX_RECEIPT = 8 * 1024 * 1024
+
+
+def configuration(project):
+    options = project.get("external_articles")
+    if options is None:
+        return None
+    if type(options) is not dict or set(options) != {"source", "routes", "cache_seconds", "retry_seconds"}:
+        raise ContractError("Invalid external article configuration")
+    mediawiki.validate(options["source"])
+    if any(type(options[key]) is not int or not 1 <= options[key] <= 86400 for key in ("cache_seconds", "retry_seconds")):
+        raise ContractError("External article cache intervals must be between 1 and 86400 seconds")
+    owners = {repo["id"]: set(repo["owns"]) for repo in project["repositories"]}
+    if type(options["routes"]) is not dict or set(options["routes"]) - set(owners):
+        raise ContractError("External article route names an unknown topic")
+    for topic, route in options["routes"].items():
+        if (type(route) is not dict or set(route) != {"titles", "entity_prefixes"}
+                or type(route["titles"]) is not list or len(route["titles"]) > 64
+                or any(not mediawiki.valid_title(title, options["source"]) or not mediawiki.selected(title, options["source"])
+                       for title in route["titles"]) or len(set(route["titles"])) != len(route["titles"])
+                or type(route["entity_prefixes"]) is not dict or set(route["entity_prefixes"]) - owners[topic]):
+            raise ContractError("External article routing leaves its selected titles or topic ownership")
+        for prefixes in route["entity_prefixes"].values():
+            if (type(prefixes) is not list or not prefixes or len(prefixes) > 64
+                    or any(prefix not in options["source"]["prefixes"] for prefix in prefixes)
+                    or len(set(prefixes)) != len(prefixes)):
+                raise ContractError("External article entity routing uses unobserved prefixes")
+    return options
+
+
+def configured(root, project):
+    options = configuration(project)
+    value = latest(root) if options else None
+    if value and (value["source"] != options["source"] or value["contract"] != contract()):
+        raise ContractError("External article observations need refresh through the normal update")
+    return value
+
+
+def summary(value):
+    return {"inventory_complete": value["catalog"]["inventory_complete"],
+            "counts": dict(Counter(row["status"] for row in value["catalog"]["pages"].values())),
+            "unresolved": [{"title": title, "reason": row["reason"], "revision": row["metadata"]["revision"]}
+                           for title, row in sorted(value["catalog"]["pages"].items()) if row["status"] == "unavailable"]}
+
+
+def project_view(project, observation, topic, rows, limit, output):
+    """Project selected search rows into separate packs; never read gameplay models."""
+    options = configuration(project)
+    route = options["routes"].get(topic) if options else None
+    if not route or observation is None:
+        return None
+    matcher, matched, memo = Matcher(observation), {}, {}
+    for snapshot, row in rows:
+        prefixes = route["entity_prefixes"].get(row["kind"])
+        if not prefixes or row["status"] != "present":
+            continue
+        key = (row["kind"], row["name"])
+        if key not in memo:
+            memo[key] = matcher.entity(row["name"], prefixes)
+        check = memo[key]
+        # Absence is represented by the observed index plus the default status,
+        # without duplicating a missing-record message for every game entity.
+        if "title" in check or check.get("candidates"):
+            matched[snapshot + "/" + row["entity_key"]] = packs.compact({
+                field: value for field, value in check.items() if field != "checked_at"})
+    return {"schema_version": 1, "observation_id": digest(json_bytes(observation)),
+            "checked_at": observation["checked_at"], "kinds": sorted(route["entity_prefixes"]),
+            "default_status": "missing" if observation["catalog"]["inventory_complete"] else "unavailable",
+            "topics": [lookup(observation, title) for title in route["titles"]],
+            "entries": packs.write(matched, limit, output)}
 
 
 def contract():

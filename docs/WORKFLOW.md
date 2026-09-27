@@ -14,9 +14,9 @@ the validated reader, coordinated local Git release and configured Pages publica
 unresolved wiki exceptions and requests direction; execution failures are separate.
 The manual examples below are foundation diagnostics, not extra maintenance steps.
 
-The [external article acceptance command](EXTERNAL_LINKS.md#validation) tests the
-backlink adapter in isolation. External article refresh and rendered backlinks
-are not yet part of the normal update.
+The normal update also refreshes [external article checks](EXTERNAL_LINKS.md),
+reuses unchanged revisions and reports unresolved article checks at the end.
+The linked acceptance command is an isolated development diagnostic.
 
 For Steam build observations, run `pwsh -NoProfile -File tools/Install-SteamMetadataClient.ps1`
 once. The normal update then checks the captured branch using the configured cache

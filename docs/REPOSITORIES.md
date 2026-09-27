@@ -81,12 +81,15 @@ flowchart LR
   detect --> capture
   register["register: implemented"]
   capture --> register
+  external-articles["external-articles: implemented"]
+  register --> external-articles
   normalize["normalize: partial"]
   register --> normalize
   identity["identity: partial"]
   normalize --> identity
   project["project: partial"]
   identity --> project
+  external-articles --> project
   verify["verify: partial"]
   project --> verify
   release["release: partial"]
@@ -100,9 +103,10 @@ flowchart LR
 | detect | decompile capture reuse and wikibuild/availability.py; Steam branch observations are independent of gameplay verification | partial |
 | capture | HumanHostMods/tools/Decompile-GameCode.ps1 | external-existing |
 | register | wikibuild/snapshots.py | implemented |
+| external-articles | wikibuild/external_links.py and mediawiki.py; bounded versioned article checks | implemented |
 | normalize | wikibuild/extraction.py and topic adapters | partial |
 | identity | wikibuild/identity.py, model.py and history.py | partial |
-| project | wikibuild/reader.py, curation.py, curated_rules.py, packs.py, pages.py and web/ | partial |
+| project | wikibuild/reader.py, curation.py, curated_rules.py, external_links.py, packs.py, pages.py and web/ | partial |
 | verify | reader artifact checks and independent tools/check_*.py; gameplay checks unfinished | partial |
 | release | wikibuild/release.py and git_transaction.py; selected-fact Git releases | partial |
 | publish | wikibuild/publication.py, publication_git.py and github_pages.py | partial |

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.audit_shard_index import leaves
 from tools.audit_capture_catalog import expand
 from tools.audit_ownership import expand as expand_ownership
+from tools.audit_external_articles import compare as compare_articles, reachable as articles_reachable
 
 
 def sha(data):
@@ -146,8 +147,10 @@ def check(root):
         front_base = f"https://{owner_name}.github.io/{manifest['repositories'][front]['github_name']}/"
         assert config == configuration(topic, front_base + "releases/" + release_id + ".json")
         original = read(candidate / topic / "reader.json")
-        assert {k: v for k, v in config.items() if k not in {"release_id", "runtime", "snapshots", "publication", "entrypoints"}} == {
-            k: v for k, v in original.items() if k != "publication"}
+        assert {k: v for k, v in config.items() if k not in {"release_id", "runtime", "snapshots", "publication", "entrypoints", "external_articles"}} == {
+            k: v for k, v in original.items() if k not in {"publication", "external_articles"}}
+        compare_articles(original.get("external_articles"), config.get("external_articles"),
+                         lambda ref: json.loads(public(topic, ref)))
         if "entrypoints" in config:
             assert config["entrypoints"] == {t: f"https://{owner_name}.github.io/{manifest['repositories'][identity]['github_name']}/"
                                              for t, identity in manifest["entrypoints"].items()}
@@ -195,6 +198,7 @@ def check(root):
             continue
         old = expand(read(path), lambda ref: json.loads(public(topic, ref)))
         assert old["release_id"] == path.stem
+        articles_reachable(old.get("external_articles"), lambda ref: json.loads(public(topic, ref)))
         for name in old["runtime"].values():
             assert sha(public(topic, name)) == name.split("/")[-2]
         for snapshot, index_ref in old["snapshots"].items():

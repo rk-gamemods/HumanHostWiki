@@ -8,7 +8,7 @@ import re
 import uuid
 from urllib.parse import urlsplit
 
-from . import availability, curation, extraction, history, model, packs, pages, snapshots
+from . import availability, curation, external_links, extraction, history, model, packs, pages, snapshots
 from .exceptions import Exceptions
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
@@ -26,7 +26,7 @@ def candidate_path(cache_root, candidate_id):
 
 def contract():
     folder = Path(__file__).parent
-    paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py")]
+    paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py")]
     paths += sorted((folder / "web").glob("*"))
     return {path.relative_to(folder).as_posix(): digest(path.read_bytes().replace(b"\r\n", b"\n")) for path in paths}
 
@@ -219,6 +219,27 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
             "observations": verified}, groups
 
 
+def external_views(stage, project, observation, runs, limit, output):
+    options = external_links.configuration(project)
+    if not options or observation is None:
+        return {}
+    views = {}
+    for topic, route in options["routes"].items():
+        def rows():
+            if not route["entity_prefixes"]:
+                return
+            site = within(stage, topic)
+            for run in runs:
+                snapshot = run["snapshot_id"]
+                index = json.loads((site / "snapshots" / f"{snapshot}.json").read_bytes())
+                for ref in index["search"]:
+                    for row in load_maps(site, [ref]).values():
+                        yield snapshot, row
+        views[topic] = external_links.project_view(project, observation, topic, rows(), limit,
+                                                   lambda name, value, topic=topic: output(f"{topic}/{name}", value))
+    return views
+
+
 def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=None, cache_root=None, source=None):
     """Caller holds writer_lock. This writes staging only, not child repositories."""
     runs = versions(root) if runs is None else runs
@@ -239,6 +260,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     inputs = {"project": project, "runs": [digest(json_bytes(run)) for run in runs], "renderer": contract(),
               "receipts": [digest(json_bytes(snapshots.read(root, run["snapshot_id"]))) for run in runs],
               "bases": bases, "pack_bytes": max_pack_bytes, "availability": availability.latest(root, project),
+              "external_articles": external_links.configured(root, project),
               "curation": checked["run_id"] if checked else None}
     candidate_id = digest(json_bytes(inputs))
     cache_root = Path(cache_root).resolve() if cache_root else within(root, ".local")
@@ -255,8 +277,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         prior_id = json.loads(pointer.read_bytes())["candidate_id"]
         prior_path = candidate_path(cache_root, prior_id)
         prior = verify(prior_path, prior_id)
-        if {k: v for k, v in prior["inputs"].items() if k != "availability"} != {
-                k: v for k, v in inputs.items() if k != "availability"}:
+        if {k: v for k, v in prior["inputs"].items() if k not in {"availability", "external_articles"}} != {
+                k: v for k, v in inputs.items() if k not in {"availability", "external_articles"}}:
             prior = None
     stage = within(cache_root, f"reader-stage/{uuid.uuid4().hex}")
     stage.mkdir(parents=True)
@@ -274,21 +296,36 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         if os.name == "nt" and max(len(str(target)), len(str(within(destination, name)))) >= 260:
             raise ContractError("Reader output exceeds Windows path capacity; use a shorter wiki checkout path")
         target.parent.mkdir(parents=True, exist_ok=True)
+        if prior and prior["files"].get(name) == record:
+            os.link(within(prior_path, name), target)
+            files[name] = record
+            return
         with target.open("xb") as stream:
             stream.write(data)
         files[name] = record
 
     if prior:
-        # Availability changes never revisit models or duplicate immutable packs.
+        # Observation changes never revisit models or duplicate immutable packs.
         # Hard links are safe because candidates are immutable and verified before
         # reuse. New controls are written separately, never through shared inodes.
+        configs, article_packs = {}, set()
+        articles_changed = prior["inputs"].get("external_articles") != inputs["external_articles"]
+        for repo in project["repositories"]:
+            topic = repo["id"]
+            configs[topic] = json.loads(within(prior_path, f"{topic}/reader.json").read_bytes())
+            if articles_changed:
+                article_packs.update(f"{topic}/{ref['path']}" for ref in (configs[topic].get("external_articles") or {}).get("entries", []))
+        # A shared content-addressed leaf must survive if gameplay also uses it.
+        for name in prior["files"]:
+            if article_packs and "/snapshots/" in name:
+                topic = name.split("/", 1)[0]
+                saved_index = json.loads(within(prior_path, name).read_bytes())
+                for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+                    article_packs.difference_update(f"{topic}/{ref['path']}" for ref in saved_index[kind])
         for name, record in prior["files"].items():
             source = within(prior_path, name)
-            if name.endswith("/reader.json"):
-                config = json.loads(source.read_bytes())
-                config["candidate_id"] = candidate_id
-                config["availability"] = inputs["availability"]
-                output(name, packs.compact(config))
+            if name.endswith("/reader.json") or name in article_packs:
+                continue
             elif "/reference/" in name:
                 output(name, source.read_bytes().replace(("release=" + prior["candidate_id"]).encode(),
                                                          ("release=" + candidate_id).encode()))
@@ -297,12 +334,18 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.link(source, target)
                 files[name] = record
+        views = (external_views(stage, project, inputs["external_articles"], runs, max_pack_bytes, output)
+                 if articles_changed else {topic: config.get("external_articles") for topic, config in configs.items()})
+        for topic, config in configs.items():
+            config.update(candidate_id=candidate_id, availability=inputs["availability"], external_articles=views.get(topic))
+            output(f"{topic}/reader.json", packs.compact(config))
         manifest = {**prior, "candidate_id": candidate_id, "inputs": inputs, "files": files,
                     "total_bytes": sum(record["bytes"] for record in files.values())}
         write_changed(stage / "candidate.json", json_bytes(manifest))
         verify(stage, candidate_id)
-        if contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]:
-            raise ContractError("Reader inputs changed during availability projection")
+        if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
+                or external_links.configured(root, project) != inputs["external_articles"]):
+            raise ContractError("Reader inputs changed during observation projection")
         curation.ensure_definitions(root, project, checked)
         os.rename(stage, destination)
         write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
@@ -324,6 +367,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         if run is runs[0]:
             current_groups = groups
     projected = [projected[run["snapshot_id"]] for run in runs]
+    views = external_views(stage, project, inputs["external_articles"], runs, max_pack_bytes, output)
     web = Path(__file__).parent / "web"
     topics = [{"id": repo["id"], "title": repo["title"], "base": bases[repo["id"]], "coverage": repo["coverage"]}
               for repo in project["repositories"]]
@@ -338,6 +382,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         output(f"{topic}/reader.json", packs.compact({"schema_version": 1, "candidate_id": candidate_id,
                "features": ["shard-directories-v1", "paged-captures-v1", "entrypoint-rollover-v1"],
                "availability": inputs["availability"],
+               "external_articles": views.get(topic),
                "topic": topic, "topics": topics, "versions": projected, "default_snapshot": projected[0]["snapshot_id"],
                "official_links": project["official_links"], "publication": "local-candidate"}))
         for kind in sorted(all_groups[topic]):
@@ -352,7 +397,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                 "status": "validated-reader-candidate", "wiki_release": "not-created"}
     write_changed(stage / "candidate.json", json_bytes(manifest))
     verify(stage, candidate_id)
-    if contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]:
+    if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
+            or external_links.configured(root, project) != inputs["external_articles"]):
         raise ContractError("Reader inputs changed during generation")
     curation.ensure_definitions(root, project, checked)
     destination.parent.mkdir(parents=True, exist_ok=True)

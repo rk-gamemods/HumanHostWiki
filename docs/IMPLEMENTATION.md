@@ -26,9 +26,9 @@ complete product.
 
 ## Remaining completion gates
 
-The [external article adapter](EXTERNAL_LINKS.md) now has focused and live-boundary
-evidence. Normal-update integration, production routing and rendered backlinks
-remain open; the adapter checkpoint does not close that requirement.
+The [external article integration](EXTERNAL_LINKS.md) now includes normal-update
+refresh, production routing, release storage and rendered backlinks. Its fixture
+checks pass; normal-entrypoint publication and live browser proof remain pending.
 
 - Extend the integrated runner through gameplay verification
   without changing the operator workflow.
@@ -56,6 +56,23 @@ remain open; the adapter checkpoint does not close that requirement.
 
 ## Current evidence
 
+### External article integration checkpoint
+
+On 2026-09-27, the full Python suite passed 255 tests in 623.700 seconds.
+The integration covers operator reporting, offline historical matching, provider
+outages, observation-only reuse and capacity relocation. The shared source fixture
+excludes production article settings; pipeline fixtures reject accidental live
+article clients. This corrected a recovery-test failure caused by inherited settings.
+
+Browser tests reproduced two delayed-response defects: article metadata held up
+core content, and a late topic response appended links to a replacement search view.
+The reader now displays core content first and appends optional links to their
+own view. After the final view-ownership correction, all 37 affected browser,
+reader, article integration and capacity projection tests passed. The larger suite
+was not repeated for that final browser-only correction.
+
+Normal-entrypoint publication and independent live-page checks remain pending.
+
 ### External article adapter checkpoint
 
 On 2026-09-27, 21 focused tests passed. The live acceptance fixture enumerated
@@ -77,8 +94,12 @@ Reproduce with `py -3 tools/check_external_links.py --online --root <isolated-di
 Evidence is in `.local/external-link-acceptance-reviewed/acceptance.json`;
 the initial observation is
 `b57c5a3620319912672caff7fd31b128b9683032a7d451ea99a4093f495a7fa7`.
-This checkpoint does not change the published reader or prove the unfinished
-pipeline and browser integration.
+This adapter checkpoint alone does not prove pipeline publication or browser
+integration. Those require the separate integration evidence below.
+
+### Initial item/loot checkpoint (historical)
+
+The following evidence predates coordinated releases and public repositories.
 
 - The item/loot extraction command produced 944 items, 29 loot tags, 51 loot tables
   and 862 loot sources from snapshot `build-25548639-9d77a0415918`. It read

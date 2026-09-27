@@ -9,6 +9,7 @@ repositories and coordinated publication remain the release coordinator's job.
 | --- | --- |
 | `wikibuild/reader.py` | Pin history, partition selected records, validate artifacts and atomically select a complete candidate |
 | `wikibuild/curation.py` / `curated_rules.py` | Check committed authored explanations and retain scoped results; see [CURATED.md](CURATED.md) |
+| `wikibuild/external_links.py` | Match selected search metadata against pinned external article observations; see [EXTERNAL_LINKS.md](EXTERNAL_LINKS.md) |
 | `wikibuild/pages.py` | Pure HTML/Markdown presentation and safe links |
 | `wikibuild/web/reader.js` | Version selection, bounded topic search, grouped records, entry navigation and provenance |
 | `wikibuild/web/reader.css` | Responsive presentation without external fonts, scripts or services |
@@ -63,8 +64,17 @@ revision reuse, cross-topic links retaining the selected snapshot, explicit gaps
 bounded shard splitting, escaping hostile labels, changed/unknown output and
 failure before promotion. A real browser check must exercise search, version
 selection, entry links and readable selected facts. Public release verification,
-capacity-driven repository allocation, complete gameplay verification and external-link checking
-remain separate completion gates.
+capacity-driven repository allocation and complete gameplay verification remain
+separate completion gates.
+
+External article checks live in separate packs keyed by capture and entity, with
+topic checks in a small control object. They do not change semantic revisions or
+gameplay freshness. Observation-only changes skip model projection; Steam-only
+changes reuse the article mapping too. Capacity projection relocates these packs
+and bounds their reference lists before recording the release configuration.
+The browser verifies their hashes and emits links only for populated article
+revisions. Missing, empty and unavailable results remain explicit. An optional
+article-load failure does not replace the page's gameplay facts.
 
 Optional [authored explanations](CURATED.md) are attached to entry packs and
 grouped Markdown. Their checks remain separate from page gameplay verification.
