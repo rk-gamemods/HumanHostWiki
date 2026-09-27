@@ -16,6 +16,9 @@ TARGET_KINDS = {
     "armor-part": {"equipment"},
     "material": {"construction-rule"}, "material-binding": {"construction-rule"},
     "weather-zone-settings": {"world-rule"},
+    "merchant-stock-item": {"item"}, "initial-item": {"item"},
+    "merchant-prefab": {"asset"}, "initial-inventory": {"loot-source"},
+    "hotkey-binding": {"configuration"},
 }
 
 

@@ -77,10 +77,48 @@ templates, unknown markup, attributes and malformed tags remain unsupported.
 This establishes useful link destinations, not the accuracy of their gameplay claims.
 Article bodies are discarded after checking.
 
+## Acquisition, inventory and binding review
+
+The next batch reconciles eight gameplay/configuration classes and 30 technical
+classes. These decisions concern captured configuration. Code-defined mechanics
+and complete gameplay explanations still require their own evidence.
+
+| Assembly / classes | Evidence and decision | Owner |
+| --- | --- | --- |
+| Merchant / Merchant_Mgr | `BiomeItemSet`, `GetTypeItemRates`, `GetCurrentTypePriceFactor`, `ComputeRandomFactor`: select stock references, quantity ranges, weights, price factors and spawn/refresh parameters; split stock into one evidenced table per biome | `acquisition.py`, `entries.py` |
+| Merchant / Merchant_Ins | `IsTerrainFlatEnough` compares the terrain normal angle with `MaxTerrainAngle`; retain the configured limit, omit render/physics bindings | `acquisition.py` |
+| UI / Char_Item_Icons | `Init_Icons` uses `_InitItemsRef` for initial inventory and otherwise restores saved inventory; select only the initial item references, names and quantities | `acquisition.py` |
+| UI / Item_Slot_Mgr | `Get_Upgrade_Pity_Fail_Count` and `Get_Quality_Factored_*` consume the quality and upgrade arrays; retain array positions and configured level limits. `_HandCraftBullet` is filled by `Tool_Interact_Mgr` at runtime, so its receiver copy is omitted | `inventory.py` |
+| UI / UI_Control | `Select_Char` reads initial talent level/name and inventory; dropped-item cleanup reads `DeleteDropItemSeconds`. Retain those choices and belt-scroll setting; omit active UI, current selection and save state | `inventory.py` |
+| Item_Info / Item_Info | Class fields distinguish `assetRef_Key`, recyclable `_IconRef`, and engine/tire components from mutable dropped-item and slot state; retain the former links and key | `equipment.py` |
+| Player_HotKeys / Hotkey_Sets, Player_HotKeys | Default `KeyCode` values and action-to-setting references; omit live input, remapping widgets and saved overrides | `controls.py` |
+
+The new technical decisions use exact classes and explicit omitted field names:
+
+| Classes | Evidence and reason |
+| --- | --- |
+| MerchantWindowDisable, Merchant_LookAt | Merchant-window lifecycle and head look-at animation; no stock/pricing parameters |
+| ESC_Hide_UI, On_GunAttachWindow_Hide, Loot_Window_Handler, Menu_Hover, Slot_Drag | UI lifecycle and pointer/drag callbacks; no captured gameplay parameters |
+| InputFieldScaler, PickProp_IndiScaler, Text_UI_AutoResize | Font, layout and indicator scaling |
+| Mat_Slot, Slot_Hover, Slot_Root_Of_Char | Widget and current-slot bindings; item values and initial inventories have separate selected contracts |
+| Tag_Menu | `Start` derives sibling tab indices and `On_Click` changes menu selection; these are UI tabs, not item taxonomy |
+| Version_Show, Version_Tag | Label visibility and display of `Application.version`; source metadata supplies the actual game version |
+| DynamicToolTipSet | Localized tooltip-title bindings; nested unknown fields remain exceptions |
+| Notifications / NoticeSlot, NotificationSystem | Notice display, color/fade settings and asset-handle cleanup; notice bodies omitted, nested unknown settings remain exceptions |
+| Mgr_Hub / Mgr_Hub | `Awake` wires manager instances and starts their services; domain settings live on those managers |
+| Player_HotKeys / Hotkey_Listener, Hotkey_Setter, HotKey_Text_Helper | Runtime remapping and label replacement; defaults are selected by `controls.py` |
+| SteamManager / Mod_Mgr, MyMod_Info, WorkshopMgr, Workshop_UI | Mod browser, Steam service and upload widgets; no user mod descriptions, file IDs or upload state exported |
+| Weather / Enviro_Editor_Bug_Fix, Skybox_Settings | Editor manager binding and skybox/cloud rendering fields; nested skybox field additions remain exceptions |
+| Visual / Reflection_Probe_Mgr | `My_Update` blends reflection-probe multipliers; no weather selection parameters |
+
+The independent source checker previously assumed every `loot-table` came from
+`Loot_Rate_Sets`. Merchant stock exposed that assumption. It now compares component
+tables at their evidenced source-field path while retaining the older view check.
+
 ## Remaining work
 
-The latest source reconciliation in this checkpoint has 163 unsupported component
-groups, covering 22,143 occurrences, and no relationship exceptions. All 163 groups
+The latest source reconciliation in this checkpoint has 125 unsupported component
+groups, covering 16,890 occurrences, and no relationship exceptions. All 125 groups
 remain authorized initial-delivery work. They are not deferred for user selection.
 Complete their evidence review and code corrections, then verify the full normal
 update, unchanged repeat, public reader and remaining ADR acceptance gates.

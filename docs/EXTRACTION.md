@@ -13,9 +13,12 @@ articles. Every published fact must come from an explicit field contract.
 | `wikibuild/adapters/catalog_policy.py` | Explicit infrastructure accounting and payload omissions |
 | `wikibuild/adapters/technical.py` | Reviewed field exclusions with new-field detection; summary output only |
 | `wikibuild/adapters/prefabs.py` | Individual identities for GameObjects referenced by selected domain relationships |
+| `wikibuild/adapters/acquisition.py` | Merchant stock/pricing and initial inventory contracts |
+| `wikibuild/adapters/inventory.py` | Item-quality, upgrade and initial-character configuration |
+| `wikibuild/adapters/controls.py` | Serialized key defaults and action bindings |
 | `wikibuild/adapters/schema.py` | Nested types, field selection, nulls, references and grouped exceptions |
 | Topic files in `wikibuild/adapters/` | Selected fields, known omissions and domain relationships |
-| `wikibuild/adapters/entries.py` | Recipe/skill/status entries from selected nested definitions |
+| `wikibuild/adapters/entries.py` | Recipe/skill/status and biome stock entries from selected nested definitions |
 | `wikibuild/extraction.py` | Output hashes, reuse, coverage checks and last-success promotion |
 | `tools/check_extraction.py` | Independent comparison with committed source records |
 

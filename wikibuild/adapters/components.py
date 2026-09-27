@@ -8,7 +8,7 @@ class names or copy unrecognized field bags.
 from collections import Counter
 import itertools
 
-from . import biomes, combat, construction, crafting, creatures, equipment, spawning, survival, technical, traps, vehicles, world
+from . import acquisition, biomes, combat, construction, controls, crafting, creatures, equipment, inventory, spawning, survival, technical, traps, vehicles, world
 from .items_loot import observation
 from .entries import expand, english_labels
 from .catalog_policy import category as classify
@@ -18,7 +18,7 @@ from ..storage import ContractError, digest, json_bytes
 NAME = "component-contracts"
 VERSION = 1
 INPUTS = ("Catalog/views/object-index.jsonl",)
-SPECS = tuple(spec for module in (biomes, combat, construction, crafting, creatures, equipment, spawning, survival, technical, traps, vehicles, world)
+SPECS = tuple(spec for module in (acquisition, biomes, combat, construction, controls, crafting, creatures, equipment, inventory, spawning, survival, technical, traps, vehicles, world)
               for spec in module.SPECS)
 BY_CLASS = {(spec.assembly, spec.name): spec for spec in SPECS}
 KINDS = tuple(sorted({spec.kind for spec in SPECS} | {"component", "asset", "unclassified", "recipe", "status-effect"}))

@@ -43,7 +43,16 @@ def label(parent, prefix, labels):
 
 def expand(parent, item_names, localized):
     cls = parent["component"]["class"]
-    if cls in {"Craft_Items", "Special_Workbench"}:
+    if cls == "Merchant_Mgr":
+        for index, stock in enumerate(parent["facts"].pop("_BiomeItemSet", [])):
+            if not isinstance(stock, dict):
+                continue
+            prefix = f"/_BiomeItemSet/{index}"
+            name = f"{stock.get('BiomeName', str(index + 1))} merchant stock"
+            yield child(parent, "loot-table", prefix, stock, name)
+        remove_nested(parent, ["/_BiomeItemSet"])
+        yield parent
+    elif cls in {"Craft_Items", "Special_Workbench"}:
         facts = parent["facts"].pop("_CraftItemsData", [])
         for category, group in enumerate(facts):
             if not isinstance(group, dict):

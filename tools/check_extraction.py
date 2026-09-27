@@ -97,7 +97,7 @@ def check(root, source, complete=False):
             checks += 1
             continue
         raw = objects[row["evidence"][0]["object"]]
-        if row["kind"] == "loot-table":
+        if row["kind"] == "loot-table" and "component" not in row:
             if raw["fields"]["_LootSpawnRates"] != row["facts"]["rates"]:
                 raise ValueError(f"Loot rates differ: {row['source_id']}")
             checks += 1

@@ -185,6 +185,20 @@ class ComponentTests(unittest.TestCase):
         self.assertNotIn("newResistance", facts)
         self.assertEqual("Sound_Mat/newResistance", issues.report()["groups"][0]["pattern"])
 
+    def test_technical_nested_field_drift_is_reported_without_exporting_notice_text(self):
+        index = [{"id": "fixture#1", "type": "MonoBehaviour", "assembly": "Notifications",
+                  "class": "NotificationSystem", "record": {"sha256": "verified"}}]
+        record = {"id": "fixture#1", "script": {"assembly": "Notifications", "class": "NotificationSystem"},
+                  "fields": {"settings": {"text": "PRIVATE NOTICE", "color": {}, "fadeTime": 10,
+                                          "newParameter": 5}, "slotInstances": [], "slotPrefab": {}}}
+        source = CatalogFixture(index, {"fixture#1": record})
+        issues = Exceptions()
+        components.prepare(source, issues)
+        rows = list(components.extract(source, issues))
+        self.assertEqual(["catalog-type-summary"], [row["fact_scope"] for row in rows])
+        self.assertNotIn("PRIVATE NOTICE", json.dumps(rows))
+        self.assertEqual("NotificationSystem/settings/newParameter", issues.report()["groups"][0]["pattern"])
+
     def test_bad_trap_damage_retains_independent_timing_and_no_visual_payload(self):
         spec = components.BY_CLASS[("Trap", "Trap_Laser")]
         data = {name: 0 for name in spec.fields.selected}

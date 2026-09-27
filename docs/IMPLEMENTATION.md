@@ -941,6 +941,50 @@ bytes and pointers. Peak Python working set was 91,824,128 bytes, excluding the
 Git subprocess. This single observation ran alongside publication and is not a
 controlled comparison.
 
+### Initial exception reconciliation, acquisition and bindings
+
+The [review record](BASELINE_RECONCILIATION.md#acquisition-inventory-and-binding-review)
+adds eight gameplay/configuration contracts and 30 exact technical classifications.
+Merchant stock is projected into ten biome tables with source-indexed item links,
+quantity ranges and price factors. Initial inventories, item-quality/upgrade arrays,
+new-character options, item-model bindings and keyboard defaults are selected.
+Unrelated UI, audio, notice text and save state remain excluded. Unknown nested
+notification, tooltip and skybox fields still generate exceptions.
+
+The normal decompile command completed pipeline
+`cc27346e9fa9f5661a4d2383a7bcfb4e0826805414b6d317303350a2f72b55ff`
+and published release
+`012d87ffce67b8780f0f0bd6d5171861d8b867d66ad102ae87fc1becba65867a`.
+The source capture is unchanged. The backlog is now 125 unsupported classes and
+16,890 occurrences, with zero relationship exceptions and 22 populated article
+checks. All remaining classes stay in scope for initial delivery.
+
+The independent full source audit checked 16,643 gameplay/configuration records,
+197,719 assertions, 2,139 referenced GameObjects and all 527 type summaries.
+The identity audit checked 19,309 current observations and 230,349 assertions;
+the reader audit checked 35,601 observations across captures and 320,415 assertions.
+Its candidate contains 1,290 files and 115,662,605 bytes, with a largest pack of
+518,915 bytes. These are selection and projection checks, not gameplay verification.
+
+Focused tests passed: 3 acquisition, 14 component, 5 referenced-object, 4 model,
+17 extraction and 15 reader cases. The acquisition fixture exercises malformed
+stock entries, nested new fields and unresolved item links without losing valid
+quantities or shifting later positions. A test expectation initially assumed the
+relationship order; it now checks the predicate and exact source path. The full
+source audit found and prompted correction of its older loot-table assumption.
+Evidence is retained in `.local/baseline-acquisition-*`; protected synthetic Git
+fixtures remain retained without overriding permissions.
+
+The unchanged normal update passed in 12.943 seconds, preserving 13 child commits
+and 2,258 file hashes/timestamps. The release audit verified 2,207 committed output
+files, 164,401,021 owned bytes and 195 retained release configurations. Registry,
+map, checkout-lock and whitespace checks passed.
+
+The public browser check found all ten merchant stock tables. The Mountain Forest
+table displayed the Bearing item link, quantity bounds 10 and 20, sampling value 1,
+price factor 1 and three merchant prefab links in the selected release. No browser
+console errors were reported.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters
