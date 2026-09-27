@@ -176,11 +176,13 @@ def operator_report(root, result):
              f"Git release: {saved['wiki_release']}",
              f"Report: {result['report']}", f"Reader: {result['reader']}",
              f"Unresolved content: {saved['exceptions']['group_count']} groups, {saved['exceptions']['occurrences']} occurrences."]
+    receipt = snapshots.read(root, saved["snapshot_id"])
+    lines.insert(5, f"Application version: {receipt['game_version'] or 'unknown'} ({receipt['game_version_status']}).")
     if "availability" in saved["completed"]:
         observed = availability.read(root, saved["completed"]["availability"]["observation_id"])
-        lines.insert(5, availability.describe(observed, snapshots.read(root, saved["snapshot_id"])["steam"]))
+        lines.insert(6, availability.describe(observed, receipt["steam"]))
         if observed["status"] == "unavailable":
-            lines.insert(6, f"Availability check failure detail: {within(root, '.local/availability-error.json')}")
+            lines.insert(7, f"Availability check failure detail: {within(root, '.local/availability-error.json')}")
     for group in saved["exceptions"]["groups"]:
         lines.append(f"- [{group['topic']}/{group['stage']}] {group['code']}: {group['pattern']} "
                      f"({group['occurrences']}; {group['change']})")

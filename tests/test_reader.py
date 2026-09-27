@@ -76,6 +76,23 @@ class ReaderTests(unittest.TestCase):
             reader.verify(site, collision)
         self.assertTrue(self.build()[1]["reused"])
 
+    def test_captured_application_version_and_evidence_remain_snapshot_specific(self):
+        path = self.root / "snapshots" / (self.new["snapshot_id"] + ".json")
+        receipt = json.loads(path.read_bytes())
+        evidence = [{"source_path": "Human Host_Data/globalgamemanagers", "source_sha256": "a" * 64,
+                     "object_id": "globalgamemanagers#1", "field": "/bundleVersion"}]
+        receipt.update(game_version="0.8.315", game_version_status="recorded", game_version_evidence=evidence)
+        path.write_bytes(json_bytes(receipt))
+        site, _ = self.build()
+        for topic in ("items", "loot", "hub"):
+            current = self.index(site, topic, self.new)
+            self.assertEqual(current["game_version"], "0.8.315")
+            self.assertEqual(current["game_version_evidence"], evidence)
+            self.assertIsNone(self.index(site, topic, self.old)["game_version"])
+            versions = json.loads((site / topic / "reader.json").read_bytes())["versions"]
+            self.assertEqual([row["game_version"] for row in versions], ["0.8.315", None])
+        self.assertTrue(self.build()[1]["reused"])
+
     def test_existing_full_hash_cache_location_remains_resolvable(self):
         candidate = "a" * 64
         legacy = self.root / ".local/readers" / candidate

@@ -125,6 +125,22 @@ function fixture(count = 121) {
   assert.equal(subject.nodes.version.children.length, data.records.length);
   console.log("Capture selection, bounded paging, retry and legacy checks passed");
 
+  assert.match(subject.nodes.status.textContent, /Application version unknown/);
+  assert.match(subject.nodes.version.children[0].textContent, /Version unknown/);
+  const latest = data.records.at(-1);
+  latest.version.game_version = "0.8.315";
+  const versionData = data.store({snapshot_id: latest.version.snapshot_id, steam: {build_id: latest.version.build_id},
+    game_version: "0.8.315", game_version_evidence: [{source_path: "Human Host_Data/globalgamemanagers",
+      object_id: "globalgamemanagers#1", field: "/bundleVersion", source_sha256: "e".repeat(64)}], counts: {}});
+  flat.snapshots[latest.version.snapshot_id] = versionData;
+  subject = reader(flat, url => data.files[url]); await subject.context.start();
+  assert.match(subject.nodes.status.textContent, /Application version 0.8.315/);
+  assert.match(subject.nodes.status.title, /globalgamemanagers#1\/bundleVersion/);
+  assert.match(subject.nodes.version.children[0].textContent, /0.8.315/);
+  subject = reader(flat, url => data.files[url], data.records[0].version.snapshot_id); await subject.context.start();
+  assert.match(subject.nodes.status.textContent, /Application version unknown/);
+  console.log("Captured application version, provenance and historical unknown passed");
+
   const availability = {status: "observed", checked_at: "2026-09-27T09:00:00+00:00",
     observation: {app_id: "2393970", branch: "public", build_id: data.records.at(-1).version.build_id}};
   subject = reader({...flat, availability}, url => data.files[url]); await subject.context.start();

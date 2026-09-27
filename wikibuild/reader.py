@@ -186,6 +186,8 @@ def project_snapshot(root, project, run, stage, output, limit, known):
         writer = lambda name, value, topic=topic: output(f"{topic}/{name}", value)
         index = {"schema_version": 1, "snapshot_id": snapshot, "identity_run": run["run_id"],
                  "source_commit": run["source_commit"], "steam": receipt["steam"], "game_version": receipt["game_version"],
+                 "game_version_status": receipt.get("game_version_status", "not-recorded-by-source-generator"),
+                 "game_version_evidence": receipt.get("game_version_evidence", []),
                  "counts": dict(sorted(counts[topic].items())), "coverage": "partial", "verification": "not-performed",
                  "latest_available_build": receipt["latest_available_game_build"], "change_origin": run["change_origin"],
                  **{kind: packs.reuse(values, known[topic][kind], limit, writer) if kind in {"semantics", "provenance"}
@@ -195,7 +197,7 @@ def project_snapshot(root, project, run, stage, output, limit, known):
     # so parsed validation data does not coexist with the full projection.
     del data, maps, state, routes, backlinks
     verified = validate_snapshot(stage, snapshot, topics)
-    return {"snapshot_id": snapshot, "build_id": receipt["steam"]["build_id"], "identity_run": run["run_id"],
+    return {"snapshot_id": snapshot, "build_id": receipt["steam"]["build_id"], "game_version": receipt["game_version"], "identity_run": run["run_id"],
             "observations": verified}, groups
 
 

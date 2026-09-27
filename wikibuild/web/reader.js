@@ -255,7 +255,10 @@ function status() {
     freshness = `Latest observed ${observed.branch} build ${observed.build_id} · Checked ${evidence.checked_at} via SteamCMD · ` +
       (sameBuild ? "Selected build matches that observation" : sameBranch ? "Selected build differs from that observation" : "Selected branch differs from that observation");
   } else if (evidence) freshness += ` · Steam check unavailable at ${evidence.checked_at}`;
-  document.getElementById("status").textContent = `Steam build ${index.steam.build_id} · Partial coverage · Gameplay verification not performed · ${freshness}`;
+  const version = index.game_version ? `Application version ${index.game_version}` : "Application version unknown";
+  document.getElementById("status").textContent = `${version} · Steam build ${index.steam.build_id} · Partial coverage · Gameplay verification not performed · ${freshness}`;
+  const versionEvidence = index.game_version_evidence?.[0];
+  document.getElementById("status").title = versionEvidence ? `${versionEvidence.source_path} · ${versionEvidence.object_id}${versionEvidence.field} · SHA-256 ${versionEvidence.source_sha256}` : "";
 }
 
 async function showEntry(key) {
@@ -275,7 +278,7 @@ async function showEntry(key) {
   const history = element("details"), historyList = element("ul");
   history.append(element("summary", "View this entry in another captured snapshot"));
   const appendHistory = version => {
-    const item = element("li"); item.append(link(`Steam ${version.build_id} (${version.snapshot_id})`, url(record.topic, key, version.snapshot_id))); historyList.append(item);
+    const item = element("li"); item.append(link(`${version.game_version || "Version unknown"} · Steam ${version.build_id} (${version.snapshot_id})`, url(record.topic, key, version.snapshot_id))); historyList.append(item);
   };
   history.append(historyList);
   if (config.capture_catalog) history.append(capturePager(appendHistory));
@@ -374,7 +377,7 @@ async function start() {
   let selectedShown = false;
   const appendVersion = version => {
     if (version.snapshot_id === snapshot) {if (selectedShown) return; selectedShown = true;}
-    const option = element("option", `Steam ${version.build_id} · ${version.snapshot_id.split("-").at(-1)}`);
+    const option = element("option", `${version.game_version || "Version unknown"} · Steam ${version.build_id} · ${version.snapshot_id.split("-").at(-1)}`);
     option.value = version.snapshot_id; option.selected = version.snapshot_id === snapshot; selector.append(option);
   };
   if (config.capture_catalog) {

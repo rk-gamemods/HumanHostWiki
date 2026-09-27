@@ -87,9 +87,10 @@ snapshot commit. Preserve source paths and SHA-256 hashes, extractor/decompiler
 versions and code hashes, normalization schema and coverage. Extractor corrections
 create separate capture revisions even when the game build is unchanged.
 
-The current capture lacks a reliable game display-version label. Add evidence-backed
-extraction; until available, use the exact Steam build with an explicit unknown
-label. Public provenance uses game-relative paths and excludes machine/account
+New captures include the [application version](../GAME_VERSION.md) selected from
+Unity `PlayerSettings.bundleVersion`, with source hash and object/field evidence.
+Captures without this evidence retain an explicit unknown label alongside the exact
+Steam build. Public provenance uses game-relative paths and excludes machine/account
 state. The registered receipts own baseline build details; do not duplicate them here.
 
 | Record | Required fields/meaning |

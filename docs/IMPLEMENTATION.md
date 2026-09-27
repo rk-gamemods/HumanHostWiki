@@ -621,6 +621,33 @@ exception groups and 27,087 occurrences. No exception was investigated or resolv
 in this checkpoint. Display-version capture and dependency-based gameplay
 verification remain open.
 
+### Captured application-version checkpoint
+
+The source generator now selects `PlayerSettings.bundleVersion` into a small
+`Catalog/game-version.json` record with source hash and object/field evidence.
+Wiki registration validates that evidence against the pinned input inventory.
+New reader captures expose the label alongside Steam build identity; older receipts
+keep their original unknown state. [GAME_VERSION.md](GAME_VERSION.md) owns the
+contract and extension points. Gameplay verification is unaffected.
+
+Parent implementation `db7b5d6` produced source commit
+`0bf00fe33781a7357b2d462fdaad49b0c3518b86` for Steam build `25548639`, recording
+application version `0.8.315`. The capture changed only `BUILD_INFO.md`,
+`Catalog/game-version.json` and `Catalog/generator.json`. The independent
+`tools/check_game_version.py` audit checked the captured field, serialized-file
+mapping, inventory entry and installed input hash. It imports neither the selector
+nor the wiki registrar. Logs are `.local/game-version-capture.log` and
+`.local/game-version-source-audit.json` in the parent workspace.
+
+All 22 parent catalog tests passed in 2.820 seconds. The mod build passed with zero
+warnings and errors. All 200 wiki tests passed in 544.289 seconds while the real
+capture ran independently; the log is `.local/game-version-full-tests.log`.
+The focused reader checks and production JavaScript checks also passed.
+Registry validation, map, child locks and whitespace checks passed. Protected
+synthetic fixtures remain retained without overriding file protections.
+
+Normal-command reuse, public deployment and browser evidence are pending below.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters

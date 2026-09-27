@@ -20,7 +20,8 @@ def render(manifest, receipt):
     if receipt:
         source = (f"Input: Steam build {escape(receipt['steam']['build_id'])}; "
                   f"source commit {escape(receipt['source_commit'])}. "
-                  "Display version not recorded. Wiki verification not performed. Latest available build unknown.")
+                  f"Application version: {escape(receipt.get('game_version') or 'unknown')}. "
+                  "Wiki verification not performed. Latest available build unknown.")
     official = " | ".join(f'<a href="{escape(link["url"], quote=True)}">{escape(link["title"])}</a>'
                           for link in manifest["official_links"])
 
