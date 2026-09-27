@@ -23,7 +23,7 @@ def contract():
     folder = Path(__file__).parent
     return {name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
             for name in ("release.py", "release_content.py", "release_output.py", "release_partitions.py",
-                         "capacity.py", "capacity_inventory.py", "capacity_projection.py", "physical.py",
+                         "capacity.py", "capacity_inventory.py", "capacity_projection.py", "shard_index.py", "physical.py",
                          "git_transaction.py", "publication_git.py", "release_bootstrap.js", "workspace.py")}
 
 

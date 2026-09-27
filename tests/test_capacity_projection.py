@@ -4,13 +4,16 @@ from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import unittest
 from unittest.mock import patch
 from urllib.parse import urljoin
 
 import test_reader
 from tools.check_capacity_projection import audit
-from wikibuild import capacity, capacity_projection, reader, release, release_content
+from tools.audit_shard_index import leaves
+from wikibuild import capacity, capacity_projection, packs, reader, release, release_content, shard_index
 from wikibuild.storage import ContractError, digest, json_bytes
 
 
@@ -74,6 +77,7 @@ class CapacityProjectionTests(unittest.TestCase):
                 index = fetch(ref)
                 before = json.loads((self.path / topic / "snapshots" / (snapshot + ".json")).read_bytes())
                 for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+                    index[kind] = list(leaves(index[kind], fetch))
                     self.assertEqual(len(index[kind]), len(before[kind]))
                     for actual, expected in zip(index[kind], before[kind]):
                         counts["relocated"] += actual["path"] != expected["path"]
@@ -168,6 +172,71 @@ class CapacityProjectionTests(unittest.TestCase):
         marker.write_bytes(json_bytes(manifest))
         with self.assertRaisesRegex(ContractError, "dependency differs"):
             self.build()
+
+    def test_oversized_real_reader_index_splits_replays_and_loads_on_demand(self):
+        keys = ["e-" + f"{number:032x}" for number in range(160)]
+        run = self.fixture.make_run("300", [self.fixture.observation(key, "Item " + key) for key in keys])
+        candidate = reader.build(self.fixture.root, self.project, [run, *self.fixture.runs],
+                                 bases=self.bases, max_pack_bytes=1024)
+        self.path = Path(candidate["path"])
+        original_index = self.path / "items/snapshots" / (run["snapshot_id"] + ".json")
+        self.assertGreater(original_index.stat().st_size, 20_000)
+        limits = capacity.Budgets(file_bytes=20_000, site_bytes=80_000, history_bytes=120_000,
+                                  site_reserve_bytes=1000, history_reserve_bytes=1000)
+        result = self.build(tuple(replace(part, sealed=True) for part in self.originals), budgets=limits)
+        directories = [item for item in result.payloads.values() if item.data and
+                       json.loads(item.data).get("kind") == "wiki-shard-directory"]
+        self.assertTrue(directories)
+        self.assertTrue(all(item.artifact.bytes <= limits.file_bytes for item in result.payloads.values()))
+        audit(self.path, result, "wiki-fixture")
+        output = self.fixture.root / "split-sites"
+        self.materialize(result, output)
+        self.assertEqual(self.inspect(result, output)["snapshots"], 9)
+        replay = self.build(result.partitions, result.placements, budgets=limits)
+        self.assertFalse(replay.created)
+        self.assertEqual(list(replay.writes()), [])
+        # The production JS reader follows the generated directories through a
+        # fetch adapter over materialized files, with no browser or network.
+        node = shutil.which("node")
+        if node:
+            control = self.fixture.root / "directory-reader.json"
+            control.write_text(json.dumps({"root": str(output), "base": self.bases["items"],
+                                           "configuration": result.configurations["items"],
+                                           "snapshot": run["snapshot_id"], "key": keys[37]}))
+            checked = subprocess.run([node, str(Path(__file__).with_name("reader_shards.test.js")), str(control)],
+                                     capture_output=True, text=True)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+        # A later release and fresh partitions must retain old directory URLs.
+        before = {path: path.read_bytes() for path in output.rglob("*") if path.is_file()}
+        self.release_id = "b" * 64
+        later = self.build(tuple(replace(part, sealed=True) for part in result.partitions), result.placements, budgets=limits)
+        self.materialize(later, output)
+        self.inspect(result, output)
+        self.inspect(later, output)
+        self.assertTrue(all(path.read_bytes() == data for path, data in before.items()))
+        # An older candidate is still readable, but its old runtime must never
+        # receive the new directory format through a manual release invocation.
+        marker = self.path / "candidate.json"
+        manifest = json.loads(marker.read_bytes())
+        source = self.path / "items/reader.json"
+        configuration = json.loads(source.read_bytes())
+        del configuration["features"]
+        source.write_bytes(packs.compact(configuration))
+        manifest["files"]["items/reader.json"] = {"sha256": digest(source.read_bytes()), "bytes": source.stat().st_size}
+        marker.write_bytes(json_bytes(manifest))
+        with self.assertRaisesRegex(ContractError, "runtime does not support"):
+            self.build(budgets=limits)
+
+    def test_same_directory_requested_twice_in_one_plan_is_written_once(self):
+        data = packs.compact({"schema_version": 1, "kind": "wiki-shard-directory", "shards": []})
+        def repeated(indexes, limit, emit):
+            self.assertEqual(emit([("items", data)]), emit([("items", data)]))
+            return indexes
+        with patch.object(shard_index, "compact", side_effect=repeated):
+            result = self.build()
+        key = "items/site/objects/" + digest(data) + ".json"
+        self.assertEqual(sum(item.artifact.key == key for item, _ in result.writes()), 1)
+        self.assertNotIn(key, result.reused)
 
     def test_independent_auditor_rejects_changed_snapshot_membership(self):
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals))

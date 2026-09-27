@@ -11,6 +11,8 @@ from urllib.parse import urljoin
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tools.audit_shard_index import leaves
+
 
 def audit(candidate, projection, owner):
     """Independent URL/byte conservation check; no builder transforms are reused."""
@@ -56,6 +58,7 @@ def audit(candidate, projection, owner):
             index = resolve(ref)
             original = json.loads((candidate / topic / "snapshots" / (snapshot + ".json")).read_bytes())
             for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+                index[kind] = list(leaves(index[kind], resolve))
                 assert len(index[kind]) == len(original[kind])
                 for actual, expected in zip(index[kind], original[kind]):
                     item = objects[urljoin(topic_base, actual["path"])]

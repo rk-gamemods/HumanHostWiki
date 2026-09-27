@@ -17,7 +17,8 @@ function element(tag, text, className) {
 
 async function json(path, expected) {
   const url = resolveURL(path, siteBase).href;
-  if (!cache.has(url)) {
+  const cacheKey = JSON.stringify([url, expected?.sha256, expected?.bytes]);
+  if (!cache.has(cacheKey)) {
     const pending = (async () => {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Cannot load ${path}: HTTP ${response.status}`);
@@ -28,11 +29,11 @@ async function json(path, expected) {
       }
       return JSON.parse(new TextDecoder().decode(bytes));
     })();
-    cache.set(url, pending);
+    cache.set(cacheKey, pending);
     // Bound retained packs, including search. The browser HTTP cache handles revisits.
     if (cache.size > 24) cache.delete(cache.keys().next().value);
   }
-  try { return await cache.get(url); } catch (error) { cache.delete(url); throw error; }
+  try { return await cache.get(cacheKey); } catch (error) { cache.delete(cacheKey); throw error; }
 }
 
 function url(topic, entity = null, selected = snapshot, group = null) {
@@ -50,12 +51,35 @@ function link(text, target) {
   return node;
 }
 
+async function* shardReferences(refs, first = null, last = first, active = new Set()) {
+  for (const ref of refs) {
+    if (first !== null && (ref.last < first || ref.first > last)) continue;
+    if (!ref.kind) {yield ref; continue;}
+    if (ref.kind !== "wiki-shard-directory") throw new Error("Unknown shard directory kind");
+    const target = resolveURL(ref.path, siteBase);
+    if (target.origin !== siteBase.origin) throw new Error("Shard directory leaves the configured namespace");
+    if (active.has(target.href) || active.size >= 32) throw new Error("Shard directory cycle or depth exceeded");
+    active.add(target.href);
+    try {
+      const value = await json(ref.path, ref);
+      if (value.schema_version !== 1 || value.kind !== ref.kind || !Array.isArray(value.shards) || !value.shards.length) throw new Error("Invalid shard directory");
+      let low = null, high = null, count = 0;
+      for (const child of value.shards) {
+        if (typeof child.first !== "string" || typeof child.last !== "string" || child.first > child.last || !Number.isSafeInteger(child.count) || child.count < 1) throw new Error("Invalid shard directory range");
+        low = low === null || child.first < low ? child.first : low;
+        high = high === null || child.last > high ? child.last : high;
+        count += child.count;
+      }
+      if (low !== ref.first || high !== ref.last || count !== ref.count) throw new Error("Shard directory summary differs");
+      yield* shardReferences(value.shards, first, last, active);
+    } finally {active.delete(target.href);}
+  }
+}
+
 async function keyed(shards, key) {
-  for (const shard of shards) {
-    if (shard.first <= key && key <= shard.last) {
-      const value = (await json(shard.path, shard))[key];
-      if (value !== undefined) return value;
-    }
+  for await (const shard of shardReferences(shards, key)) {
+    const value = (await json(shard.path, shard))[key];
+    if (value !== undefined) return value;
   }
   return undefined;
 }
@@ -127,7 +151,7 @@ async function search(query, group) {
   document.getElementById("status").textContent = `Searching Steam build ${index.steam.build_id}...`;
   const found = [];
   // Serial pack reads keep memory and peak bandwidth bounded on large topics.
-  for (const shard of index.search) {
+  for await (const shard of shardReferences(index.search)) {
     const values = await json(shard.path, shard);
     if (generation !== searchGeneration) return;
     for (const row of Object.values(values)) {
@@ -192,14 +216,16 @@ async function showEntry(key) {
     const details = element("details"), list = element("ul"), more = element("button", "Show more references");
     details.append(element("summary", `Referenced by ${record.backlink_count} relationships`));
     const prefix = key + "/", end = prefix + "\uffff";
-    const shards = index.backlinks.filter(shard => shard.last >= prefix && shard.first <= end);
-    let shown = 0, nextShard = 0, pending = [], loading = false;
+    const shards = shardReferences(index.backlinks, prefix, end);
+    let shown = 0, finished = false, pending = [], loading = false;
     async function add() {
       if (loading) return;
       loading = true; more.disabled = true;
       try {
-        while (pending.length < 50 && nextShard < shards.length) {
-          const shard = shards[nextShard++];
+        while (pending.length < 50 && !finished) {
+          const step = await shards.next();
+          if (step.done) {finished = true; break;}
+          const shard = step.value;
           const values = await json(shard.path, shard);
           pending.push(...Object.entries(values).filter(([id]) => id.startsWith(prefix)).map(([, value]) => value));
         }

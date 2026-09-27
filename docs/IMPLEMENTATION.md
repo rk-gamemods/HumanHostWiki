@@ -385,6 +385,32 @@ management. Full logical-entrypoint rollover, oversized control-index splitting,
 staging retention and the other ADR completion gates remain open. The owning
 [capacity contract](CAPACITY.md) distinguishes the implemented path from those gaps.
 
+### Snapshot directory splitting checkpoint
+
+Oversized snapshot pack-reference lists now split into immutable directory pages.
+The reader follows matching ranges for entries and backlinks and traverses search
+directories sequentially. Small indexes retain their bytes. Release configuration
+and ownership-manifest splitting, entrypoint rollover and indivisible snapshot
+metadata remain separate unfinished cases in [CAPACITY.md](CAPACITY.md).
+
+The forced projection test generates 160 entries with 1,024-byte data packs through
+the production reader. It projects the resulting oversized index under a 20,000-byte
+file limit, follows every allocated reference independently and checks replay plus
+a later release without modifying historical bytes. The actual JavaScript reader
+loads an entry and its semantic record in fewer than ten fetches and enumerates all
+160 search records from the materialized physical sites. These are local fixtures,
+not live GitHub overflow evidence. Separate checks cover multilevel directories,
+overlapping ranges, changed bytes, invalid summaries, unavailable files and namespace
+escapes. A regression test demonstrated and fixed cached JSON bypassing a different
+reference's expected hash. New candidates declare the required runtime capability;
+older candidates are refused if projection would require unsupported directories.
+
+The full suite passed 170 tests in 255.358 seconds; its local log is
+`.local/shard-index-tests.log`. The updated independent release checker also passed
+against the existing real release `d0d20c96`, including all 706 owned files and 39
+historical configurations. These checks establish compatibility with the retained
+flat format as well as the forced directory fixture.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters

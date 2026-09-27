@@ -4,7 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
 from urllib.parse import urljoin
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.audit_shard_index import leaves
 
 
 def sha(data):
@@ -138,6 +142,7 @@ def check(root):
             index = json.loads(public(topic, config["snapshots"][Path(relative).stem]))
             original = json.loads(data)
             for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+                index[kind] = list(leaves(index[kind], lambda ref: json.loads(public(topic, ref))))
                 assert len(index[kind]) == len(original[kind])
                 for actual, before in zip(index[kind], original[kind]):
                     assert {k: v for k, v in actual.items() if k != "path"} == {k: v for k, v in before.items() if k != "path"}
@@ -167,7 +172,7 @@ def check(root):
             index = json.loads(public(topic, index_ref))
             assert index["snapshot_id"] == snapshot
             for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
-                for pack in index[kind]:
+                for pack in leaves(index[kind], lambda ref: json.loads(public(topic, ref))):
                     public(topic, pack)
         counts["historical_configs"] += 1
     return {"status": "passed", "release_id": release_id, **counts,

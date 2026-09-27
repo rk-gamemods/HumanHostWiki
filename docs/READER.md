@@ -19,6 +19,12 @@ packs and identity runs. The browser loads only the selected topic/version and
 requested group or entity shard. Source code and the source asset index are never
 reader inputs. Compact asset identifiers and evidence locators remain visible.
 
+During release, [capacity projection](CAPACITY.md) can replace oversized lists of
+pack references with hashed directory pages. The runtime selects matching branches
+for entry/provenance lookup and loads search directories sequentially. It continues
+to read flat indexes from earlier releases. Directory support is declared in the
+candidate's reader features so new metadata cannot be paired with an older runtime.
+
 The renderer uses standard-library Python and native browser APIs. It adds no
 framework dependency or server/database requirement. Diagnostic links carry snapshot
 and candidate identity. Committed sites carry snapshot and coordinated release

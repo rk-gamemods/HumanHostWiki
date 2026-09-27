@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import re
 
-from . import capacity, reader, release_content
+from . import capacity, reader, release_content, shard_index
 from .storage import ContractError, digest, within
 
 
@@ -70,6 +70,7 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
     # building lookup maps that could otherwise conceal conflicting ownership.
     capacity.allocate(topics, physical, prior, (), budgets)
     located = {value.artifact.key: value for value in prior}
+    committed = set(located)
     payloads, configurations, created, reused, phases = {}, {}, [], set(), []
     wanted = set()
 
@@ -88,7 +89,9 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
         physical = plan.partitions
         phases.append(plan.inputs_sha256)
         created.extend(plan.created)
-        reused.update(plan.reused)
+        # A later level may request a directory already planned by this run.
+        # It still needs one write unless it existed in the committed inventory.
+        reused.update(key for key in plan.reused if key in committed)
         for placement in plan.placements:
             located[placement.artifact.key] = placement
             wanted.add(placement.artifact.key)
@@ -137,13 +140,29 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
             raise ContractError("Reader metadata changed during capacity projection")
         return data
 
-    indexes, snapshot_objects = [], {topic: {} for topic in owners}
+    snapshot_data = {}
     for topic, source, metadata in snapshots:
-        data = release_content.snapshot(verified(source, metadata),
-                                        lambda name, sha, size: reference(topic, name, sha, size))
+        snapshot_data[(topic, source.stem)] = release_content.snapshot(verified(source, metadata),
+                                            lambda name, sha, size: reference(topic, name, sha, size))
+
+    def directories(batch):
+        nonlocal by_partition
+        for topic in {topic for topic, _ in batch}:
+            source, metadata = configs[topic]
+            if "shard-directories-v1" not in json.loads(verified(source, metadata)).get("features", []):
+                raise ContractError("Reader runtime does not support shard directories; regenerate the candidate")
+        artifacts = [add(topic, "site/objects/" + digest(data) + ".json", data=data) for topic, data in batch]
+        allocate(artifacts)
+        by_partition = {part.id: part for part in physical}
+        return [{"path": reference(item.topic, item.path.removeprefix("site/"), item.sha256, item.bytes),
+                 "sha256": item.sha256, "bytes": item.bytes} for item in artifacts]
+
+    snapshot_data = shard_index.compact(snapshot_data, (budgets or capacity.Budgets()).file_bytes, directories)
+    indexes, snapshot_objects = [], {topic: {} for topic in owners}
+    for (topic, snapshot), data in snapshot_data.items():
         name = "objects/" + digest(data) + ".json"
         indexes.append(add(topic, "site/" + name, data=data))
-        snapshot_objects[topic][source.stem] = (name, digest(data), len(data))
+        snapshot_objects[topic][snapshot] = (name, digest(data), len(data))
     allocate(indexes)
     by_partition = {part.id: part for part in physical}
 

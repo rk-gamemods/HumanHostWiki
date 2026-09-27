@@ -3,10 +3,10 @@
 import json
 import re
 
-from . import packs
+from . import packs, shard_index
 from .storage import ContractError, json_bytes
 
-SHARD_KINDS = ("entries", "semantics", "provenance", "search", "backlinks")
+SHARD_KINDS = shard_index.FIELDS
 
 
 def snapshot(data, resolve):

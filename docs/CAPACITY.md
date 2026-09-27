@@ -5,8 +5,9 @@ automatic file, site and history budgets while preserving logical topic ownershi
 and historical URLs. Allocation, committed-input measurement and immutable reference
 projection are implemented and connected to the normal release and publication
 stages. The update creates storage partitions as immutable objects fill existing
-repositories. Rollover of the logical entrypoints and oversized control metadata
-remains unfinished, so automatic capacity handling does not yet cover every ADR case.
+repositories and splits oversized snapshot reference lists. Rollover of logical
+entrypoints and splitting of other control metadata remain unfinished, so automatic
+capacity handling does not yet cover every ADR case.
 
 ## Owners and inputs
 
@@ -51,6 +52,23 @@ Projection verifies the candidate, retains leaf paths instead of bytes, and hold
 only transformed metadata. Its write iterator yields one new payload at a time,
 rechecks its hash and skips reused files. Planning creates no destination files.
 
+`wikibuild/shard_index.py` splits a snapshot index when its projected bytes exceed
+the file budget. It replaces the largest pack-reference list with directory pages
+bounded by the smaller of 64 KiB and the file budget, repeating until the root fits.
+Each level is allocated in one batch before its parent is hashed. Directory objects
+use `objects/<sha256>.json`; they preserve leaf order, hashes, sizes and membership.
+Their summaries cover the minimum first key, maximum last key and total record count,
+including overlapping ranges from reused packs. Small indexes retain their exact bytes.
+
+The reader follows `wiki-shard-directory` references only for matching key ranges.
+Entry lookup skips unrelated branches; search traverses pages sequentially, and
+backlinks advance through the matching range on demand. Directory bytes, summaries,
+namespace and depth are checked before use. Cache entries include the expected hash
+and size, so a cached response cannot bypass another reference's integrity check.
+Candidates declare `shard-directories-v1` in their reader features. An older candidate
+may retain flat indexes, but cannot receive directory references its runtime cannot
+read. Regenerating that candidate supplies the compatible runtime.
+
 `wikibuild/physical.py` derives the physical registry from configured topic names.
 `project.json` retains logical ownership; each release's `physical` map records
 allocated repository IDs, logical topics, ordinals and sealed state. The checkout
@@ -80,17 +98,18 @@ budget check leaves the prior release selected and reports an execution failure.
 Configure byte limits and reserves through the optional `project.json.capacity`
 object, using the field names in `capacity.Budgets`.
 
-Mutable entrypoints, release indexes and ownership manifests still need bounded
-storage and rollover. Oversized control files currently fail before promotion;
-they are not automatically split. Full immutable storage partitions remain readable,
+Mutable entrypoints, release configurations and ownership manifests still need
+bounded storage and rollover. Oversized control files outside the snapshot pack
+directories still fail before promotion, including indivisible snapshot metadata.
+Full immutable storage partitions remain readable,
 but a full logical entrypoint still requires the unfinished rollover path. These
 limitations keep complete automatic capacity acceptance open.
 
 Forced-threshold integration tests cover new local repositories, installation
 interruption, publication dependency order/failure, retained historical URLs and
 no-op replay. They use real Git objects and a deterministic host adapter. Real
-GitHub overflow provisioning, oversized-index splitting and entrypoint rollover
-remain acceptance gaps.
+GitHub overflow provisioning, release/ownership index splitting and entrypoint
+rollover remain acceptance gaps.
 
 ## Current validation
 
@@ -121,3 +140,11 @@ with a host adapter. `tests/test_release_browser.py` runs the actual loader in N
 with native URL and SHA-256 APIs, covering configuration references, mismatched bytes,
 release identity, namespace containment, coordinated selection and local preview.
 Node.js is a test dependency only; generation still uses Python's standard library.
+
+`tests/test_shard_index.py` checks multilevel bounds, ordered conservation, overlapping
+ranges, replay and indivisible metadata. The projection tests generate an oversized
+index through the actual reader, allocate it across physical sites and independently
+compare every leaf with the candidate. The JavaScript reader also consumes that
+materialized fixture, exercising entry lookup and search through the directory format.
+`tools/audit_shard_index.py` is an independent audit reader shared by the two release
+checkers; the generator and browser do not import it.
