@@ -164,8 +164,8 @@ class GuideQueryTests(unittest.TestCase):
         self.ctx = context()
 
     def test_distance_and_percent_formatting(self):
-        distances = {0: "0 m", 12: "12 m", 999: "999 m", 1000: "1 km", 2000: "2 km",
-                     2048: "2 km", 2060: "2.1 km", 18444: "18.4 km", 18550: "18.6 km"}
+        distances = {0: "0 m", 12: "12 m", 999: "999 m", 1000: "1 km", 2000: "2 km",
+                     2048: "2 km", 2060: "2.1 km", 18444: "18.4 km", 18550: "18.6 km"}
         for value, expected in distances.items():
             self.assertEqual(queries.format_distance(value), expected)
         for value, expected in [(0, "0%"), (0.2, "20%"), (0.05, "5%"), (0.01, "1%"),
@@ -223,12 +223,12 @@ class GuideQueryTests(unittest.TestCase):
         self.assertIsNone(query(empty, "start.benches_intro"))
 
     def test_world_and_ring_golden_rows(self):
-        self.assertEqual(query(self.ctx, "world.rings"), {"ring_width": "2 km", "ring_count": "2"})
+        self.assertEqual(query(self.ctx, "world.rings"), {"ring_width": "2 km", "ring_count": "2"})
         self.assertEqual(query(self.ctx, "world.near_spawn"), {"near_spawn_chance": "1%"})
         self.assertIsNone(query(self.ctx, "world.zombie_scaling"))
         self.assertIsNone(query(self.ctx, "world.loot_quality_scaling"))
-        rings = [{"index": "0", "biome": entity("forest", "Mossy Forest"), "start_distance": "12 m", "end_distance": "2 km"},
-                 {"index": "1", "biome": entity("desert", "Desert"), "start_distance": "2 km", "end_distance": "4 km"}]
+        rings = [{"index": "0", "biome": entity("forest", "Mossy Forest"), "start_distance": "12 m", "end_distance": "2 km"},
+                 {"index": "1", "biome": entity("desert", "Desert"), "start_distance": "2 km", "end_distance": "4 km"}]
         self.assertEqual(query(self.ctx, "rings"), rings)
         for scope in rings:
             self.assertEqual(queries.QUERIES["ring.span"](self.ctx, scope), scope)
@@ -326,8 +326,8 @@ class GuideQueryTests(unittest.TestCase):
         captured = {"_MutantLvDisInterval": 1000, "_Z_Mutant_F": 2, "_QualityCapDistanceInterval": 2000}
         rows = fixture() + [row("scaling", "world-rule", "Scaling", captured)]
         ctx = context(rows)
-        self.assertEqual(query(ctx, "world.zombie_scaling"), {"zombie_level_step": "500 m"})
-        self.assertEqual(query(ctx, "world.loot_quality_scaling"), {"quality_step": "2 km"})
+        self.assertEqual(query(ctx, "world.zombie_scaling"), {"zombie_level_step": "500 m"})
+        self.assertEqual(query(ctx, "world.loot_quality_scaling"), {"quality_step": "2 km"})
         for invalid in (0, -1, True, float("inf"), "2000", 4000):
             ctx = context(rows + [row("conflict", "world-rule", "Other scaling", {"_QualityCapDistanceInterval": invalid})])
             self.assertIsNone(query(ctx, "world.loot_quality_scaling"))

@@ -274,6 +274,9 @@ function rank(rows, query, options = {}) {
     let score = !whole ? 0 : name === whole ? 100 : name.startsWith(whole) ? 80
       : words.every(word => name.split(/[\s_().,-]+/).some(part => part.startsWith(word))) ? 60 : words.every(word => name.includes(word)) ? 40 : 10;
     if (whole && words.every(word => name.split(/[\s()]+/).includes(word))) score += 10;
+    // Players look for things they can hold; game-file records rank after them.
+    if (row.topic === "technical-reference") score -= 30;
+    else if (row.kind === "asset" || row.kind === "configuration") score -= 15;
     out.push({...row, score});
   }
   out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "en") || a.entity_key.localeCompare(b.entity_key));
@@ -608,7 +611,10 @@ async function guidePage(id) {
       section.blocks.map(block => guideBlock(block, links, `${doc.id}/${section.id}`)));
   });
   const rings = doc.sections.filter(section => /^ring-\d+$/.test(section.id));
-  const aside = el("aside", {class: "guide-toc", "aria-label": "In this guide"}, el("h2", {}, "In this guide"), toc, rings.length ? ringDiagram(rings) : null);
+  // Folded on phones so the guide itself starts on the first screen.
+  const wide = typeof matchMedia !== "function" || matchMedia("(min-width: 861px)").matches;
+  const aside = el("aside", {class: "guide-toc", "aria-label": "In this guide"},
+    el("details", {open: wide}, el("summary", {}, el("h2", {}, "In this guide")), toc), rings.length ? ringDiagram(rings) : null);
   show(el("article", {},
     el("header", {class: "intro"}, el("p", {class: "kicker"}, link("Guides", hubURL("") + "#guides")), el("h1", {class: "hed"}, doc.title), doc.dek ? el("p", {class: "dek"}, doc.dek) : null,
       el("p", {class: "byline"}, `Written by the wiki from the game's files: version ${index.game_version || "unknown"}, Steam build ${index.steam.build_id}. It is rebuilt with every game update.`)),

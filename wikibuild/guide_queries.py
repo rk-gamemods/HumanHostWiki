@@ -52,10 +52,13 @@ def _number(value, places=0):
 
 
 def format_distance(metres) -> str:
-    """Format world units as metres or kilometres, rounding half up."""
+    """Format world units as metres or kilometres, rounding half up.
+
+    A no-break space keeps the number and its unit on one line.
+    """
     if Decimal(str(metres)) < 1000:
-        return f"{_number(metres)} m"
-    return f"{_number(Decimal(str(metres)) / 1000, 1)} km"
+        return f"{_number(metres)} m"
+    return f"{_number(Decimal(str(metres)) / 1000, 1)} km"
 
 
 def format_percent(fraction) -> str:
