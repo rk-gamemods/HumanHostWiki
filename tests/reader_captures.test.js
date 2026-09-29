@@ -260,6 +260,26 @@ function fixture(count = 121) {
   assert.equal(descendants(unresolvedFacts).filter(node => node.tag === 'a').length, 0);
   console.log('Readable enum labels, nested graph links, pinned routes and raw provenance passed');
 
+  const player = {name: "Iron Ore", name_source: "game", name_rule: null,
+    how: [[{text: "mined in "}, {text: "War Zone", entity: "biome"}, {text: " (20% of dig hits)"}],
+      [{text: "crafted by hand"}]], used_in: {count: 13, items: [{text: "Stone Axe", entity: "recipe"}]},
+    links: {biome: {name: "War Zone", topic: "items"}, recipe: {name: "Stone Axe", topic: "items"}}};
+  const playerView = subject.context.playerCard(null, player, {links: {}});
+  assert.match(flattened(playerView).join(" "), /mined in.*War Zone.*20% of dig hits/);
+  assert.ok(flattened(playerView).includes("crafted by hand"));
+  const playerLinks = descendants(playerView).filter(node => node.tag === "a");
+  assert.equal(playerLinks.length, 2);
+  assert.match(playerLinks[0].href, /entry\/biome\//);
+  assert.match(playerLinks[1].href, /entry\/recipe\//);
+  for (const link of playerLinks) {
+    assert.ok(new URL(link.href).searchParams.has("snapshot"));
+    assert.ok(new URL(link.href).searchParams.has("release"));
+  }
+  const names = [{entity_key: "combat", name: "Stone Axe combat", source_name: "Axe_Combo_2", kind: "combat-rule"}];
+  assert.equal(subject.context.rank(names, "Stone Axe")[0].entity_key, "combat");
+  assert.equal(subject.context.rank(names, "Axe_Combo_2")[0].entity_key, "combat");
+  console.log("Player phrases, route-complete links and source-name search passed");
+
   if (process.argv[2]) {
     const input = JSON.parse(fs.readFileSync(process.argv[2], "utf8")), root = path.resolve(input.root);
     const disk = url => {

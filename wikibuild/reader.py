@@ -8,7 +8,7 @@ import re
 import uuid
 from urllib.parse import urlsplit
 
-from . import availability, curation, external_links, extraction, game_text, history, model, packs, pages, presentation, snapshots
+from . import availability, curation, external_links, extraction, game_text, guide_queries, history, model, packs, pages, presentation, snapshots
 from .exceptions import Exceptions
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
@@ -26,7 +26,7 @@ def candidate_path(cache_root, candidate_id):
 
 def contract():
     folder = Path(__file__).parent
-    paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py", "presentation.py", "game_text.py")]
+    paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py", "presentation.py", "game_text.py", "gameplay.py", "names.py", "guide_queries.py", "lint.py")]
     paths += sorted(path for path in (folder / "web").rglob("*") if path.is_file())
     return {path.relative_to(folder).as_posix(): digest(path.read_bytes() if path.suffix == ".woff2" else path.read_bytes().replace(b"\r\n", b"\n"))
             for path in paths}
@@ -99,6 +99,20 @@ def validate_snapshot(stage, snapshot, topics):
             raise ContractError("Reader entry card_id is missing from cards")
         if cards.keys() - owned_cards:
             raise ContractError("Reader card has no owning entry")
+        players = load_maps(site, index.get("player", []))
+        owned_players = {record["player_id"] for record in entries.values() if "player_id" in record}
+        if owned_players - players.keys():
+            raise ContractError("Reader entry player_id is missing from player")
+        if players.keys() - owned_players:
+            raise ContractError("Reader player has no owning entry")
+        for identity, player in players.items():
+            if digest(packs.compact(player)) != identity:
+                raise ContractError("Reader player hash differs")
+            runs = [run for phrase in player["how"] for run in phrase] + player["used_in"]["items"]
+            linked = {run["entity"] for run in runs if "entity" in run}
+            if linked != player["links"].keys():
+                raise ContractError("Reader player links differ from its runs")
+            targets.extend((key, link["topic"]) for key, link in player["links"].items())
         if set(entries) != set(searches):
             raise ContractError("Search coverage differs from snapshot entries")
         for key, record in entries.items():
@@ -136,6 +150,62 @@ def validate_snapshot(stage, snapshot, topics):
     return count
 
 
+def player_projection(models, registry, text, snapshot):
+    """Hold one snapshot's N stripped rows, never rows from multiple snapshots.
+
+    Kind filtering is unsafe: names uses every kind and graph traverses generic
+    components. Keep semantic data and only the provenance used by those joins.
+    The context dies before the existing pack pass; only names and encoded player
+    payloads escape. Peak parsed rows: N stripped rows plus one streaming row.
+    """
+    def rows():
+        for row in model.rows(models):
+            provenance = row.get("provenance", {})
+            yield {"entity_key": row["entity_key"], "semantic": row["semantic"],
+                   "provenance": {**{key: provenance[key] for key in ("source_id", "component", "game_objects")
+                                     if key in provenance},
+                                  "evidence": [{"object": entry["object"]} for entry in provenance.get("evidence", [])
+                                               if "object" in entry]}}
+    context = guide_queries.build_context(rows(), registry, text, {"snapshot_id": snapshot})
+    players = {}
+    rings = {ring["index"] for ring in context["graph"]["rings"]}
+    for key, row in context["rows"].items():
+        name = context["names"][key]
+        how, recipes, ring = [], [], None
+        graph = context["graph"]
+        if key in graph["items"]:
+            # The public helper joins phrases with a separate semicolon run;
+            # the reader consumes one array of runs per list item.
+            phrase = []
+            for run in guide_queries.how_runs(context, key, limit=4):
+                if run == {"text": "; "}:
+                    if phrase:
+                        how.append(phrase)
+                    phrase = []
+                else:
+                    phrase.append(run)
+            if phrase:
+                how.append(phrase)
+            recipes = guide_queries.used_in(context, key)
+        progression = next((graph[group][key] for group in ("items", "recipes", "benches") if key in graph[group]), None)
+        if progression and any(progression[field] is not None for field in ("earliest_ring", "main_ring")):
+            main = progression["main_ring"]
+            label = (guide_queries.ring_label(context, main) if main in rings else
+                     f"Ring {main}" if main is not None else "Unknown")
+            ring = {"earliest": progression["earliest_ring"], "main": main, "label": label}
+        if (not how and not recipes and ring is None and name["name"] == row["semantic"]["name"]
+                and name["source"] == "game" and name["rule"] is None):
+            continue
+        selected = recipes[:12]
+        targets = {run["entity"] for run in [*(run for phrase in how for run in phrase), *selected] if "entity" in run}
+        links = {target: {"name": context["names"][target]["name"],
+                          "topic": context["rows"][target]["semantic"]["topic"]} for target in sorted(targets)}
+        players[key] = packs.compact({"name": name["name"], "name_source": name["source"], "name_rule": name["rule"],
+                                      "how": how, "ring": ring, "used_in": {"count": len(recipes), "items": selected},
+                                      "links": links})
+    return context["names"], players
+
+
 def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, registry_digest):
     snapshot = run["snapshot_id"]
     state = history.load_state(root, run)
@@ -163,6 +233,7 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                 backlinks[target].append({"entity": key, **routes[key], "predicate": link["predicate"], "field": link["field"]})
     if seen != {key for key, row in state.items() if row["status"] == "present"}:
         raise ContractError("Model omitted a present identity observation")
+    row = semantic = None  # Release the validation pass's last parsed row.
 
     # labels materializes its input; retain only the two components it joins,
     # never the full collection of semantic records.
@@ -171,7 +242,8 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                                 {"assembly": "UI", "class": "DynamicToolTipSet"},
                                 {"assembly": "Language", "class": "Language_Text"}))
     text_digest = digest(json_bytes(text))
-    maps = {topic: {kind: {} for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards")} for topic in topics}
+    player_names, players = player_projection(models, registry, text, snapshot)
+    maps = {topic: {kind: {} for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player")} for topic in topics}
     counts = {topic: Counter() for topic in topics}
     groups = {topic: defaultdict(list) for topic in topics}
     for row in model.rows(models):
@@ -196,6 +268,9 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                                          "presentation": registry_digest}))
             data["cards"][card_id] = packs.compact(presentation.card(registry, semantic["kind"], semantic, text, links))
             record["card_id"] = card_id
+        if key in players:
+            record["player_id"] = digest(players[key])
+            data["player"][record["player_id"]] = players[key]
         if notes[key]:
             record["explanations"] = notes[key]
         data["entries"][key] = packs.compact(record)
@@ -204,8 +279,10 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                      for name, value in semantic["facts"].items() if value is None or isinstance(value, (str, int, float, bool))}
         brief = {"entity_key": key, **routes[key], "kind": semantic["kind"], "status": "present",
                  "source_id": row["provenance"]["source_id"], "preview": dict(list(primitive.items())[:6])}
-        data["search"][key] = packs.compact(brief)
         groups[topic][semantic["kind"]].append({**brief, **({"explanations": notes[key]} if notes[key] else {})})
+        if player_names[key]["name"] != brief["name"]:
+            brief.update(source_name=brief["name"], name=player_names[key]["name"])
+        data["search"][key] = packs.compact(brief)
         counts[topic][semantic["kind"]] += 1
     for key, ledger in state.items():
         if ledger["status"] == "present":
@@ -226,6 +303,8 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
         # in a later snapshot merely because a surviving card shared its shard.
         card_shards = [shard for key, value in sorted(data.pop("cards").items())
                        for shard in packs.reuse({key: value}, known[topic]["cards"], limit, writer)]
+        player_shards = [shard for key, value in sorted(data.pop("player").items())
+                         for shard in packs.reuse({key: value}, known[topic]["player"], limit, writer)]
         index = {"schema_version": 1, "snapshot_id": snapshot, "identity_run": run["run_id"],
                  "source_commit": run["source_commit"], "steam": receipt["steam"], "game_version": receipt["game_version"],
                  "game_version_status": receipt.get("game_version_status", "not-recorded-by-source-generator"),
@@ -233,12 +312,13 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                  "counts": dict(sorted(counts[topic].items())), "coverage": "partial", "verification": "not-performed",
                  "latest_available_build": receipt["latest_available_game_build"], "change_origin": run["change_origin"],
                  "cards": card_shards,
+                 "player": player_shards,
                  **{kind: packs.reuse(values, known[topic][kind], limit, writer) if kind in {"semantics", "provenance"}
                     else packs.write(values, limit, writer) for kind, values in data.items()}}
         writer(f"snapshots/{snapshot}.json", packs.compact(index))
     # Validation streams one topic at a time. Release construction buffers first
     # so parsed validation data does not coexist with the full projection.
-    del data, maps, state, routes, backlinks
+    del data, maps, state, routes, backlinks, players, player_names
     verified = validate_snapshot(stage, snapshot, topics)
     return {"snapshot_id": snapshot, "build_id": receipt["steam"]["build_id"], "game_version": receipt["game_version"], "identity_run": run["run_id"],
             "observations": verified}, groups
@@ -384,7 +464,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
 
     projected, current_groups = {}, None
     all_groups = {repo["id"]: set() for repo in project["repositories"]}
-    known = {repo["id"]: {"semantics": {}, "provenance": {}, "cards": {}} for repo in project["repositories"]}
+    known = {repo["id"]: {"semantics": {}, "provenance": {}, "cards": {}, "player": {}} for repo in project["repositories"]}
     for run in reversed(runs):
         # Revalidate pinned artifacts, even if a caller supplied the run.
         extraction.artifact(root, run["state"])

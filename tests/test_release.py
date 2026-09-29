@@ -78,12 +78,16 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((self.root / 'repositories/items/notes.md').read_text(), 'Authored explanation')
         candidate_index = json.loads((Path(self.candidate['path']) / 'items/snapshots' /
                                       (self.fixture.new['snapshot_id'] + '.json')).read_bytes())
-        pack = self.root / 'repositories/items/site' / candidate_index['cards'][0]['path']
-        original = pack.read_bytes()
-        pack.write_bytes(original + b' ')
-        with self.assertRaises(AssertionError):
-            independent_check(self.root)
-        pack.write_bytes(original)
+        for kind, topic in (('cards', 'items'), ('player', 'loot')):
+            with self.subTest(kind=kind):
+                candidate_index = json.loads((Path(self.candidate['path']) / topic / 'snapshots' /
+                                              (self.fixture.new['snapshot_id'] + '.json')).read_bytes())
+                pack = self.root / 'repositories' / topic / 'site' / candidate_index[kind][0]['path']
+                original = pack.read_bytes()
+                pack.write_bytes(original + b' ')
+                with self.assertRaises(AssertionError):
+                    independent_check(self.root)
+                pack.write_bytes(original)
 
     def test_font_links_and_exact_bytes_survive_release_and_repeat(self):
         result, _ = self.run_release()

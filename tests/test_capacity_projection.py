@@ -77,7 +77,7 @@ class CapacityProjectionTests(unittest.TestCase):
             for snapshot, ref in config["snapshots"].items():
                 index = fetch(ref)
                 before = json.loads((self.path / topic / "snapshots" / (snapshot + ".json")).read_bytes())
-                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards"):
+                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player"):
                     index[kind] = list(leaves(index[kind], fetch))
                     self.assertEqual(len(index[kind]), len(before[kind]))
                     for actual, expected in zip(index[kind], before[kind]):
@@ -196,7 +196,8 @@ class CapacityProjectionTests(unittest.TestCase):
     def test_oversized_real_reader_index_splits_replays_and_loads_on_demand(self):
         # Scale the index with the larger file budget required by real fonts.
         keys = ["e-" + f"{number:032x}" for number in range(800)]
-        run = self.fixture.make_run("300", [self.fixture.observation(key, "Item " + key) for key in keys])
+        # Internal names also force nontrivial, distinct player packs to page.
+        run = self.fixture.make_run("300", [self.fixture.observation(key, "Item_Internal " + key) for key in keys])
         candidate = reader.build(self.fixture.root, self.project, [run, *self.fixture.runs],
                                  bases=self.bases, max_pack_bytes=1024)
         self.path = Path(candidate["path"])
@@ -302,6 +303,9 @@ class CapacityProjectionTests(unittest.TestCase):
     def test_independent_auditor_rejects_changed_card_membership(self):
         self.check_changed_snapshot_membership("cards")
 
+    def test_independent_auditor_rejects_changed_player_membership(self):
+        self.check_changed_snapshot_membership("player")
+
     def check_changed_snapshot_membership(self, kind):
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals))
         checked = audit(self.path, result, "wiki-fixture")
@@ -376,6 +380,17 @@ class ReferenceTransformTests(unittest.TestCase):
             release_content.configuration(data, "a" * 64, {}, {"js": "script", "css": "style"})
         with self.assertRaisesRegex(ContractError, "both reader runtimes"):
             release_content.configuration(data, "a" * 64, {"one": {}}, {"js": "script"})
+
+    def test_player_references_relocate_and_legacy_indexes_keep_exact_bytes(self):
+        sha = "c" * 64
+        pack = {"path": "data/" + sha + ".json", "sha256": sha, "bytes": 3}
+        value = {"schema_version": 1, **{kind: [] for kind in release_content.SHARD_KINDS}, "player": [pack]}
+        result = json.loads(release_content.snapshot(json_bytes(value), lambda path, *_: "https://example.invalid/" + path))
+        self.assertEqual(result["player"], [{**pack, "path": "https://example.invalid/" + pack["path"]}])
+        del value["player"]
+        before = json_bytes(value)
+        self.assertEqual(release_content.snapshot(before, lambda path, *_: path), before)
+        self.assertNotIn("player", json.loads(release_content.snapshot(before, lambda path, *_: path)))
 
 
 if __name__ == "__main__":

@@ -75,10 +75,11 @@ function fixture() {
   // A snapshot can advertise paged cards without entry lookup fetching them.
   data = fixture();
   subject = reader(url => data.files[url]);
-  const indexWithCards = {entries: [data.left], cards: [data.right]};
+  const indexWithCards = {entries: [data.left], cards: [data.right], player: [data.right]};
   assert.equal((await subject.context.keyed(indexWithCards.entries, "b")).name, "b");
   assert.ok(!subject.calls.includes(base + data.right.path));
   assert.equal((await subject.context.keyed(indexWithCards.cards, "z")).name, "z");
+  assert.equal((await subject.context.keyed(indexWithCards.player, "z")).name, "z");
   console.log("Shard lookup, traversal and rejection checks passed");
 
   if (process.argv[2]) {
@@ -96,15 +97,19 @@ function fixture() {
     const index = JSON.parse(disk(new URL(config.snapshots[input.snapshot].path, input.base).href));
     assert.ok(index.entries.some(ref => ref.kind === "wiki-shard-directory"));
     assert.ok(index.cards.some(ref => ref.kind === "wiki-shard-directory"));
+    assert.ok(index.player.some(ref => ref.kind === "wiki-shard-directory"));
     const record = await subject.context.keyed(index.entries, input.key);
     assert.equal(record.entity_key, input.key);
     const semantics = await subject.context.keyed(index.semantics, record.revision_id);
-    assert.equal(semantics.name, "Item " + input.key);
+    assert.equal(semantics.name, "Item_Internal " + input.key);
     assert.ok(subject.calls.length < 10, "Entry lookup fetched unrelated directory branches");
     assert.ok(index.cards.every(ref => !subject.calls.includes(new URL(ref.path, input.base).href)),
       "Entry lookup fetched unused cards");
     const card = await subject.context.keyed(index.cards, record.card_id);
     assert.equal(card.stats[0].display, "3");
+    const player = await subject.context.keyed(index.player, record.player_id);
+    assert.ok(player.name);
+    assert.ok(player.how.every(Array.isArray));
     let searchCount = 0;
     for await (const ref of subject.context.shardReferences(index.search)) {
       searchCount += Object.keys(await subject.context.json(ref.path, ref)).length;
