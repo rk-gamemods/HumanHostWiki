@@ -32,7 +32,7 @@
       "id": "bows",
       "heading": "Bows",
       "blocks": [
-        {"type": "table", "query": "weapons.bows", "columns": ["Weapon", "Arrow Damage", "Speed", "Durability", "How to get it"]}
+        {"type": "table", "query": "weapons.bows", "columns": ["Weapon", "Arrow Damage", "Durability", "How to get it"]}
       ]
     },
     {
