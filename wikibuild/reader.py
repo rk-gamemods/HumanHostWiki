@@ -407,14 +407,9 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         for file in sorted(web.iterdir()):
             if file.is_file():
                 output(f"{topic}/{file.name}", file.read_bytes().replace(b"\r\n", b"\n"))
-        if topic == "hub":
-            # Fonts ship once, in the hub; topic sites load them from the same origin.
-            for file in sorted((web / "fonts").iterdir()):
-                data = file.read_bytes()
-                output(f"{topic}/fonts/{file.name}", data if file.suffix == ".woff2" else data.replace(b"\r\n", b"\n"))
         output(f"{topic}/.nojekyll", b"")
-        content = pages.shell(repo["title"], bases[topic], project.get("project", "Unofficial game reference"),
-                              fonts_base=bases.get("hub"))
+        # Fonts wait for a content-addressed place in the release model (U12b); until then the CSS falls back.
+        content = pages.shell(repo["title"], bases[topic], project.get("project", "Unofficial game reference"))
         output(f"{topic}/index.html", content)
         output(f"{topic}/404.html", content)
         output(f"{topic}/reader.json", packs.compact({"schema_version": 1, "candidate_id": candidate_id,
