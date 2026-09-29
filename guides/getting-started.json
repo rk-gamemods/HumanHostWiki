@@ -17,7 +17,7 @@
       "id": "by-hand",
       "heading": "What you can make by hand",
       "blocks": [
-        {"type": "sentence", "template": "Hand crafting needs no bench. These recipes use only starting-ring materials.", "query": "start.hand_recipes"},
+        {"type": "sentence", "template": "Hand crafting needs no bench. These recipes use only starting-ring materials.", "query": "start.hand_intro"},
         {"type": "checklist", "query": "start.hand_recipes", "item": "{output}: {ingredients}"}
       ]
     },
@@ -25,7 +25,7 @@
       "id": "first-benches",
       "heading": "Your first benches",
       "blocks": [
-        {"type": "sentence", "template": "Each bench unlocks its own recipes. These can be built from starting-ring materials, in the order their ingredients allow.", "query": "start.benches"},
+        {"type": "sentence", "template": "Each bench unlocks its own recipes. These can be built from starting-ring materials, in the order their ingredients allow.", "query": "start.benches_intro"},
         {"type": "steps", "query": "start.benches", "item": "Build the {bench}: {ingredients}. It unlocks {unlock_count} recipes."}
       ]
     },
