@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import test_reader
-from wikibuild import guide_queries, model, packs, reader
+from wikibuild import guide_queries, model, packs, presentation, reader
 from wikibuild.storage import ContractError, digest, json_bytes
 
 
@@ -134,6 +134,31 @@ class PlayerProjectionTests(unittest.TestCase):
         self.assertEqual({key: value for key, value in old_maps["player"].items() if key != removed}, new_maps["player"])
         self.assertEqual([ref for ref in old_index["player"] if ref["first"] != removed], new_index["player"])
         self.assertNotIn("player_id", new_maps["entries"][self.key("named")])
+
+    def test_projection_rejects_construction_name_with_different_item_model(self):
+        base = "7_5_Triangle_Small_1.4_Obsidian"
+        item = self.row("material", "Obsidian", facts={"_Tag": "BuildMat"})
+        item["provenance"]["evidence"] = [{"object": "tooltip-source"}]
+        item["provenance"]["relationships"] = [
+            {"predicate": "model", "target_source_ids": ["model-object"], "source_field": "/ModelRef"},
+            {"predicate": "other", "target_source_id": "unrelated-object"}]
+        tooltip = self.row("tooltip", base + "_Tooltip", "configuration")
+        tooltip["provenance"].update(source_id="tooltip-source",
+                                     component={"assembly": "Language", "class": "Tooltip_Text"})
+        piece = self.row("piece", base, "building-piece")
+        piece["semantic"]["name_status"] = "internal"
+        piece["provenance"]["game_objects"] = ["different-object"]
+        matching = self.row("matching-piece", base, "building-piece")
+        matching["semantic"]["name_status"] = "internal"
+        matching["provenance"]["game_objects"] = ["model-object"]
+        run = self.fixture.make_run("300", [item, tooltip, piece, matching])
+        registry = presentation.load(Path(reader.__file__).resolve().parents[1] / "presentation/fields.json")
+        names, players = reader.player_projection(self.root / run["models"]["path"], registry, {}, run["snapshot_id"])
+        self.assertNotEqual(names[piece["entity_key"]]["name"], "Obsidian")
+        self.assertNotEqual(names[piece["entity_key"]]["rule"], "construction-item")
+        self.assertEqual(names[matching["entity_key"]],
+                         {"name": "Obsidian", "source": "wiki", "rule": "construction-item"})
+        self.assertEqual(json.loads(players[piece["entity_key"]])["name"], names[piece["entity_key"]]["name"])
 
     def test_validation_requires_player_owners_and_references(self):
         run = self.fixture.make_run("300", self.rows(1))

@@ -190,6 +190,10 @@ def player_projection(models, registry, text, snapshot, *, snapshot_metadata=Non
             yield {"entity_key": row["entity_key"], "semantic": row["semantic"],
                    "provenance": {**{key: provenance[key] for key in ("source_id", "component", "game_objects")
                                      if key in provenance},
+                                  "relationships": [{key: link[key] for key in ("predicate", "target_source_ids", "target_source_id")
+                                                     if key in link}
+                                                    for link in provenance.get("relationships", [])
+                                                    if link.get("predicate") == "model"],
                                   "evidence": [{"object": entry["object"]} for entry in provenance.get("evidence", [])
                                                if "object" in entry]}}
     context = guide_queries.build_context(rows(), registry, text, {"snapshot_id": snapshot, **(snapshot_metadata or {})})
@@ -292,7 +296,7 @@ def project_guides(root, identities, context, output):
     return rows, {"count": len(rows), "dropped_links": drops, "errors": errors}
 
 
-def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, registry_digest, site):
+def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, site):
     snapshot = run["snapshot_id"]
     state = history.load_state(root, run)
     models = extraction.artifact(root, run["models"])
@@ -327,7 +331,6 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                             if row.get("provenance", {}).get("component") in (
                                 {"assembly": "UI", "class": "DynamicToolTipSet"},
                                 {"assembly": "Language", "class": "Language_Text"}))
-    text_digest = digest(json_bytes(text))
     receipt = snapshots.read(root, snapshot)
     guide_rows, guide_receipt = [], {"count": 0, "dropped_links": 0, "errors": []}
     def consume_context(context):
@@ -358,9 +361,9 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                   "last_data_checked": ledger["last_data_checked"], "last_verified": ledger["last_verified"],
                   "decision": ledger["decision"], "links": links, "backlink_count": len(reverse)}
         if semantic["kind"] in registry["kinds"]:
-            card_id = digest(json_bytes({"revision_id": row["revision_id"], "game_text": text_digest,
-                                         "presentation": registry_digest}))
-            data["cards"][card_id] = packs.compact(presentation.card(registry, semantic["kind"], semantic, text, links))
+            card = packs.compact(presentation.card(registry, semantic["kind"], semantic, text, links))
+            card_id = digest(card)
+            data["cards"][card_id] = card
             record["card_id"] = card_id
         if key in players:
             record["player_id"] = digest(players[key])
@@ -573,7 +576,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         extraction.artifact(root, run["models"])
         version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known,
                                            checked["snapshots"].get(run["snapshot_id"]) if checked else None,
-                                           registry=registry, registry_digest=registry_digest, site=site)
+                                           registry=registry, site=site)
         projected[run["snapshot_id"]] = version
         for topic, kinds in groups.items():
             all_groups[topic].update(kinds)

@@ -234,6 +234,26 @@ function fixture(count = 121) {
   }
   console.log("Core topic and entry content renders before optional article requests finish");
 
+  const wikiPlayer = {name: "Stone Axe combat", name_source: "wiki", name_rule: "combat-user"};
+  const wikiPlayerId = "player-wiki-name";
+  const wikiPlayerRef = data.store({[wikiPlayerId]: wikiPlayer}, {first: wikiPlayerId, last: wikiPlayerId, count: 1});
+  const wikiEntryRef = data.store({[entity]: {...entry, name: "Axe_Combo_2", player_id: wikiPlayerId}},
+    {first: entity, last: entity, count: 1});
+  const wikiIndex = data.store({snapshot_id: selected, steam: {build_id: latest.version.build_id},
+    counts: {item: 1}, entries: [wikiEntryRef], semantics: [semanticRef], provenance: [], backlinks: [],
+    player: [wikiPlayerRef]});
+  subject = reader({...flat, snapshots: {...flat.snapshots, [selected]: wikiIndex}}, url => data.files[url]);
+  subject.context.location.pathname += "entry/" + entity + "/";
+  await subject.context.start();
+  const entryView = subject.nodes.content.children[0];
+  const header = entryView.children.find(node => node.tag === "header" && node.className === "entry-head");
+  const reference = entryView.children.find(node => node.tag === "details" && node.className === "techref");
+  assert.ok(header);
+  assert.ok(reference);
+  assert.doesNotMatch(flattened(header).join(" "), /Axe_Combo_2/);
+  assert.match(flattened(reference).join(" "), /Game file name.*Axe_Combo_2/);
+  console.log("Wiki-named entry header hides the game file name; technical reference retains it");
+
   const codedSemantic = {facts: {_AmmoType: 5, nested: [{_SlotType: 4}]},
     fact_labels: {"/_AmmoType": "7.62x54mm", "/nested/0/_SlotType": "Ammo"},
     relationships: [{predicate: "coded-value", field: "/_AmmoType", targets: ["caliber"]},

@@ -199,9 +199,7 @@ class ReaderTests(unittest.TestCase):
                     expected = presentation.card(registry, "item", row["semantic"], {}, entry["links"])
                     self.assertTrue(expected["stats"])
                     self.assertEqual(cards[entry["card_id"]], expected)
-                    self.assertEqual(entry["card_id"], digest(json_bytes({
-                        "revision_id": row["revision_id"], "game_text": digest(json_bytes({})),
-                        "presentation": digest(self.registry_path.read_bytes())})))
+                    self.assertEqual(entry["card_id"], digest(packs.compact(expected)))
                 else:
                     self.assertNotIn("card_id", entry)
                     self.assertEqual(cards, {})
@@ -273,6 +271,38 @@ class ReaderTests(unittest.TestCase):
             entries.append(entry)
         self.assertEqual(entries[0]["revision_id"], entries[1]["revision_id"])
         self.assertNotEqual(entries[0]["card_id"], entries[1]["card_id"])
+
+    def test_renamed_ingredient_changes_recipe_card_without_recipe_revision(self):
+        self.project["repositories"][0]["owns"] = ["recipe"]
+        registry = json.loads(self.registry_path.read_bytes())
+        source = Path(reader.__file__).resolve().parents[1] / "presentation/fields.json"
+        registry["kinds"]["recipe"] = json.loads(source.read_bytes())["kinds"]["recipe"]
+        self.registry_path.write_bytes(json_bytes(registry))
+
+        def observations(ingredient_name):
+            ingredient = self.observation(self.a, ingredient_name)
+            recipe = self.observation(self.b, "Axe recipe", "recipe", "hub", self.a)
+            recipe["semantic"]["facts"] = {"matsData": [{"matNeedCount": 2}]}
+            recipe["semantic"]["relationships"][0].update(
+                predicate="consumes-item-asset", field="/matsData/0/matIcon")
+            recipe["revision_id"] = digest(json_bytes(recipe["semantic"]))
+            return [ingredient, recipe]
+
+        newer = self.make_run("400", observations("Renamed wood"))
+        older = self.make_run("300", observations("Old wood"))
+        self.runs = [newer, older]
+        site, _ = self.build()
+        records = []
+        for run, name in ((older, "Old wood"), (newer, "Renamed wood")):
+            index = self.index(site, "hub", run)
+            entry = reader.load_maps(site / "hub", index["entries"])[self.b]
+            card = reader.load_maps(site / "hub", index["cards"])[entry["card_id"]]
+            ingredients = next(stat["display"] for stat in card["stats"] if stat["field"] == "/matsData")
+            self.assertEqual(ingredients, [{"name": name, "count": 2, "target": self.a}])
+            self.assertEqual(entry["card_id"], digest(packs.compact(card)))
+            records.append(entry)
+        self.assertEqual(records[0]["revision_id"], records[1]["revision_id"])
+        self.assertNotEqual(records[0]["card_id"], records[1]["card_id"])
 
     def test_validation_rejects_missing_cards_and_accepts_legacy_entries(self):
         site, _ = self.build()
