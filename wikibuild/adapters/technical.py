@@ -7,7 +7,7 @@ per-instance records are exported. These decisions concern serialized
 fields; they do not claim to explain every method in the class.
 """
 
-from .schema import NUMBER as N, V3, Ref, component, fields
+from .schema import NUMBER as N, V3, EnglishText, Ref, component, fields
 
 
 def reviewed(assembly, name, omitted, reason, inspected=None):
@@ -16,6 +16,13 @@ def reviewed(assembly, name, omitted, reason, inspected=None):
 
 
 SPECS = (
+    component("Language", "Language_Text", "configuration", "technical-reference", {
+        "_Infos": EnglishText("text"),
+    }, notes="English game text selected by LanguageType.English; other languages are omitted."),
+    component("Language", "Tooltip_Text", "configuration", "technical-reference", {
+        "_Infos": EnglishText("_ItemName", ("_ItemInstruction",),
+                              frozenset({"_ItemType", "_ItemProperty"})),
+    }, notes="English item name and optional instruction text. Item type/property display strings and other languages are omitted."),
     component("Optimize", "MeshCombineStudio.MeshCombiner", "configuration", "technical-reference", {
         "addMeshColliders": int, "addMeshCollidersInRange": int,
         "addMeshCollidersBounds": {"m_Center": V3, "m_Extent": V3},
@@ -273,13 +280,6 @@ _TerraTreeMgr _ToolMgr _TrapMgr _UI_Control _UseF _WeatherController _WorldMapMg
              {"_Skyboxes": [fields({}, "_Skybox _OpacityR _RaymarchDensity _RaymarchAmbient")]}),
     reviewed("Visual", "Reflection_Probe_Mgr", "_LerpSpeed _NightOutdoorProbeFactor _ProbeOutdoorPrefab",
              "Reflection-probe blending and rendering bindings; no weather selection or gameplay values."),
-    reviewed("UI", "DynamicToolTipSet", "",
-             "Localized tooltip heading bindings; item and weapon values are selected separately.",
-             {"data": fields({}, """_Dura_Title _BlockDura _Damage_Title _HitDown_Title
-_BladeHit_Title _GunFireRate_Title _SingleShot_Title _GunMaxMag_Title _GunAmmoType_Title
-_BowAmmoType_Str _Quality_Title _BladeHit_Instruct _HeadShot_Instruct _ArrowDamage
-_ArrowRange _ArrowSpeed _ShootRange_Title _Recoil_Title _DummyRound_Title _Jam_Title
-_GatheringTool _GatheringToolSmallAxe""")}),
     reviewed("Merchant", "MerchantWindowDisable", "_MerchantMgr",
              "Merchant window lifecycle callback; no captured domain parameters."),
     reviewed("Merchant", "Merchant_LookAt", "_lookAt reverseLook",

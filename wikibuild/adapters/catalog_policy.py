@@ -20,7 +20,7 @@ Vuplex.WebView com.thenakeddev.dlss.Runtime.HDRP com.thenakeddev.fsr.Runtime
 
 TECHNICAL_CLASSES = frozenset({
     ("Weather", "WeatherOcclusion"), ("Weather", "WeatherOcclusionManager"), ("Weather", "WeatherVisibility"),
-    ("Language", "Language_Text"), ("Language", "Text_Language_Helper"), ("Language", "Language_Mgr"),
+    ("Language", "Text_Language_Helper"), ("Language", "Language_Mgr"),
 })
 
 

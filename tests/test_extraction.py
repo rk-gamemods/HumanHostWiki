@@ -52,14 +52,15 @@ class ExtractionTests(unittest.TestCase):
             "fields": {"_ColumLineCount": {"x": 2, "y": 3}, "_ContainerType": 1, "_DoorOpenCloseSeconds": 1.0, "_OpenSecondsFactor": 1.5},
             "loot_sets": ["fixture.assets#5"]}])
         self.put("Catalog/objects/fixture.assets.jsonl", [
-            {"id": "fixture.assets#2", "fields": {"_Infos": [
+            {"id": "fixture.assets#2", "script": {"assembly": "Language", "class": "Tooltip_Text"}, "fields": {"_Infos": [
                 {"languageType": 1, "_ItemName": "NON ENGLISH"},
                 {"languageType": 2, "_ItemName": "Canned beans"}]}},
             {"id": "fixture.assets#999", "fields": {"unused": "DO NOT EXPORT"}}])
         self.put("Catalog/unselected.jsonl", [{"unselected": "DO NOT EXPORT"}])
         self.put("Catalog/views/object-index.jsonl", [
             {"id": "fixture.assets#1", "type": "MonoBehaviour", "class": "Icon_Info", "assembly": "Item_Info"},
-            {"id": "fixture.assets#2", "type": "MonoBehaviour", "class": "Tooltip_Text", "assembly": "Language"},
+            {"id": "fixture.assets#2", "type": "MonoBehaviour", "class": "Tooltip_Text", "assembly": "Language",
+             "record": self.record_location()},
             {"id": "fixture.assets#999", "type": "Texture2D", "class": None},
         ])
         self.commit()
@@ -103,6 +104,9 @@ class ExtractionTests(unittest.TestCase):
         self.assertIn("combat", result["topics_without_records"])
         self.assertEqual("partial", result["topic_coverage"]["items-equipment"]["status"])
         self.assertEqual("not-created", result["wiki_release"])
+        text = next(row for row in rows if row.get("component", {}).get("class") == "Tooltip_Text")
+        self.assertEqual({"_ItemName": "Canned beans"}, text["facts"])
+        self.assertEqual("technical-reference", text["topic"])
 
     def test_noop_reuses_validated_outputs_without_source_reads_or_rewrites(self):
         first, _ = self.extract()
@@ -111,6 +115,26 @@ class ExtractionTests(unittest.TestCase):
         second, metrics = self.extract()
         self.assertEqual(first, second)
         self.assertEqual(stamp, pointer.stat().st_mtime_ns)
+        self.assertEqual({"reused": True, "source_bytes_read": 0}, metrics)
+
+    def test_english_text_change_invalidates_facts_and_unchanged_repeat_reuses(self):
+        first, _ = self.extract()
+        path = "Catalog/objects/fixture.assets.jsonl"
+        records = [json.loads(line) for line in (self.source / path).read_text().splitlines()]
+        records[0]["fields"]["_Infos"][1]["_ItemName"] = "Tinned beans"
+        self.put(path, records)
+        index_path = "Catalog/views/object-index.jsonl"
+        index = [json.loads(line) for line in (self.source / index_path).read_text().splitlines()]
+        index[1]["record"] = self.record_location()
+        self.put(index_path, index)
+        self.commit()
+        changed, metrics = self.extract()
+        self.assertFalse(metrics["reused"])
+        self.assertNotEqual(first["records"], changed["records"])
+        text = next(row for row in self.rows(changed) if row.get("component", {}).get("class") == "Tooltip_Text")
+        self.assertEqual({"_ItemName": "Tinned beans"}, text["facts"])
+        repeated, metrics = self.extract()
+        self.assertEqual(changed, repeated)
         self.assertEqual({"reused": True, "source_bytes_read": 0}, metrics)
 
     def test_captured_enum_changes_invalidate_labels_and_unchanged_repeat_reuses(self):
@@ -151,7 +175,7 @@ class ExtractionTests(unittest.TestCase):
         report = json.loads(extraction.artifact(self.wiki, result["exceptions"]).read_text())
         self.assertEqual(1, report["group_count"])
         self.assertEqual("new-field", report["groups"][0]["code"])
-        self.assertEqual(6, len(self.rows(result)))
+        self.assertEqual(7, len(self.rows(result)))
         self.assertNotIn("_NewFeature", self.rows(result)[0]["facts"])
 
     def test_previously_missing_dependency_is_revisited_when_it_appears(self):
@@ -184,7 +208,7 @@ class ExtractionTests(unittest.TestCase):
         row = next(row for row in self.rows(result) if row["kind"] == "loot-source")
         self.assertEqual({}, row["facts"])
         self.assertEqual("fixture.assets#5", row["relationships"][0]["target_source_id"])
-        self.assertEqual(6, len(self.rows(result)))
+        self.assertEqual(7, len(self.rows(result)))
 
     def test_corrupt_output_is_rejected_and_never_overwritten(self):
         result, _ = self.extract()
