@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import test_reader
+import test_guide_queries
 from wikibuild import guide_queries, packs, reader
 from wikibuild.storage import ContractError, digest, json_bytes
 
@@ -79,6 +80,10 @@ class HubProjectionTests(unittest.TestCase):
                 self.assertNotIn(self.dangling, {value.get("entity") for value in runs})
                 self.assertEqual(pack["document"]["snapshot"]["build_id"], run["snapshot_id"].split("-")[1])
         newest = self.index(site, self.fixture.new)
+        self.assertEqual(newest["biomes"], [])
+        self.assertEqual(newest["history"], [{"snapshot_id": self.fixture.new["snapshot_id"],
+            "game_version": None, "build_id": "200", "captured": None, "total": 2,
+            "topics": {"hub": 0, "items": 1, "loot": 1}, "changes": None}])
         self.assertEqual(newest["topic_counts"], {"hub": {"total": 0, "kinds": {}},
             "items": {"total": 1, "kinds": {"item": 1}}, "loot": {"total": 1, "kinds": {"loot-source": 1}}})
         markdown = (site / "hub/reference/guides/second.md").read_text()
@@ -110,6 +115,8 @@ class HubProjectionTests(unittest.TestCase):
         self.fixture.runs = [self.fixture.old]
         old_site, _ = self.build()
         old_index = self.index(old_site, self.fixture.old)
+        self.assertEqual(len(old_index["history"]), 1)
+        self.assertIsNone(old_index["history"][0]["changes"])
         self.fixture.runs = [self.fixture.new, self.fixture.old]
         site, result = self.build()
         self.assertEqual(old_index, self.index(site, self.fixture.old))
@@ -125,6 +132,99 @@ class HubProjectionTests(unittest.TestCase):
         self.assertTrue(again["reused"])
         self.assertEqual(result["candidate_id"], again["candidate_id"])
         self.assertEqual(before, {path.relative_to(repeated): path.read_bytes() for path in repeated.rglob("*") if path.is_file()})
+
+    def test_multiversion_hub_index_repeats_identically(self):
+        runs = []
+        for build in (100, 110, 200, 210, 300, 310, 400, 410):
+            run = self.fixture.make_run(str(build), [self.fixture.observation(self.fixture.a, "Item")])
+            path = self.root / "snapshots" / (run["snapshot_id"] + ".json")
+            receipt = json.loads(path.read_bytes())
+            receipt["game_version"] = f"0.8.{310 + build // 100}"
+            path.write_bytes(json_bytes(receipt))
+            runs.append(run)
+        self.fixture.runs = list(reversed(runs))
+        site, first = self.build()
+        index = self.index(site, runs[-1])
+        self.assertEqual([row["build_id"] for row in index["history"]], ["410", "310", "210", "110"])
+        self.assertTrue(all(row["changes"] == {"new": 0, "changed": 0, "removed": 0,
+            "topics": {"hub": {"new": 0, "changed": 0, "removed": 0},
+                       "items": {"new": 0, "changed": 0, "removed": 0},
+                       "loot": {"new": 0, "changed": 0, "removed": 0}}}
+            for row in index["history"][:-1]))
+        self.assertIsNone(index["history"][-1]["changes"])
+        self.assertFalse(any("history" in self.fixture.index(site, topic, runs[-1])
+                             for topic in ("items", "loot")))
+        index_bytes = (site / "hub/snapshots" / (runs[-1]["snapshot_id"] + ".json")).read_bytes()
+        self.assertLess(len(index_bytes), reader.DEFAULT_PACK_BYTES)
+        without_charts = {key: value for key, value in index.items() if key not in {"history", "biomes"}}
+        self.assertLess(len(index_bytes) - len(packs.compact(without_charts)), 4096)
+        before = {path.relative_to(site): path.read_bytes() for path in site.rglob("*") if path.is_file()}
+        repeated, second = self.build()
+        self.assertTrue(second["reused"])
+        self.assertEqual(first["candidate_id"], second["candidate_id"])
+        self.assertEqual(before, {path.relative_to(repeated): path.read_bytes() for path in repeated.rglob("*") if path.is_file()})
+
+    def test_four_version_history_uses_latest_build_then_capture_order(self):
+        keys = {letter: "e-" + letter * 32 for letter in "abcdef"}
+        captures = [
+            ("v0-a", "0.8.310", 10, None, None), ("v0-b", "0.8.310", 11, None, None),
+            ("v1-a", "0.8.311", 100, None, None),
+            ("v1-b", "0.8.311", 110, "2026-09-01", {"a": ("items", "a1"), "b": ("items", "b1"), "c": ("loot", "c1")}),
+            ("v2-a", "0.8.312", 200, None, None),
+            ("v2-b", "0.8.312", 210, None, {"a": ("items", "a2"), "c": ("loot", "c1"), "d": ("loot", "d1")}),
+            ("v3-a", "0.8.313", 300, None, None),
+            ("v3-b", "0.8.313", 310, "2026-09-03T14:00:00Z", {"a": ("items", "a2"), "d": ("loot", "d2"), "e": ("items", "e1")}),
+            ("v4-a", "0.8.314", 400, None, None),
+            ("v4-b", "0.8.314", 410, None, None),
+            ("v4-c", "0.8.314", 410, "2026-09-04", {"a": ("items", "a3"), "e": ("items", "e1"), "f": ("loot", "f1")}),
+        ]
+        runs = [{"snapshot_id": name} for name, *_ in reversed(captures)]
+        receipts, states = {}, {}
+        for name, version, build, captured, present in captures:
+            receipts[name] = {"game_version": version, "steam": {"build_id": str(build)}}
+            if captured:
+                receipts[name]["captured_at" if name == "v3-b" else "captured"] = captured
+            states[name] = {keys[key]: {"status": "present", "descriptor": {"topic": topic}, "revision_id": revision}
+                            for key, (topic, revision) in (present or {"b": ("items", "decoy")}).items()}
+            states[name]["e-" + "0" * 32] = {"status": "not-present", "descriptor": {"topic": "items"}, "revision_id": "old"}
+        with patch.object(reader.snapshots, "read", side_effect=lambda root, key: receipts[key]), \
+                patch.object(reader.history, "load_state", side_effect=lambda root, run: states[run["snapshot_id"]]):
+            rows = reader.history_rows(self.root, runs, states[runs[0]["snapshot_id"]], ("items", "loot"))
+            older_rows = reader.history_rows(self.root, runs[3:], states[runs[3]["snapshot_id"]], ("items", "loot"))
+        self.assertEqual([row["snapshot_id"] for row in rows], ["v4-c", "v3-b", "v2-b", "v1-b"])
+        self.assertEqual([row["snapshot_id"] for row in older_rows], ["v3-b", "v2-b", "v1-b", "v0-b"])
+        self.assertEqual([row["captured"] for row in rows], ["2026-09-04", "2026-09-03", None, "2026-09-01"])
+        self.assertEqual([row["total"] for row in rows], [3, 3, 3, 3])
+        self.assertEqual([row["topics"] for row in rows], [
+            {"items": 2, "loot": 1}, {"items": 2, "loot": 1},
+            {"items": 1, "loot": 2}, {"items": 2, "loot": 1}])
+        self.assertEqual([row["changes"] for row in rows], [
+            {"new": 1, "changed": 1, "removed": 1, "topics": {
+                "items": {"new": 0, "changed": 1, "removed": 0},
+                "loot": {"new": 1, "changed": 0, "removed": 1}}},
+            {"new": 1, "changed": 1, "removed": 1, "topics": {
+                "items": {"new": 1, "changed": 0, "removed": 0},
+                "loot": {"new": 0, "changed": 1, "removed": 1}}},
+            {"new": 1, "changed": 1, "removed": 1, "topics": {
+                "items": {"new": 0, "changed": 1, "removed": 1},
+                "loot": {"new": 1, "changed": 0, "removed": 0}}}, None])
+
+    def test_biome_counts_match_complete_progression_queries(self):
+        context = test_guide_queries.context()
+        rows = reader.biome_rows(context)
+        rings = guide_queries.QUERIES["rings"](context, {})
+        self.assertEqual([(row["number"], row["index"]) for row in rows], [(1, 0), (2, 1)])
+        for row, ring in zip(rows, rings):
+            self.assertEqual(row["biome"], {"entity": ring["biome"]["entity"], "name": ring["biome"]["text"]})
+            for field in ("new_materials", "new_recipes", "new_benches", "exclusive_loot"):
+                self.assertEqual(row[field], len(guide_queries.QUERIES["ring." + field](context, ring)))
+        self.assertGreater(rows[0]["new_materials"], 3)
+        combined = [{**rings[0], "biome": [rings[0]["biome"], rings[1]["biome"]]}]
+        with patch.dict(guide_queries.QUERIES, {"rings": lambda context, scope: combined}):
+            multi = reader.biome_rows(context)
+        self.assertEqual(multi[0]["biome"], [
+            {"entity": rings[0]["biome"]["entity"], "name": rings[0]["biome"]["text"]},
+            {"entity": rings[1]["biome"]["entity"], "name": rings[1]["biome"]["text"]}])
 
     def test_design_relationships_and_specs_invalidate_candidate(self):
         _, previous = self.build()

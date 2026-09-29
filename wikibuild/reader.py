@@ -298,7 +298,65 @@ def project_guides(root, identities, context, output):
     return rows, {"count": len(rows), "dropped_links": drops, "errors": errors, "other_scenery": unmatched}
 
 
-def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, site):
+def history_rows(root, runs, current_state, topic_ids):
+    """Summarize the latest capture of each of the four newest game versions."""
+    selected = {}
+    for order, run in enumerate(reversed(runs)):
+        receipt = snapshots.read(root, run["snapshot_id"])
+        build = int(receipt["steam"]["build_id"])
+        version = receipt.get("game_version")
+        if version not in selected or (build, order) > selected[version][0]:
+            selected[version] = ((build, order), run, receipt)
+
+    rows = []
+    present_by_row = []
+    for _, run, receipt in sorted(selected.values(), key=lambda item: item[0], reverse=True)[:4]:
+        state = current_state if run["snapshot_id"] == runs[0]["snapshot_id"] else history.load_state(root, run)
+        present = {key: (entry["descriptor"]["topic"], entry["revision_id"])
+                   for key, entry in state.items() if entry["status"] == "present"}
+        topics = Counter(topic for topic, _ in present.values())
+        captured = receipt.get("captured") or receipt.get("captured_at")
+        rows.append({"snapshot_id": run["snapshot_id"], "game_version": receipt.get("game_version"),
+                     "build_id": receipt["steam"]["build_id"],
+                     "captured": captured[:10] if isinstance(captured, str) and re.match(r"^\d{4}-\d{2}-\d{2}(?:$|T)", captured) else None,
+                     "total": len(present), "topics": {topic: topics[topic] for topic in sorted(topic_ids)}, "changes": None})
+        present_by_row.append(present)
+
+    for index, newer in enumerate(present_by_row[:-1]):
+        older = present_by_row[index + 1]
+        changes = {kind: 0 for kind in ("new", "changed", "removed")}
+        by_topic = {topic: {kind: 0 for kind in changes} for topic in sorted(topic_ids)}
+        for key in newer.keys() - older.keys():
+            changes["new"] += 1
+            by_topic[newer[key][0]]["new"] += 1
+        for key in older.keys() - newer.keys():
+            changes["removed"] += 1
+            by_topic[older[key][0]]["removed"] += 1
+        for key in newer.keys() & older.keys():
+            if newer[key][1] != older[key][1]:
+                changes["changed"] += 1
+                by_topic[newer[key][0]]["changed"] += 1
+        rows[index]["changes"] = {**changes, "topics": by_topic}
+    return rows
+
+
+def biome_rows(context):
+    """Count the progression guide's complete query results for each visible ring."""
+    def named(link):
+        return {"entity": link["entity"], "name": link["text"]}
+
+    rows = []
+    for ring in guide_queries.QUERIES["rings"](context, {}):
+        biome = ring["biome"]
+        biome = [named(link) for link in biome] if isinstance(biome, list) else (
+            named(biome) if isinstance(biome, dict) else [])
+        rows.append({"number": int(ring["number"]), "index": int(ring["index"]), "biome": biome,
+                     **{field: len(guide_queries.QUERIES["ring." + field](context, ring))
+                        for field in ("new_materials", "new_recipes", "new_benches", "exclusive_loot")}})
+    return rows
+
+
+def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, site, captured_runs):
     snapshot = run["snapshot_id"]
     state = history.load_state(root, run)
     models = extraction.artifact(root, run["models"])
@@ -335,9 +393,11 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                                 {"assembly": "Language", "class": "Language_Text"}))
     receipt = snapshots.read(root, snapshot)
     guide_rows, guide_receipt = [], {"count": 0, "dropped_links": 0, "errors": [], "other_scenery": []}
+    biomes = []
     def consume_context(context):
-        nonlocal guide_rows, guide_receipt
+        nonlocal guide_rows, guide_receipt, biomes
         guide_rows, guide_receipt = project_guides(root, site.get("guides", []), context, output)
+        biomes = biome_rows(context)
     player_names, players = player_projection(models, registry, text, snapshot,
         snapshot_metadata={"game_version": receipt.get("game_version") or "unknown", "build_id": receipt["steam"]["build_id"]},
         consume_context=consume_context)
@@ -400,6 +460,7 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
     maps["hub"]["search"] = hub_search
     topic_counts = {topic: {"total": sum(kinds.values()), "kinds": dict(sorted(kinds.items()))}
                     for topic, kinds in counts.items()}
+    changes_history = history_rows(root, captured_runs, state, topics)
     for topic, data in maps.items():
         writer = lambda name, value, topic=topic: output(f"{topic}/{name}", value)
         # Reuse whole single-card shards: a removed entry must not leave its card
@@ -416,7 +477,7 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                  "latest_available_build": receipt["latest_available_game_build"], "change_origin": run["change_origin"],
                  "cards": card_shards,
                  "player": player_shards,
-                 **({"guides": guide_rows, "topic_counts": topic_counts} if topic == "hub" else {}),
+                 **({"guides": guide_rows, "topic_counts": topic_counts, "history": changes_history, "biomes": biomes} if topic == "hub" else {}),
                  **{kind: packs.reuse(values, known[topic][kind], limit, writer) if kind in {"semantics", "provenance"}
                     else packs.write(values, limit, writer) for kind, values in data.items()}}
         writer(f"snapshots/{snapshot}.json", packs.compact(index))
@@ -572,13 +633,14 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     projected, current_groups = {}, None
     all_groups = {repo["id"]: set() for repo in project["repositories"]}
     known = {repo["id"]: {"semantics": {}, "provenance": {}, "cards": {}, "player": {}} for repo in project["repositories"]}
-    for run in reversed(runs):
+    for index in range(len(runs) - 1, -1, -1):
+        run = runs[index]
         # Revalidate pinned artifacts, even if a caller supplied the run.
         extraction.artifact(root, run["state"])
         extraction.artifact(root, run["models"])
         version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known,
                                            checked["snapshots"].get(run["snapshot_id"]) if checked else None,
-                                           registry=registry, site=site)
+                                           registry=registry, site=site, captured_runs=runs[index:])
         projected[run["snapshot_id"]] = version
         for topic, kinds in groups.items():
             all_groups[topic].update(kinds)

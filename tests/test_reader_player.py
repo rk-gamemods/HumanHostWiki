@@ -18,6 +18,9 @@ class PlayerProjectionTests(unittest.TestCase):
         self.root, self.project = self.fixture.root, self.fixture.project
         self.project["repositories"][0]["owns"] = ["recipe", "workbench", "biome", "world-rule",
                                                    "resource-distribution", "combat-rule"]
+        registry = json.loads(self.fixture.registry_path.read_bytes())
+        registry["glossaries"]["item-category"] = {}
+        self.fixture.registry_path.write_bytes(json_bytes(registry))
 
     def key(self, name):
         return "e-" + digest(name.encode())[:32]
