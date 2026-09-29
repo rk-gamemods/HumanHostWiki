@@ -19,6 +19,21 @@ DEBUG = re.compile(r"(?i)(^|[^a-z])(test|debug|dummy|temp)([^a-z]|$)|g_mode|gmod
 HEX_KEY = re.compile(r"^(?:[0-9a-f]{32}|e-[0-9a-f]+)$", re.I)
 FILE_PATH = re.compile(r"/[^/]+\.[a-z0-9]{1,8}(?:$|[?#])", re.I)
 LETTER_DIGIT = re.compile(r"[a-z]\d|\d[a-z]", re.I)
+WALK_FIXED = (
+    ("items-equipment", "e-045871a35c62b6aa04edaddb21311d64", "Crude Axe"),
+    ("items-equipment", "e-803183af8309a1cafa059d159bc19440", "M1891"),
+    ("items-equipment", "e-4a99806629a6f91085258cc598e7d8c6", "M1891 (second record)"),
+    ("combat", "e-48ad79eff54f66a6d7e47cb9ee2207ee", "M1891_01"),
+    ("crafting-processing", "e-f98a0303b71ff71009057e8de511e96d", "recipe"),
+    ("items-equipment", "e-77168f52db5f228bedfc3deb4b3e791d", "Ammo Type 7.62x54mm"),
+)
+WALK_LIMIT = 24
+WALK_METRICS = ("visible_lines", "facts_visible", "relationships", "one_click_leaves",
+                "jargon_tokens", "raw_floats", "bare_numbers", "identifier_labels", "jargon_ratio")
+JARGON = re.compile(r"_|[0-9a-f]{8,}|e-[0-9a-f]+|::", re.I)
+CAMEL_CASE = re.compile(r"[a-z0-9][A-Z]")
+RAW_FLOAT = re.compile(r"(?<![\w.])\d+\.(\d+)(?![\w.])")
+BARE_NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\Z")
 
 
 def read(path):
@@ -74,6 +89,93 @@ def field_label(field):
     return text[:1].upper() + text[1:] if text else field
 
 
+def visible_value(value):
+    if value is None:
+        return "Not set"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, (dict, list)):
+        if not value:
+            return "None recorded"
+        return f"{len(value)} {'entries' if isinstance(value, list) else 'fields'}"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def nested_leaves(value):
+    if isinstance(value, dict):
+        return sum(nested_leaves(child) for child in value.values())
+    if isinstance(value, list):
+        return sum(nested_leaves(child) for child in value)
+    return 1
+
+
+def jargon_token(token):
+    return bool(JARGON.search(token) or CAMEL_CASE.search(token) or
+                ("/" in token and FILE_PATH.search(token)))
+
+
+def walk_page(topic, key, record, semantic, snapshot):
+    name = record["name"]
+    lines = [record["kind"].replace("-", " "), name]
+    for label, value in (("Snapshot", snapshot), ("Status", record.get("status")),
+                         ("Last substantive change", record.get("last_changed")),
+                         ("Last data check", record.get("last_data_checked")),
+                         ("Last gameplay verification", record.get("last_verified") or "Not performed")):
+        lines.append(f"{label}: {value or 'Not recorded'}")
+    lines.append(f"Evidence: {semantic.get('evidence_level', 'Not recorded')}")
+    notes = semantic.get("notes") or []
+    for note in notes if isinstance(notes, list) else [notes]:
+        lines.append(str(note).replace("\n", " "))
+    if semantic.get("fact_scope"):
+        lines.append(f"Scope: {semantic['fact_scope']}")
+    lines.append("Extracted facts")
+    facts = semantic.get("facts", {})
+    labels = semantic.get("fact_labels", {})
+    one_click_leaves = 0
+    bare_numbers = 0
+    identifier_labels = 0
+    for field, value in facts.items():
+        pointer = "/" + field
+        shown = visible_value(labels.get(pointer, value))
+        lines.append(f"{field_label(field)}: {shown}")
+        if pointer not in labels and isinstance(value, (dict, list)) and value:
+            one_click_leaves += nested_leaves(value)
+        bare_numbers += bool(BARE_NUMBER.fullmatch(shown))
+        identifier_labels += "_" in field or bool(CAMEL_CASE.search(field))
+    lines.append("Relationships")
+    relations = semantic.get("relationships", [])
+    for relation in relations:
+        targets = [record.get("links", {}).get(target, {}).get("name", target)
+                   for target in relation.get("targets", [])]
+        targets.extend("Technical summary: " + record.get("links", {}).get(target, {}).get("name", target)
+                       for target in relation.get("technical_targets", []))
+        if not targets and not relation.get("gaps"):
+            targets.append("No target recorded")
+        lines.append(f"{relation['predicate'].replace('-', ' ')}: {', '.join(targets)} "
+                     f"Source field: {relation['field']}")
+    if record.get("backlink_count"):
+        lines.append(f"Referenced by {record['backlink_count']} relationships")
+    jargon_tokens = 0
+    for index, line in enumerate(lines):
+        if index == 1:
+            continue
+        head, separator, _ = line.partition(" Source field: ")
+        jargon_tokens += sum(jargon_token(token) for token in head.split())
+        jargon_tokens += bool(separator)
+    all_tokens = sum(len(line.split()) for line in lines)
+    raw_floats = sum(len(match.group(1).lstrip("0").rstrip("0")) > 4
+                     for line in lines for match in RAW_FLOAT.finditer(line))
+    return {"key": key, "topic": topic, "kind": record["kind"], "name": name,
+            "visible_lines": len(lines), "facts_visible": len(facts),
+            "relationships": len(relations), "one_click_leaves": one_click_leaves,
+            "jargon_tokens": jargon_tokens, "raw_floats": raw_floats,
+            "bare_numbers": bare_numbers, "identifier_labels": identifier_labels,
+            "jargon_ratio": round(jargon_tokens / all_tokens, 4) if all_tokens else 0.0,
+            "lines": lines}
+
+
 def identifier(value):
     return bool(HEX_KEY.fullmatch(value) or
                 ("/" in value and FILE_PATH.search(value)) or
@@ -107,6 +209,9 @@ def audit(repositories):
     sentinel = defaultdict(lambda: {"zero": [], "nonzero": set()})
     all_entries = {}
     relationships = []
+    walk_fixed = {}
+    walk_candidates = {}
+    fixed_keys = {(topic, key) for topic, key, _ in WALK_FIXED}
 
     def add(name, row, amount=1):
         target = flags[name]
@@ -119,7 +224,8 @@ def audit(repositories):
         topic, site = topic_dir.name, topic_dir / "site"
         topic_counts[topic] += 0
         config = read(site / "reader.json")
-        index = read(site / config["snapshots"][config["default_snapshot"]]["path"])
+        snapshot = config["default_snapshot"]
+        index = read(site / config["snapshots"][snapshot]["path"])
         entries = pack_map(site, index, "entries")
         semantics = pack_map(site, index, "semantics")
         provenance = pack_map(site, index, "provenance")
@@ -143,6 +249,10 @@ def audit(repositories):
                 add("debug_names", {**flag_row(topic, entry, value=entry["name"]),
                                     "source_id": source_id})
             semantic = semantics[entry["revision_id"]]
+            page = (topic, key, entry, semantic, snapshot)
+            if (topic, key) in fixed_keys:
+                walk_fixed[(topic, key)] = page
+            walk_candidates.setdefault((topic, kind), page)
             for relation in semantic.get("relationships", []):
                 for target in relation.get("targets", []):
                     relationships.append((topic, entry, relation["field"], target))
@@ -227,12 +337,59 @@ def audit(repositories):
     field_counts = Counter(field["kind"] for field in fields)
     for _, kind in kind_counts:
         field_counts[kind] += 0
+    selected = []
+    missing = []
+    chosen = set()
+    for topic, key, name in WALK_FIXED:
+        page = walk_fixed.get((topic, key))
+        if page is None:
+            missing.append({"topic": topic, "key": key, "name": name})
+        elif key not in chosen:
+            selected.append(page)
+            chosen.add(key)
+    for topic in sorted(topic_counts):
+        kinds = sorted((kind for owner, kind in kind_counts if owner == topic),
+                       key=lambda kind: (-kind_counts[(topic, kind)], kind))
+        for kind in kinds[:2]:
+            if len(selected) >= WALK_LIMIT:
+                break
+            page = walk_candidates[(topic, kind)]
+            if page[1] not in chosen:
+                selected.append(page)
+                chosen.add(page[1])
+        if len(selected) >= WALK_LIMIT:
+            break
+    walk = [walk_page(*page) for page in selected]
     return {"summary": {"topics": [path.name for path in topics],
                         "entries": sum(topic_counts.values()), "kinds": len({kind for _, kind in kind_counts}),
                         "entries_per_topic": dict(sorted(topic_counts.items())),
                         "fields_per_kind": dict(sorted(field_counts.items())),
                         "flag_totals": {name: flags[name]["total"] for name in FLAG_NAMES}},
-            "no_source_predicates": SOURCE_PREDICATES, "flags": flags, "field_inventory": fields}
+            "no_source_predicates": SOURCE_PREDICATES, "flags": flags, "field_inventory": fields,
+            "walk": walk, "walk_missing": missing}
+
+
+def walk_markdown(report):
+    lines = ["## Page walk", ""]
+    if report["walk_missing"]:
+        lines.append("Missing fixed keys: " + ", ".join(row["key"] for row in report["walk_missing"]))
+        lines.append("")
+    columns = ("Key", "Topic", "Kind", "Name", *WALK_METRICS)
+    lines.extend(["| " + " | ".join(columns) + " |",
+                  "| " + " | ".join("---:" if column in WALK_METRICS else "---"
+                                   for column in columns) + " |"])
+    for page in report["walk"]:
+        cells = [page["key"], page["topic"], page["kind"], page["name"]]
+        cells.extend(f"{page['jargon_ratio']:.4f}" if metric == "jargon_ratio"
+                     else str(page[metric]) for metric in WALK_METRICS)
+        lines.append("| " + " | ".join(cell.replace("|", "\\|").replace("\n", " ")
+                                       for cell in cells) + " |")
+    for page in report["walk"]:
+        fence = "`" * max(3, 1 + max((len(match.group()) for line in page["lines"]
+                                       for match in re.finditer(r"`+", line)), default=0))
+        lines.extend(["", f"### {page['name']} ({page['key']})", "", fence + "text",
+                      *page["lines"], fence])
+    return "\n".join(lines) + "\n"
 
 
 def markdown(report):
@@ -269,7 +426,7 @@ def markdown(report):
                  str(row["label_is_identifier"]).lower(), json_text(row["sample_values"])]
         lines.append("| " + " | ".join(str(cell).replace("|", "\\|").replace("\n", " ")
                                        for cell in cells) + " |")
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n" + "\n" + walk_markdown(report)
 
 
 def main(argv=None):
@@ -287,6 +444,7 @@ def main(argv=None):
     (out / "readability.json").write_text(
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8", newline="\n")
     (out / "readability.md").write_text(markdown(report), encoding="utf-8", newline="\n")
+    (out / "readability-walk.md").write_text(walk_markdown(report), encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":
