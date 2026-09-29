@@ -23,11 +23,23 @@ class ShardIndexTests(unittest.TestCase):
                          {("items", "one"): data})
 
     def test_multilevel_split_keeps_order_ranges_and_repeats_identically(self):
+        for kind in ("entries", "cards"):
+            with self.subTest(kind=kind):
+                self.check_multilevel_split(kind)
+
+    def test_legacy_index_without_cards_still_splits(self):
+        self.check_multilevel_split("entries", legacy=True)
+
+    def check_multilevel_split(self, kind, legacy=False):
         original = self.index(400)
+        if kind != "entries":
+            original[kind], original["entries"] = original["entries"], []
+        if legacy:
+            original.pop("cards", None)
         # Reused packs may overlap ranges. Parent bounds must cover every child,
         # not just the first/last list entries.
-        original["entries"][0]["last"] = "zzzz"
-        original["entries"][-1]["first"] = "aaaa"
+        original[kind][0]["last"] = "zzzz"
+        original[kind][-1]["first"] = "aaaa"
         outputs, calls = {}, []
         def emit(batch):
             calls.append(len(batch))
@@ -54,7 +66,10 @@ class ShardIndexTests(unittest.TestCase):
                 self.assertEqual(ref["last"], max(row["last"] for row in leaves))
                 self.assertEqual(ref["count"], sum(row["count"] for row in leaves))
                 yield from leaves
-        self.assertEqual(list(flatten(json.loads(result[("items", "one")])["entries"])), original["entries"])
+        projected = json.loads(result[("items", "one")])
+        self.assertEqual(list(flatten(projected[kind])), original[kind])
+        if legacy:
+            self.assertNotIn("cards", projected)
         before = dict(outputs)
         self.assertEqual(shard_index.compact(request, 2048, emit), result)
         self.assertEqual(outputs, before)

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from wikibuild import history, packs, reader
+from wikibuild import game_text, history, model, packs, presentation, reader
 from wikibuild.storage import ContractError, digest, json_bytes, writer_lock
 
 
@@ -15,6 +15,11 @@ class ReaderTests(unittest.TestCase):
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.root = Path(self.folder.name)
+        self.registry_path = self.root / "presentation/fields.json"
+        self.registry_path.parent.mkdir()
+        self.registry_path.write_bytes(json_bytes({"schema_version": 1, "glossaries": {}, "kinds": {
+            "item": {"fields": {"/weight": {"tier": "player", "format": "round2",
+                                            "label": {"game": "_Weight_Title", "fallback": "Weight"}}}}}}))
         self.project = {"repositories": [
             {"id": "hub", "title": "Home", "owns": [], "coverage": "Navigation"},
             {"id": "items", "title": "Items", "owns": ["item"], "coverage": "Items"},
@@ -127,6 +132,135 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(first["candidate_id"], second["candidate_id"])
         self.assertEqual(before, pointer.stat().st_mtime_ns)
         self.assertEqual(files, {p.relative_to(site): (p.stat().st_mtime_ns, p.read_bytes()) for p in site.rglob("*") if p.is_file()})
+
+    def test_registered_cards_match_formatter_and_preserve_semantic_records(self):
+        site, _ = self.build()
+        registry = presentation.load(self.registry_path)
+        for run in self.runs:
+            for row in model.rows(self.root / run["models"]["path"]):
+                topic = row["semantic"]["topic"]
+                index = self.index(site, topic, run)
+                entry = reader.load_maps(site / topic, index["entries"])[row["entity_key"]]
+                cards = reader.load_maps(site / topic, index["cards"])
+                self.assertEqual(entry["revision_id"], row["revision_id"])
+                self.assertEqual(reader.load_maps(site / topic, index["semantics"])[entry["revision_id"]], row["semantic"])
+                if row["semantic"]["kind"] == "item":
+                    expected = presentation.card(registry, "item", row["semantic"], {}, entry["links"])
+                    self.assertTrue(expected["stats"])
+                    self.assertEqual(cards[entry["card_id"]], expected)
+                    self.assertEqual(entry["card_id"], digest(json_bytes({
+                        "revision_id": row["revision_id"], "game_text": digest(json_bytes({})),
+                        "presentation": digest(self.registry_path.read_bytes())})))
+                else:
+                    self.assertNotIn("card_id", entry)
+                    self.assertEqual(cards, {})
+        latest = self.index(site, "items", self.new)
+        self.assertNotIn("card_id", reader.load_maps(site / "items", latest["entries"])[self.b])
+        self.assertIn("presentation.py", reader.contract())
+        self.assertIn("game_text.py", reader.contract())
+
+    def test_unchanged_cards_share_storage_when_another_entry_disappears(self):
+        site, _ = self.build()
+        indexes = [self.index(site, "items", run) for run in self.runs]
+        entries = [reader.load_maps(site / "items", index["entries"]) for index in indexes]
+        card_id = entries[0][self.a]["card_id"]
+        self.assertEqual(card_id, entries[1][self.a]["card_id"])
+        shared = [{ref["path"] for ref in index["cards"]
+                   if card_id in reader.load_maps(site / "items", [ref])} for index in indexes]
+        self.assertEqual(shared[0], shared[1])
+        self.assertEqual(len(shared[0]), 1)
+        stored = [path for path in (site / "items/data").glob("*.json") if card_id in json.loads(path.read_bytes())]
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(set(reader.load_maps(site / "items", indexes[0]["cards"])), {card_id})
+
+    def test_registry_change_invalidates_candidate_and_card_without_changing_facts(self):
+        before, first = self.build()
+        registry = presentation.load(self.registry_path)
+        registry["kinds"]["item"]["fields"]["/weight"]["label"]["fallback"] = "Mass"
+        self.registry_path.write_bytes(json_bytes(registry))
+        after, second = self.build()
+        self.assertNotEqual(first["candidate_id"], second["candidate_id"])
+        self.assertFalse(second["reused"])
+        self.assertFalse(second.get("projection_reused", False))
+        manifest = reader.verify(after)
+        self.assertEqual(manifest["inputs"]["presentation"], digest(self.registry_path.read_bytes()))
+        for run in self.runs:
+            old, new = [self.index(site, "items", run) for site in (before, after)]
+            for kind in ("semantics", "provenance", "search"):
+                self.assertEqual(old[kind], new[kind])
+            old_cards = reader.load_maps(before / "items", old["cards"])
+            new_cards = reader.load_maps(after / "items", new["cards"])
+            self.assertTrue(old_cards.keys().isdisjoint(new_cards))
+            self.assertTrue(all(card["stats"][0]["label"] == "Mass" for card in new_cards.values()))
+        self.assertTrue(self.build()[1]["reused"])
+
+    def test_game_text_is_snapshot_specific_even_when_item_revision_is_unchanged(self):
+        self.project["repositories"][0]["owns"] = ["tooltip", "language-text"]
+        tooltip_key, text_key = ["e-" + letter * 32 for letter in "de"]
+        def observations(label):
+            item = self.observation(self.a, "Item")
+            tooltip = self.observation(tooltip_key, "Tooltip", "tooltip", "hub", text_key)
+            tooltip["provenance"]["component"] = {"assembly": "UI", "class": "DynamicToolTipSet"}
+            tooltip["semantic"]["relationships"][0].update(predicate="tooltip-text", field="/data/_Weight_Title")
+            tooltip["revision_id"] = digest(json_bytes(tooltip["semantic"]))
+            text = self.observation(text_key, "Weight label", "language-text", "hub")
+            text["provenance"]["component"] = {"assembly": "Language", "class": "Language_Text"}
+            text["semantic"]["facts"] = {"text": label}
+            text["revision_id"] = digest(json_bytes(text["semantic"]))
+            return [item, tooltip, text]
+        self.runs = [self.make_run("400", observations("Mass: ")), self.make_run("300", observations("Weight: "))]
+        site, _ = self.build()
+        entries = []
+        for run, label in zip(self.runs, ("Mass", "Weight")):
+            index = self.index(site, "items", run)
+            entry = reader.load_maps(site / "items", index["entries"])[self.a]
+            card = reader.load_maps(site / "items", index["cards"])[entry["card_id"]]
+            text = game_text.labels(model.rows(self.root / run["models"]["path"]))
+            semantic = reader.load_maps(site / "items", index["semantics"])[entry["revision_id"]]
+            self.assertEqual(card, presentation.card(presentation.load(self.registry_path), "item", semantic, text, entry["links"]))
+            self.assertEqual(card["stats"][0]["label"], label)
+            entries.append(entry)
+        self.assertEqual(entries[0]["revision_id"], entries[1]["revision_id"])
+        self.assertNotEqual(entries[0]["card_id"], entries[1]["card_id"])
+
+    def test_validation_rejects_missing_cards_and_accepts_legacy_entries(self):
+        site, _ = self.build()
+        path = site / "items/snapshots" / f"{self.new['snapshot_id']}.json"
+        index = self.index(site, "items", self.new)
+        for missing in ([], None):
+            with self.subTest(cards=missing):
+                broken = {**index, "cards": missing}
+                if missing is None:
+                    del broken["cards"]
+                path.write_bytes(packs.compact(broken))
+                with self.assertRaisesRegex(ContractError, "card_id is missing"):
+                    reader.validate_snapshot(site, self.new["snapshot_id"], ["hub", "items", "loot"])
+        entries = reader.load_maps(site / "items", index["entries"])
+        for entry in entries.values():
+            entry.pop("card_id", None)
+        def output(name, data):
+            (site / "items" / name).write_bytes(data)
+        index["entries"] = packs.write({key: packs.compact(value) for key, value in entries.items()}, 4096, output)
+        path.write_bytes(packs.compact(index))
+        with self.assertRaisesRegex(ContractError, "card has no owning entry"):
+            reader.validate_snapshot(site, self.new["snapshot_id"], ["hub", "items", "loot"])
+        del index["cards"]
+        path.write_bytes(packs.compact(index))
+        self.assertEqual(reader.validate_snapshot(site, self.new["snapshot_id"], ["hub", "items", "loot"]), 2)
+
+    def test_registry_change_during_projection_does_not_promote(self):
+        _, initial = self.build()
+        original = reader.project_snapshot
+        def change_registry(*args, **kwargs):
+            result = original(*args, **kwargs)
+            self.registry_path.write_bytes(self.registry_path.read_bytes() + b"\n")
+            return result
+        with patch("wikibuild.reader.project_snapshot", side_effect=change_registry):
+            with self.assertRaisesRegex(ContractError, "inputs changed during generation"):
+                self.build(max_pack_bytes=2048)
+        self.assertEqual(json.loads((self.root / ".local/reader-latest.json").read_bytes())["candidate_id"], initial["candidate_id"])
+        self.assertFalse(self.build(max_pack_bytes=2048)[1]["reused"])
+        self.assertTrue(self.build(max_pack_bytes=2048)[1]["reused"])
 
     def test_modified_or_unknown_output_is_refused(self):
         site, _ = self.build()

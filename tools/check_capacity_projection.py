@@ -60,7 +60,9 @@ def audit(candidate, projection, owner):
         for snapshot, ref in config["snapshots"].items():
             index = resolve(ref)
             original = json.loads((candidate / topic / "snapshots" / (snapshot + ".json")).read_bytes())
-            for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+            for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards"):
+                if kind == "cards" and kind not in original:
+                    continue
                 index[kind] = list(leaves(index[kind], resolve))
                 assert len(index[kind]) == len(original[kind])
                 for actual, expected in zip(index[kind], original[kind]):

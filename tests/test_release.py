@@ -76,7 +76,9 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(heads, self.heads())
         self.assertEqual(stamp, latest.stat().st_mtime_ns)
         self.assertEqual((self.root / 'repositories/items/notes.md').read_text(), 'Authored explanation')
-        pack = next((self.root / 'repositories/items/site/data').glob('*.json'))
+        candidate_index = json.loads((Path(self.candidate['path']) / 'items/snapshots' /
+                                      (self.fixture.new['snapshot_id'] + '.json')).read_bytes())
+        pack = self.root / 'repositories/items/site' / candidate_index['cards'][0]['path']
         original = pack.read_bytes()
         pack.write_bytes(original + b' ')
         with self.assertRaises(AssertionError):
