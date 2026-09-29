@@ -119,6 +119,8 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
         source = within(candidate, name)
         if re.fullmatch(r"data/[0-9a-f]{64}\.json", relative):
             leaves.append(add(topic, "site/" + relative, source=source, metadata=metadata))
+        elif topic == "hub" and re.fullmatch(r"fonts/[0-9a-f]{64}/[A-Za-z0-9-]+\.(?:woff2|css|txt)", relative):
+            leaves.append(add(topic, "site/" + relative, source=source, metadata=metadata))
         elif relative in {"reader.js", "reader.css"}:
             target = f"runtime/{metadata['sha256']}/{relative}"
             leaves.append(add(topic, "site/" + target, source=source, metadata=metadata))
@@ -143,6 +145,27 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
         if (digest(data), len(data)) != (metadata["sha256"], metadata["bytes"]):
             raise ContractError("Reader metadata changed during capacity projection")
         return data
+
+    fonts = json.loads(verified(*configs["hub"])).get("fonts")
+    projected_fonts = None
+    font_leaves = {name.removeprefix("hub/"): meta for name, meta in manifest["files"].items()
+                   if name.startswith("hub/fonts/")}
+    if fonts:
+        folder = "fonts/" + digest(json_bytes(fonts["files"])) + "/"
+        expected = {folder + name: meta for name, meta in fonts["files"].items()}
+        if (fonts["base"] != bases["hub"] + folder or expected != font_leaves or
+                "fonts.css" not in fonts["files"]):
+            raise ContractError("Font set differs from candidate content")
+        locations = {located["hub/site/" + name].partition for name in expected}
+        if len(locations) != 1:
+            raise ContractError("Font set spans multiple partitions")
+        part = by_partition[locations.pop()]
+        projected_fonts = {**fonts, "base": f"https://{github_owner}.github.io/{part.github_name}/{folder}"}
+    elif font_leaves:
+        raise ContractError("Font files have no configuration")
+    for source, metadata in configs.values():
+        if json.loads(verified(source, metadata)).get("fonts") != fonts:
+            raise ContractError("Topics disagree on the shared font set")
 
     snapshot_data = {}
     for topic, source, metadata in snapshots:
@@ -198,6 +221,10 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
             name, sha, size = article_objects[topic]
             external = {"path": reference(topic, name, sha, size), "sha256": sha, "bytes": size}
         release_data[topic] = release_content.configuration(verified(source, metadata), release_id, resolved, runtime, external)
+        if projected_fonts:
+            value = json.loads(release_data[topic])
+            value["fonts"] = projected_fonts
+            release_data[topic] = json_bytes(value)
         if entrypoints != bases:
             value = json.loads(release_data[topic])
             if "entrypoint-rollover-v1" not in value.get("features", []):

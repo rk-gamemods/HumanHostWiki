@@ -12,6 +12,7 @@ from tools.audit_shard_index import leaves
 from tools.audit_capture_catalog import expand
 from tools.audit_ownership import expand as expand_ownership
 from tools.audit_external_articles import compare as compare_articles, reachable as articles_reachable
+from tools.audit_fonts import compare as compare_fonts, reachable as fonts_reachable
 
 
 def sha(data):
@@ -99,7 +100,7 @@ def check(root):
         origins[origin] = (logical, path)
         ownership[path] = files
         allocated = owner.get("capacity_objects", [name for name in files if name.startswith(
-            ("site/data/", "site/objects/", "site/runtime/", "site/releases/"))])
+            ("site/data/", "site/objects/", "site/runtime/", "site/releases/", "site/fonts/"))])
         assert len(allocated) == len(set(allocated))
         for name in allocated:
             assert (logical, name) not in locations
@@ -147,8 +148,9 @@ def check(root):
         front_base = f"https://{owner_name}.github.io/{manifest['repositories'][front]['github_name']}/"
         assert config == configuration(topic, front_base + "releases/" + release_id + ".json")
         original = read(candidate / topic / "reader.json")
-        assert {k: v for k, v in config.items() if k not in {"release_id", "runtime", "snapshots", "publication", "entrypoints", "external_articles"}} == {
-            k: v for k, v in original.items() if k not in {"publication", "external_articles"}}
+        assert {k: v for k, v in config.items() if k not in {"release_id", "runtime", "snapshots", "publication", "entrypoints", "external_articles", "fonts"}} == {
+            k: v for k, v in original.items() if k not in {"publication", "external_articles", "fonts"}}
+        compare_fonts(original.get("fonts"), config.get("fonts"), lambda ref: public("hub", ref))
         compare_articles(original.get("external_articles"), config.get("external_articles"),
                          lambda ref: json.loads(public(topic, ref)))
         if "entrypoints" in config:
@@ -183,14 +185,22 @@ def check(root):
             front = manifest.get("entrypoints", {}).get(topic, topic)
             path = contained(root, manifest["repositories"][front]["path"])
             assert contained(path, relative).read_bytes() == data.replace(("release=" + candidate_id).encode(), ("release=" + release_id).encode())
-        elif relative.startswith("data/"):
+        elif relative.startswith(("data/", "fonts/")):
             assert locations[(topic, "site/" + relative)].read_bytes() == data
         else:
             front = manifest.get("entrypoints", {}).get(topic, topic)
             front_base = f"https://{owner_name}.github.io/{manifest['repositories'][front]['github_name']}/"
+            fonts = config.get("fonts")
+            if fonts and relative.endswith(".html"):
+                from html import escape
+                original_fonts = read(candidate / topic / "reader.json")["fonts"]
+                data = data.replace(escape(original_fonts["base"], quote=True).encode(), b"__WIKI_FONT_BASE__")
             if front != topic and relative.endswith(".html"):
                 from urllib.parse import urlsplit
                 data = data.replace(urlsplit(manifest["routes"][topic]).path.encode(), urlsplit(front_base).path.encode())
+            if fonts and relative.endswith(".html"):
+                data = data.replace(b"__WIKI_FONT_BASE__", escape(fonts["base"], quote=True).encode())
+                assert (fonts["base"] + "fonts.css").encode() in data
             assert public(topic, front_base + relative) == data
         counts["candidate_files"] += 1
     # Full configs have one allocated location. Front stubs do not count as
@@ -201,6 +211,7 @@ def check(root):
         old = expand(read(path), lambda ref: json.loads(public(topic, ref)))
         assert old["release_id"] == path.stem
         articles_reachable(old.get("external_articles"), lambda ref: json.loads(public(topic, ref)))
+        fonts_reachable(old.get("fonts"), lambda ref: public("hub", ref))
         for name in old["runtime"].values():
             assert sha(public(topic, name)) == name.split("/")[-2]
         for snapshot, index_ref in old["snapshots"].items():

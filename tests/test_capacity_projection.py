@@ -109,7 +109,9 @@ class CapacityProjectionTests(unittest.TestCase):
 
     def test_forced_rollover_references_preserve_two_snapshots_and_replay_writes_nothing(self):
         sealed = tuple(replace(part, sealed=True) for part in self.originals)
-        limits = capacity.Budgets(file_bytes=30_000, site_bytes=31_000, history_bytes=31_000,
+        # Fit each font/runtime file and the complete font set, but not that
+        # set plus the hub runtime in one partition. Rollover stays mandatory.
+        limits = capacity.Budgets(file_bytes=150_000, site_bytes=401_000, history_bytes=501_000,
                                   site_reserve_bytes=1000, history_reserve_bytes=1000)
         result = self.build(sealed, budgets=limits)
         self.assertGreater(len(result.created), len(self.topics))
@@ -152,6 +154,23 @@ class CapacityProjectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "changed before release write"):
             list(result.writes())
 
+    def test_fonts_relocate_together_and_changed_bytes_fail_before_writing(self):
+        result = self.build(tuple(replace(part, sealed=True) for part in self.originals))
+        fonts = [item for item in result.placements if item.artifact.path.startswith("site/fonts/")]
+        self.assertTrue(fonts)
+        self.assertEqual({item.artifact.topic for item in fonts}, {"hub"})
+        self.assertEqual(len({item.partition for item in fonts}), 1)
+        self.assertNotEqual(fonts[0].partition, "hub")
+        configs = [json.loads(result.payloads[topic.id + f"/site/releases/{self.release_id}.json"].read())
+                   for topic in self.topics]
+        self.assertTrue(all(config["fonts"] == configs[0]["fonts"] for config in configs))
+        self.assertIn("Wiki-hub-Part-0001/fonts/", configs[0]["fonts"]["base"])
+        audit(self.path, result, "wiki-fixture")
+        font = next(result.payloads[item.artifact.key] for item in fonts if item.artifact.path.endswith(".woff2"))
+        font.source.write_bytes(font.source.read_bytes() + b"\r\n")
+        with self.assertRaisesRegex(ContractError, "changed before release write"):
+            list(result.writes())
+
     def test_namespace_or_modified_candidate_is_rejected_without_writes(self):
         with self.assertRaisesRegex(ContractError, "publication namespace"):
             capacity_projection.build(self.path, self.release_id, "another-owner", self.originals)
@@ -175,14 +194,15 @@ class CapacityProjectionTests(unittest.TestCase):
             self.build()
 
     def test_oversized_real_reader_index_splits_replays_and_loads_on_demand(self):
-        keys = ["e-" + f"{number:032x}" for number in range(160)]
+        # Scale the index with the larger file budget required by real fonts.
+        keys = ["e-" + f"{number:032x}" for number in range(800)]
         run = self.fixture.make_run("300", [self.fixture.observation(key, "Item " + key) for key in keys])
         candidate = reader.build(self.fixture.root, self.project, [run, *self.fixture.runs],
                                  bases=self.bases, max_pack_bytes=1024)
         self.path = Path(candidate["path"])
         original_index = self.path / "items/snapshots" / (run["snapshot_id"] + ".json")
-        self.assertGreater(original_index.stat().st_size, 30_000)
-        limits = capacity.Budgets(file_bytes=30_000, site_bytes=80_000, history_bytes=120_000,
+        self.assertGreater(original_index.stat().st_size, 150_000)
+        limits = capacity.Budgets(file_bytes=150_000, site_bytes=501_000, history_bytes=601_000,
                                   site_reserve_bytes=1000, history_reserve_bytes=1000)
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals), budgets=limits)
         directories = [item for item in result.payloads.values() if item.data and
@@ -203,7 +223,7 @@ class CapacityProjectionTests(unittest.TestCase):
             control = self.fixture.root / "directory-reader.json"
             control.write_text(json.dumps({"root": str(output), "base": self.bases["items"],
                                            "configuration": result.configurations["items"],
-                                           "snapshot": run["snapshot_id"], "key": keys[37]}))
+                                           "snapshot": run["snapshot_id"], "key": keys[37], "count": len(keys)}))
             checked = subprocess.run([node, str(Path(__file__).with_name("reader_shards.test.js")), str(control)],
                                      capture_output=True, text=True)
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
@@ -240,15 +260,16 @@ class CapacityProjectionTests(unittest.TestCase):
         self.assertNotIn(key, result.reused)
 
     def test_capture_catalog_preserves_physical_history_and_browser_selection(self):
-        runs = [self.fixture.make_run(str(build), []) for build in reversed(range(1000, 1080))]
+        # Enough captures to force paging above the real font/runtime budget.
+        runs = [self.fixture.make_run(str(build), []) for build in reversed(range(1000, 1400))]
         self.path = Path(reader.build(self.fixture.root, self.project, runs, bases=self.bases)["path"])
-        limits = capacity.Budgets(file_bytes=30_000, site_bytes=80_000, history_bytes=160_000,
+        limits = capacity.Budgets(file_bytes=150_000, site_bytes=501_000, history_bytes=601_000,
                                   site_reserve_bytes=1000, history_reserve_bytes=1000)
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals), budgets=limits)
         output = self.fixture.root / "capture-sites"
         self.materialize(result, output)
-        self.assertEqual(audit(self.path, result, "wiki-fixture")["snapshots"], 240)
-        self.assertEqual(self.inspect(result, output)["snapshots"], 240)
+        self.assertEqual(audit(self.path, result, "wiki-fixture")["snapshots"], 1200)
+        self.assertEqual(self.inspect(result, output)["snapshots"], 1200)
         self.assertTrue(all(item.artifact.bytes <= limits.file_bytes for item in result.payloads.values()))
         self.assertTrue(all("capture_catalog" in json.loads(result.payloads[topic.id + f"/site/releases/{self.release_id}.json"].read())
                             for topic in self.topics))
@@ -266,14 +287,14 @@ class CapacityProjectionTests(unittest.TestCase):
         self.assertEqual(replay.configurations, result.configurations)
         before = {path: path.read_bytes() for path in output.rglob("*") if path.is_file()}
         self.release_id = "b" * 64
-        newer = self.fixture.make_run("1080", [])
+        newer = self.fixture.make_run("1400", [])
         self.path = Path(reader.build(self.fixture.root, self.project, [newer, *runs], bases=self.bases)["path"])
         later = self.build(tuple(replace(part, sealed=True) for part in result.partitions), result.placements, budgets=limits)
         self.materialize(later, output)
-        self.assertEqual(self.inspect(later, output)["snapshots"], 243)
+        self.assertEqual(self.inspect(later, output)["snapshots"], 1203)
         self.assertTrue(all(path.read_bytes() == data for path, data in before.items()))
         old_objects = {key for key in result.payloads if "/objects/" in key}
-        self.assertGreater(len(old_objects & set(later.reused)), 240)
+        self.assertGreater(len(old_objects & set(later.reused)), 1200)
 
     def test_independent_auditor_rejects_changed_snapshot_membership(self):
         self.check_changed_snapshot_membership("entries")

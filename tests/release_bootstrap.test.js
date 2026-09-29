@@ -16,14 +16,20 @@ const encode = value => Buffer.from(JSON.stringify(value));
 const reference = (id, target, data) => encode({schema_version: 1, kind: "wiki-release-reference", release_id: id,
   target: {path: target, sha256: crypto.createHash("sha256").update(data).digest("hex"), bytes: data.length}});
 
-async function run(files, requested = identity, localBase = base) {
-  const elements = {status: {}, content: {}, stylesheet: {}};
+async function run(files, requested = identity, localBase = base, fontLink = {}) {
+  const elements = {status: {}, content: {}, stylesheet: {}, "wiki-fonts": fontLink};
   const scripts = [], calls = [];
   const context = {URL, URLSearchParams, TextDecoder, crypto: crypto.webcrypto,
     location: {origin: new URL(localBase).origin, search: requested ? "?release=" + requested : ""},
     humanHostPreviewOrigin: localBase === base ? undefined : "https://wiki-fixture.github.io",
     document: {currentScript: {src: localBase + "reader.js"}, getElementById: id => elements[id],
-      querySelector: () => elements.stylesheet, createElement: () => ({}), head: {append: script => scripts.push(script)}},
+      querySelector: selector => {
+        assert.equal(selector, 'link[rel="stylesheet"]:not(#wiki-fonts)');
+        return elements.stylesheet;
+      }, createElement: tag => ({tag}), head: {append: element => {
+        if (element.tag === "link") elements[element.id] = element;
+        else scripts.push(element);
+      }}},
     fetch: async url => {
       calls.push(url.href);
       const bytes = files[url.href];
@@ -43,6 +49,24 @@ async function run(files, requested = identity, localBase = base) {
   assert.equal(result.context.humanHostReader.base, base);
   assert.equal(result.scripts[0].src, config(identity).runtime.js);
   assert.equal(result.elements.stylesheet.href, base + "runtime/reader.css");
+  assert.equal(result.elements["wiki-fonts"].disabled, true); // Legacy release in a new shell.
+
+  const fontBase = origin + "Wiki-hub-Part-0001/fonts/" + "c".repeat(64) + "/";
+  const withFonts = encode({...config(identity), fonts: {base: fontBase}});
+  result = await run({[base + "releases/" + identity + ".json"]: withFonts});
+  assert.equal(result.elements["wiki-fonts"].href, fontBase + "fonts.css");
+  assert.equal(result.elements["wiki-fonts"].disabled, false);
+  assert.equal(result.elements.stylesheet.href, base + "runtime/reader.css");
+  result = await run({[base + "releases/" + identity + ".json"]: withFonts}, identity, base, null);
+  assert.equal(result.elements["wiki-fonts"].href, fontBase + "fonts.css"); // Old shell, new release.
+  assert.equal(result.scripts.length, 1);
+  const preview = "http://127.0.0.1:8123/";
+  result = await run({[preview + "Wiki-items/releases/" + identity + ".json"]: withFonts}, identity, preview + "Wiki-items/");
+  assert.equal(result.elements["wiki-fonts"].href, fontBase.replace(origin, preview) + "fonts.css");
+  result = await run({[base + "releases/" + identity + ".json"]:
+    encode({...config(identity), fonts: {base: "https://elsewhere.invalid/"}})});
+  assert.equal(result.scripts.length, 0);
+  assert.match(result.elements.content.textContent, /Fonts outside publication namespace/);
 
   result = await run({[base + "releases/" + identity + ".json"]: pointer, [target]: Buffer.concat([data, Buffer.from(" ")])});
   assert.equal(result.scripts.length, 0);
@@ -115,5 +139,5 @@ async function run(files, requested = identity, localBase = base) {
     [nextHub + "reader.json"]: encode({release_id: nextIdentity, topic: "hub", entrypoints: {items: replacement}}),
     [replacement + "releases/" + nextIdentity + ".json"]: encode(config(nextIdentity))}, null);
   assert.equal(result.context.humanHostReader.config.release_id, nextIdentity);
-  console.log("15 release loader scenarios passed");
+  console.log("19 release loader scenarios passed");
 })().catch(error => { console.error(error); process.exitCode = 1; });

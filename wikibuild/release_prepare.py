@@ -1,6 +1,7 @@
 """Measure complete Git proposals and roll full entrypoints before any promotion."""
 
 from dataclasses import asdict
+import json
 from pathlib import Path
 import uuid
 
@@ -52,7 +53,9 @@ def prepare(root, project, candidate, release_id, inventory, previous):
             if identity == fronts[topic]:
                 release.project_topic(Path(candidate["path"]), repo, writer, projection)
             elif identity == original[topic] and topic in rolled:
-                entrypoints.retire(writer, project, topic, bases[topic], release_id, candidate["path"])
+                config = json.loads(projection.payloads[topic + f"/site/releases/{release_id}.json"].read())
+                entrypoints.retire(writer, project, topic, bases[topic], release_id, candidate["path"],
+                                   fonts_base=config.get("fonts", {}).get("base"))
             elif repo["role"] == "partition":
                 release_partitions.landing(writer, project, repo)
             changes, summary = writer.finish(limits.file_bytes)

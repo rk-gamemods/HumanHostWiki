@@ -229,7 +229,7 @@ class PublicationTests(unittest.TestCase):
             self.assertFalse(any(name.startswith("data/") for name in plan["checks"]))
             self.assertLess(len(plan["checks"]), len(plan["files"]))
             for name, meta in first["repositories"][topic]["files"].items():
-                if name.startswith(("data/", "objects/", "releases/", "runtime/")):
+                if name.startswith(("data/", "objects/", "releases/", "runtime/", "fonts/")):
                     self.assertEqual(plan["files"][name], meta)
 
     def test_public_history_audit_checks_deleted_private_files(self):
@@ -267,6 +267,37 @@ class PublicationTests(unittest.TestCase):
         git(repo, 'commit', '-qm', 'Forbidden source fixture')
         with self.assertRaisesRegex(ContractError, 'Unapproved public history path'):
             publication_git.audit(repo, git(repo, 'rev-parse', 'HEAD'), private)
+
+
+    def test_public_audit_only_allows_binary_fonts_in_the_font_namespace(self):
+        repo = self.root / "repositories/items"
+        baseline = git(repo, "rev-parse", "HEAD")
+        folder = repo / "site/fonts" / ("a" * 64)
+        folder.mkdir(parents=True)
+        path = folder / "Fixture.woff2"
+        path.write_bytes(b"wOF2\x00\r\nfixture")
+        git(repo, "add", "site")
+        git(repo, "commit", "-qm", "Font fixture")
+        accepted = git(repo, "rev-parse", "HEAD")
+        self.assertEqual(publication_git.audit(repo, accepted, baseline)["commits"], 1)
+        path.write_bytes(b"not a font\x00")
+        git(repo, "add", "site")
+        git(repo, "commit", "-qm", "Invalid font fixture")
+        invalid = git(repo, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ContractError, "Invalid WOFF2"):
+            publication_git.audit(repo, invalid, accepted)
+        path.write_bytes(b"wOF2\x00C:/Users/Admin/private")
+        git(repo, "add", "site")
+        git(repo, "commit", "-qm", "Private font fixture")
+        private = git(repo, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(ContractError, "Private or binary"):
+            publication_git.audit(repo, private, invalid)
+        path.write_bytes(b"wOF2\x00\r\nfixture")
+        (repo / "site/data.json").write_bytes(b"wOF2\x00\r\nfixture")
+        git(repo, "add", "site")
+        git(repo, "commit", "-qm", "Binary data fixture")
+        with self.assertRaisesRegex(ContractError, "Private or binary"):
+            publication_git.audit(repo, git(repo, "rev-parse", "HEAD"), private)
 
 
 class AdapterTests(unittest.TestCase):

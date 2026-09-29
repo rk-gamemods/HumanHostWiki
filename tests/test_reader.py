@@ -71,6 +71,45 @@ class ReaderTests(unittest.TestCase):
     def index(self, site, topic, run):
         return json.loads((site / topic / "snapshots" / f"{run['snapshot_id']}.json").read_text())
 
+    def test_shared_fonts_have_exact_bytes_resolving_links_and_repeat_build(self):
+        site, _ = self.build()
+        config = json.loads((site / "hub/reader.json").read_bytes())
+        fonts = config["fonts"]
+        self.assertEqual(fonts["base"], "/hub/fonts/" + digest(json_bytes(fonts["files"])) + "/")
+        sources = Path(reader.__file__).parent / "web/fonts"
+        for name, meta in fonts["files"].items():
+            data = (site / (fonts["base"] + name).lstrip("/")).read_bytes()
+            original = (sources / name).read_bytes()
+            self.assertEqual(data, original if name.endswith(".woff2") else original.replace(b"\r\n", b"\n"))
+            self.assertEqual(meta, {"sha256": digest(data), "bytes": len(data)})
+        for topic in ("hub", "items", "loot"):
+            value = json.loads((site / topic / "reader.json").read_bytes())
+            self.assertEqual(value["fonts"], fonts)
+            for shell in (site / topic).rglob("*.html"):
+                self.assertIn('id="wiki-fonts" rel="stylesheet" href="' + fonts["base"] + 'fonts.css"', shell.read_text())
+            if topic != "hub":
+                self.assertFalse((site / topic / "fonts").exists())
+        before = {p.relative_to(site): p.read_bytes() for p in site.rglob("*") if p.is_file()}
+        repeated, result = self.build()
+        self.assertTrue(result["reused"])
+        self.assertEqual(before, {p.relative_to(repeated): p.read_bytes() for p in repeated.rglob("*") if p.is_file()})
+
+    def test_font_change_changes_candidate_and_set_identity(self):
+        first, initial = self.build()
+        font = Path(reader.__file__).parent / "web/fonts/Geist.woff2"
+        read_bytes = Path.read_bytes
+        def changed(path):
+            data = read_bytes(path)
+            return data + b"\r\n" if path == font else data
+        with patch.object(Path, "read_bytes", changed):
+            second, updated = self.build()
+            self.assertTrue(self.build()[1]["reused"])
+        self.assertNotEqual(initial["candidate_id"], updated["candidate_id"])
+        old_fonts = json.loads((first / "hub/reader.json").read_bytes())["fonts"]
+        new_fonts = json.loads((second / "hub/reader.json").read_bytes())["fonts"]
+        self.assertNotEqual(old_fonts["base"], new_fonts["base"])
+        self.assertEqual((second / (new_fonts["base"] + font.name).lstrip("/")).read_bytes(), font.read_bytes() + b"\r\n")
+
     def test_short_cache_name_keeps_full_identity_and_rejects_prefix_collision(self):
         site, result = self.build()
         self.assertEqual(site.name, result["candidate_id"][:24])

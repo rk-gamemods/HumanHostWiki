@@ -43,6 +43,24 @@ class CapacityTests(unittest.TestCase):
         self.assertEqual(result.created, ("items-part-0001",))
         self.assertEqual(result.partitions[0], base)
 
+    def test_font_set_is_atomic_deterministic_reusable_and_bounded(self):
+        hub = capacity.Topic("hub", "Wiki-hub")
+        original = capacity.partition(hub, 0, site_bytes=500, history_bytes=500)
+        fonts = [capacity.Artifact("hub", "site/fonts/" + "a" * 64 + "/" + name,
+                                   hashlib.sha256(name.encode()).hexdigest(), size)
+                 for name, size in (("fonts.css", 100), ("One.woff2", 500), ("OFL-one.txt", 100))]
+        plan = self.allocate(fonts, [original], topics=[hub])
+        self.assertEqual(plan.created, ("hub-part-0001",))
+        self.assertEqual({item.partition for item in plan.placements}, {"hub-part-0001"})
+        self.assertEqual(plan.record(), self.allocate(reversed(fonts), [original], topics=[hub]).record())
+        replay = self.allocate(fonts, plan.partitions, plan.placements, topics=[hub])
+        self.assertFalse(replay.created)
+        self.assertEqual(replay.placements, plan.placements)
+        self.assertEqual(len(replay.reused), len(fonts))
+        with self.assertRaisesRegex(ContractError, "Font set exceeds"):
+            self.allocate([*fonts, replace(fonts[0], path=fonts[0].path.replace("fonts.css", "Two.woff2"), bytes=400,
+                                          sha256="b" * 64)], [original], topics=[hub])
+
     def test_sealed_and_over_budget_partitions_allow_reuse_only(self):
         old = self.artifact("old")
         for base in (replace(self.empty, site_bytes=400, history_bytes=400, sealed=True),

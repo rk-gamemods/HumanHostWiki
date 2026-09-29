@@ -100,7 +100,22 @@
   if (logical.origin !== base.origin) throw new Error("Logical topic leaves the configured namespace");
   const relative = (value, root = logical) => resolve(value, root);
   globalThis.humanHostReader = {config, base: logical.href, routeBase: base.href, resolve: relative};
-  document.querySelector('link[rel="stylesheet"]').href = relative(config.runtime.css).href;
+  document.querySelector('link[rel="stylesheet"]:not(#wiki-fonts)').href = relative(config.runtime.css).href;
+  let fontLink = document.getElementById("wiki-fonts");
+  if (config.fonts) {
+    const fontURL = relative(config.fonts.base + "fonts.css");
+    if (fontURL.origin !== base.origin) throw new Error("Fonts outside publication namespace");
+    if (!fontLink) {
+      fontLink = document.createElement("link");
+      fontLink.id = "wiki-fonts";
+      fontLink.rel = "stylesheet";
+      document.head.append(fontLink);
+    }
+    fontLink.href = fontURL.href;
+    fontLink.disabled = false;
+  } else if (fontLink) {
+    fontLink.disabled = true;
+  }
   const script = document.createElement("script");
   script.src = relative(config.runtime.js).href;
   script.onerror = () => {document.getElementById("status").textContent = "The selected release runtime could not be loaded.";};

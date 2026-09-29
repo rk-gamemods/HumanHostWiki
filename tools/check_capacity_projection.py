@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.audit_shard_index import leaves
 from tools.audit_capture_catalog import expand
 from tools.audit_external_articles import compare as compare_articles
+from tools.audit_fonts import compare as compare_fonts
 
 
 def audit(candidate, projection, owner):
@@ -28,7 +29,7 @@ def audit(candidate, projection, owner):
         artifact = item.artifact
         data = projection.payloads[artifact.key].read()
         assert len(data) == artifact.bytes and hashlib.sha256(data).hexdigest() == artifact.sha256
-        if artifact.path.startswith(("site/data/", "site/runtime/")):
+        if artifact.path.startswith(("site/data/", "site/runtime/", "site/fonts/")):
             relative = artifact.path.removeprefix("site/")
             if relative.startswith("runtime/"):
                 relative = relative.rsplit("/", 1)[1]
@@ -49,8 +50,13 @@ def audit(candidate, projection, owner):
         config = expand(resolve(config_ref), resolve)
         original_config = json.loads((candidate / topic / "reader.json").read_bytes())
         assert config["release_id"] == projection.release_id
-        assert {k: v for k, v in config.items() if k not in {"release_id", "publication", "runtime", "snapshots", "external_articles"}} == {
-            k: v for k, v in original_config.items() if k not in {"publication", "external_articles"}}
+        assert {k: v for k, v in config.items() if k not in {"release_id", "publication", "runtime", "snapshots", "external_articles", "fonts"}} == {
+            k: v for k, v in original_config.items() if k not in {"publication", "external_articles", "fonts"}}
+        def font_bytes(ref):
+            item = objects[ref["path"]]
+            assert item.artifact.topic == "hub"
+            return projection.payloads[item.artifact.key].read()
+        compare_fonts(original_config.get("fonts"), config.get("fonts"), font_bytes)
         compare_articles(original_config.get("external_articles"), config.get("external_articles"), resolve)
         for extension, name in config["runtime"].items():
             item = objects[urljoin(topic_base, name)]
@@ -79,9 +85,9 @@ def audit(candidate, projection, owner):
     # unreferenced pack. No new fact pack may be invented by location projection.
     expected_leaves = {(name.split("/", 1)[0], value["sha256"], value["bytes"])
                        for name, value in manifest["files"].items()
-                       if "/data/" in name or name.endswith(("/reader.js", "/reader.css"))}
+                       if "/data/" in name or "/fonts/" in name or name.endswith(("/reader.js", "/reader.css"))}
     actual_leaves = {(item.artifact.topic, item.artifact.sha256, item.artifact.bytes)
-                     for item in objects.values() if item.artifact.path.startswith(("site/data/", "site/runtime/"))}
+                     for item in objects.values() if item.artifact.path.startswith(("site/data/", "site/runtime/", "site/fonts/"))}
     assert actual_leaves == expected_leaves
     return counts
 
