@@ -382,7 +382,8 @@ class GuideQueryTests(unittest.TestCase):
                             [link("collectible-item", "wood", "/_Collectable_Info/_Items/0/_IconRef")]))
         ctx = context(rows)
         self.assertEqual(words(queries.how_runs(ctx, key("wood"))), "gathered from ash, birch, cedar and 1 more")
-        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)), "gathered from oak")
+        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)), "gathered from ash, birch, cedar and 1 more")
+        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=1)), "gathered from ash, birch and cedar")
         # A crafted recipe must not invent a fifth material grouping, and the
         # public limit cannot expose more than two acquisition phrases.
         ctx = context(fixture() + [recipe("make-part", "part", [("wood", 2)])])
@@ -423,9 +424,44 @@ class GuideQueryTests(unittest.TestCase):
                          "gathered from ground rock, air duct, beech tree and 3 more")
         for source, family in zip(names, ["ground rock"] * 3 + ["air duct", "wood trash", "debris burned", "beech tree"]):
             self.assertEqual(queries._scenery_family(source), family)
-        # Unlocated scenery must not leak into a ring's harvesting phrase.
-        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)), "gathered from oak")
+        # Unlocated scenery belongs in every ring's harvesting phrase.
+        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)),
+                         "gathered from ground rock, air duct, beech tree and 3 more")
         self.assertEqual(queries._scenery_family("Prefab mountain branch 03 lod0"), "mountain branch")
+
+    def test_scenery_model_tokens_anywhere_and_leading_prefixes_deduplicate(self):
+        rows = weapon_fixture()
+        names = ["Concrete debris big 01 tree", "Prefab concrete var2 debris lod3 big tree",
+                 "SM concrete debris big tree 04", "sm rock", "Prefab rock lod0", "SM var1 rock 02"]
+        for index, name in enumerate(names):
+            rows.append(row(f"prop-{index}", "building-piece", name,
+                            {"_Collectable_Info": {"_Items": [{"_RandomRate": 1}]}},
+                            [link("collectible-item", "wood", "/_Collectable_Info/_Items/0/_IconRef")]))
+        ctx = context(rows)
+        for source, family in zip(names, ["concrete debris big tree"] * 3 + ["rock"] * 3):
+            self.assertEqual(queries._scenery_family(source), family)
+        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)),
+                         "gathered from concrete debris big tree, rock and oak")
+        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=1)),
+                         "gathered from concrete debris big tree and rock")
+        self.assertEqual(payloads(ctx), payloads(context(list(reversed(rows)))))
+
+    def test_unknown_biome_harvest_survives_ring_scope_alongside_crafting(self):
+        rows = fixture()
+        for identity, name in [("scenery", "Wood trash 01"), ("desert-prop", "Desert cactus")]:
+            rows.append(row(identity, "building-piece", name,
+                            {"_Collectable_Info": {"_Items": [{"_RandomRate": 1}]}},
+                            [link("collectible-item", "plank", "/_Collectable_Info/_Items/0/_IconRef")]))
+        next(r for r in rows if r["entity_key"] == key("top1"))["semantic"]["relationships"].append(
+            link("vegetation", "desert-prop"))
+        ctx = context(rows)
+        expected = rich("gathered from ", "wood trash", "; ", "crafted at the ", entity("bench1", "Workbench"))
+        self.assertEqual(queries.how_runs(ctx, key("plank"), ring=0), expected["runs"])
+        self.assertEqual(words(queries.how_runs(ctx, key("plank"), ring=1)),
+                         "gathered from desert cactus and wood trash")
+        for name, index in [("start.materials", None), ("ring.new_materials", 0)]:
+            result = next(r for r in query(ctx, name, index) if r["item"]["entity"] == key("plank"))
+            self.assertEqual(result, {"item": entity("plank", "Planks"), "method": "Gathering", "how": expected})
 
     def test_short_how_preserves_links_order_and_three_part_limit(self):
         ctx = context(fixture() + [recipe("make-part", "part", [("wood", 1)])])
