@@ -32,11 +32,33 @@ ADR-0001 §4 still applies. Identifiers and evidence stay on every entry, one cl
 never removed. A field that the registry does not list is technical by default. A new field
 never appears in the player view until someone classifies it.
 
+The technical tier shows each stored field name exactly as the game stores it, with rounded
+numbers. It does not invent readable-looking labels. "Front View Dis" is neither readable
+for a player nor searchable for a modder, while `_FrontViewDis` can be found in the game
+code. Construction, AI, survival and world rules and the technical reference are presented
+as a game-files reference for modders. The user noted on 2026-09-28 that most of their
+fields need the code to make sense. A fact from them reaches the player tier only when a
+card or guide needs it, and only after its meaning is confirmed in the game code, as §3
+describes.
+
 ## 3. Presentation registry
 
 `presentation/fields.json` records, for each entity kind and field: the player label, the
 unit, the format, the tier, the group, any sentinel values, and any override that depends on
 subtype. One example is a bow's `_baseDamage`, which is a multiplier and not a damage value.
+
+Player labels come from the game's own text wherever the game defines one. The item tooltip
+object holds localized titles such as "Damage", "Capacity", "Execute", "Knockdown", "Jam
+rate" and "Head Damage". The tooltip code in `UI.decompiled.cs` shows how each value is
+formatted: execute and knockdown are percentages rounded to two places, and headshot is
+"× 4". The registry names the tooltip key for a field, and the build reads its English text
+from the capture, so a wording change in a game update flows through without an edit.
+The registry's own label is used only where the game has none.
+
+A field's meaning is confirmed from the code that reads it before the field is classified.
+It is not demoted as "unverified" without that check. On 2026-09-28 the user questioned
+the first draft on this point. `_baseBladeHitProb` turned out to be the game's "Execute"
+chance: on a melee hit with a sharp weapon, the game rolls it and adds 100 damage.
 
 The first version comes from the readability audit (§6), and the user reviews it once. After
 that it is maintained data, like `identity/corrections.json`. It is not a run-time approval
@@ -61,7 +83,9 @@ New adapters add these relationships, each with an evidence level:
 - the earliest ring in which each recipe and its workbench chain can be made.
 
 Rates stay labelled as rates. ADR-0001 §4 forbids presenting them as probabilities without a
-verified selection rule.
+verified selection rule. A rate that the game itself shows as a percentage, and whose roll is
+visible in the code, counts as verified for that display. Execute and knockdown are the
+first two.
 
 ## 5. Guides
 
