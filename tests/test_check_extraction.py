@@ -89,6 +89,11 @@ class CheckExtractionTests(unittest.TestCase):
         lines = [encoded(raw) + b"\n" for raw in self.raw]
         self.put(self.source, OBJECT_PATH, b"".join(lines))
         self.index = [{"id": raw["id"], "type": "MonoBehaviour", **raw["script"]} for raw in self.raw]
+        for path, records in getattr(self, "supporting", {}).items():
+            self.put(self.source, path, b"".join(encoded(raw) + b"\n" for raw in records))
+            if path.startswith("Catalog/objects/"):
+                self.index.extend({"id": raw["id"], "type": raw.get("type", "MonoBehaviour"),
+                                   **raw.get("script", {})} for raw in records)
         self.put(self.source, "Catalog/views/object-index.jsonl", b"".join(encoded(row) + b"\n" for row in self.index))
         self.git("add", "-A")
         self.git("commit", "-m", "Synthetic pinned catalog")
@@ -101,7 +106,7 @@ class CheckExtractionTests(unittest.TestCase):
         exceptions = encoded({"groups": self.groups})
         self.put(self.wiki, ".local/check-records.jsonl", records)
         self.put(self.wiki, ".local/check-exceptions.json", exceptions)
-        self.run = {"source_commit": self.commit, "snapshot_id": "fixture-snapshot", "coverage": {"objects": len(self.raw)},
+        self.run = {"source_commit": self.commit, "snapshot_id": "fixture-snapshot", "coverage": {"objects": len(self.index)},
                     "records": {"path": ".local/check-records.jsonl", "sha256": hashlib.sha256(records).hexdigest()},
                     "exceptions": {"path": ".local/check-exceptions.json", "sha256": hashlib.sha256(exceptions).hexdigest()}}
         self.put(self.wiki, ".local/extractions/runs/fixture.json", encoded(self.run))
@@ -242,6 +247,182 @@ class CheckExtractionTests(unittest.TestCase):
         facts, _, gaps = check_extraction.english_text(raw)
         self.assertEqual({"_ItemName": "", "_ItemInstruction": None}, facts)
         self.assertEqual([("unsupported-field-type", "/_Infos/0/_ItemInstruction")], gaps)
+
+    def add_mineable_fixture(self):
+        entries = [
+            {"ItemBI_refKey": "BO_Ore_Nitrate", "Name": "Chrismatite_Icon", "RandomRate": 0.2},
+            {"ItemBI_refKey": "bo_ore_nitrate", "Name": "Chrismatite_Icon", "RandomRate": 0.05},
+            {"ItemBI_refKey": "BO_Missing", "Name": "Missing_Icon", "RandomRate": 0.1},
+            {"ItemBI_refKey": "BO_Mixed", "Name": "Ore_Nitrate_Icon", "RandomRate": 0.125},
+            {"ItemBI_refKey": "BO_Missing", "Name": "Duplicate_Icon", "RandomRate": 0.25},
+        ]
+        raw = {"id": "fixture#6", "script": {"assembly": "Build_System", "class": "Terrain_Block_Info"},
+               "fields": {"_BlockInfo": [{"CollectableItems": entries}]}}
+        self.raw.append(raw)
+        links = [{"predicate": "mineable-item", "source_field": f"/_BlockInfo/0/CollectableItems/{index}",
+                  "resolution": resolution, "target_source_ids": targets,
+                  **({"status": "unresolved"} if not targets else {})}
+                 for index, (resolution, targets) in enumerate([
+                     ("address", ["icons#21"]), ("name", ["icons#23"]),
+                     ("unresolved", []), ("unresolved", []), ("unresolved", [])])]
+        proof = [
+            {"path": "Catalog/addressables.jsonl", "entry": 42, "fields": ["keys", "targets"]},
+            {"path": "Catalog/objects/world.jsonl", "object": "world#10", "fields": ["/m_Component"]},
+            {"path": "Catalog/objects/world.jsonl", "object": "world#11", "fields": ["/_Collectable_Info/_Items/0/_IconRef"]},
+            {"path": "Catalog/views/items.jsonl", "object": "icons#21", "fields": ["id", "name", "game_objects"]},
+            {"path": "Catalog/views/items.jsonl", "fields": ["name", "id"]},
+            {"path": "Catalog/views/items.jsonl", "object": "icons#23", "fields": ["id", "name", "game_objects"]},
+        ]
+        fields = [f"/_BlockInfo/0/CollectableItems/{index}/{key}" for index in range(len(entries))
+                  for key in ("ItemBI_refKey", "Name", "RandomRate")]
+        self.rows.append({"source_id": raw["id"], "kind": "resource-distribution", "component": dict(raw["script"]),
+                          "facts": copy.deepcopy(raw["fields"]), "name_status": "internal", "relationships": links,
+                          "evidence": [{"path": OBJECT_PATH, "object": raw["id"], "fields": fields}, *proof]})
+        self.supporting = {
+            "Catalog/addressables.jsonl": [
+                {"entry": 42, "keys": ["BO_Ore_Nitrate"], "targets": ["world#10"],
+                 "resource_type": {"m_ClassName": "UnityEngine.GameObject"}},
+                {"entry": 43, "keys": ["BO_Mixed"], "targets": ["world#12"],
+                 "resource_type": {"m_ClassName": "UnityEngine.GameObject"}},
+            ],
+            "Catalog/views/items.jsonl": [
+                {"id": "icons#21", "name": "Ore_Nitrate_Icon", "game_objects": ["icons#20"]},
+                {"id": "icons#23", "name": "Chrismatite_Icon", "game_objects": ["icons#22"]},
+                {"id": "icons#25", "name": "Duplicate_Icon", "game_objects": ["icons#24"]},
+                {"id": "icons#27", "name": "Duplicate_Icon", "game_objects": ["icons#26"]},
+            ],
+            "Catalog/objects/world.jsonl": [
+                {"id": "world#10", "type": "GameObject", "references": [
+                    {"field": "/m_Component/0/component", "status": "resolved", "target": "world#11"}]},
+                {"id": "world#11", "script": {"assembly": "Build_System", "class": "Build_Info"}, "references": [
+                    {"field": "/_Collectable_Info/_Items/0/_IconRef", "status": "resolved", "targets": ["icons#20"]}]},
+                {"id": "world#12", "type": "GameObject", "references": [
+                    {"field": "/m_Component/0/component", "status": "resolved", "target": "world#13"}]},
+                {"id": "world#13", "script": {"assembly": "Build_System", "class": "Build_Info"}, "references": [
+                    {"field": "/_Collectable_Info/_Items/0/_IconRef", "status": "resolved", "target": "icons#20"},
+                    {"field": "/_Collectable_Info/_Items/1/_IconRef", "status": "resolved", "target": "icons#22"}]},
+            ],
+        }
+        self.groups.append({"code": "mineable-item-gap", "topic": "biomes-resources",
+                            "pattern": "Terrain_Block_Info/_BlockInfo/*/CollectableItems/*", "occurrences": 3})
+        self.pin()
+
+    def test_pinned_mineable_paths_gaps_and_proof_pass(self):
+        self.add_mineable_fixture()
+        first = self.check()
+        self.assertEqual("passed", first["status"])
+        self.assertEqual(6, first["observations_checked"])
+        for path in self.supporting:
+            self.put(self.source, path, b"dirty working copy is not evidence\n")
+        self.assertEqual(first, self.check())
+        self.assertEqual("passed", self.check(complete=False)["status"])
+
+    def test_mineable_targets_paths_missing_extra_and_relabelled_links_are_rejected(self):
+        self.add_mineable_fixture()
+        original = copy.deepcopy(self.rows[-1]["relationships"])
+        alternatives = [[], original[:-1], original + [original[0]],
+                        [{**original[0], "predicate": "collectible-item"}, *original[1:]],
+                        [{**original[0], "source_field": "/_BlockInfo/1/CollectableItems/0"}, *original[1:]],
+                        [{**original[0], "target_source_ids": ["world#10"]}, *original[1:]],
+                        [{**original[0], "target_source_ids": ["icons#23"]}, *original[1:]],
+                        [{**original[0], "resolution": "name"}, *original[1:]],
+                        [{**original[0], "status": "unresolved"}, *original[1:]],
+                        [*original[:2], {key: value for key, value in original[2].items() if key != "status"}, *original[3:]]]
+        for links in alternatives:
+            with self.subTest(links=links[:1], count=len(links)):
+                self.rows[-1]["relationships"] = links
+                with self.assertRaisesRegex(ValueError, "Mineable-item relationships differ"):
+                    self.check()
+
+    def test_mineable_missing_wrong_and_overcounted_gaps_are_rejected(self):
+        self.add_mineable_fixture()
+        others, mining = self.groups[:-1], self.groups[-1]
+        for groups in ([], [{**mining, "occurrences": 2}], [{**mining, "occurrences": 4}],
+                       [{**mining, "topic": "items-equipment"}], [{**mining, "code": "unresolved-reference"}]):
+            with self.subTest(groups=groups):
+                self.groups = others + groups
+                with self.assertRaisesRegex(ValueError, "Mineable-item gap count differs"):
+                    self.check()
+
+    def test_mineable_evidence_and_unchanged_rates_are_checked(self):
+        self.add_mineable_fixture()
+        original = copy.deepcopy(self.rows[-1])
+        for index, update in ((1, {"entry": 43}), (2, {"fields": ["/invented"]}),
+                              (4, {"object": "icons#23"}), (5, {"fields": ["display_name"]})):
+            with self.subTest(index=index):
+                self.rows[-1] = copy.deepcopy(original)
+                self.rows[-1]["evidence"][index].update(update)
+                with self.assertRaisesRegex(ValueError, "Mineable-item evidence differs"):
+                    self.check()
+        self.rows[-1] = copy.deepcopy(original)
+        self.rows[-1]["evidence"] = self.rows[-1]["evidence"][:1]
+        with self.assertRaisesRegex(ValueError, "Mineable-item evidence differs"):
+            self.check()
+        self.rows[-1] = copy.deepcopy(original)
+        self.rows[-1]["facts"]["_BlockInfo"][0]["CollectableItems"][0]["RandomRate"] = 20
+        with self.assertRaisesRegex(ValueError, "Fact differs"):
+            self.check()
+
+    def test_changed_pinned_address_and_item_records_reject_stale_links(self):
+        self.add_mineable_fixture()
+        original = copy.deepcopy(self.supporting)
+        for path, field, value in (("Catalog/addressables.jsonl", "keys", ["renamed"]),
+                                   ("Catalog/views/items.jsonl", "game_objects", ["icons#99"])):
+            with self.subTest(path=path):
+                self.supporting = copy.deepcopy(original)
+                self.supporting[path][0][field] = value
+                self.pin()
+                with self.assertRaisesRegex(ValueError, "Mineable-item relationships differ"):
+                    self.check()
+
+    def test_unresolved_or_uncaptured_prefab_falls_back_to_exact_item_name(self):
+        self.add_mineable_fixture()
+        original = copy.deepcopy(self.supporting)
+        self.rows[-1]["relationships"][0].update(resolution="name", target_source_ids=["icons#23"])
+        self.rows[-1]["evidence"] = [self.rows[-1]["evidence"][0], *self.rows[-1]["evidence"][5:]]
+        for fault in ("unresolved-icon", "uncaptured-prefab"):
+            with self.subTest(fault=fault):
+                self.supporting = copy.deepcopy(original)
+                if fault == "unresolved-icon":
+                    self.supporting["Catalog/objects/world.jsonl"][1]["references"][0]["status"] = "unresolved"
+                else:
+                    self.supporting["Catalog/addressables.jsonl"][0]["targets"] = ["missing#99"]
+                self.pin()
+                self.assertEqual("passed", self.check()["status"])
+
+    def test_mineable_sampling_uses_gap_lower_bound(self):
+        self.add_mineable_fixture()
+        for number in (7, 8, 9):
+            raw, row = copy.deepcopy(self.raw[-1]), copy.deepcopy(self.rows[-1])
+            raw["id"] = row["source_id"] = row["evidence"][0]["object"] = f"fixture#{number}"
+            self.raw.append(raw)
+            self.rows.append(row)
+        self.groups[-1]["occurrences"] = 12
+        self.pin()
+        self.assertEqual(8, self.check(complete=False)["observations_checked"])
+        self.assertEqual(9, self.check()["observations_checked"])
+        self.groups[-1]["occurrences"] = 9
+        self.assertEqual("passed", self.check(complete=False)["status"])
+        with self.assertRaisesRegex(ValueError, "Mineable-item gap count differs"):
+            self.check()
+
+    def test_builder_mineable_output_passes_independent_checker(self):
+        from types import SimpleNamespace
+        from wikibuild.adapters import biomes
+        from wikibuild.exceptions import Exceptions
+        self.add_mineable_fixture()
+        records = {raw["id"]: raw for raw in [*self.raw, *self.supporting["Catalog/objects/world.jsonl"]]}
+        source = SimpleNamespace(
+            catalog={"selected": {self.raw[-1]["id"]: {"assembly": "Build_System", "class": "Terrain_Block_Info"}}},
+            objects=lambda identities: {identity: records[identity] for identity in identities if identity in records},
+            records=lambda path: iter(self.supporting[path]),
+            object_path=lambda identity: "Catalog/objects/" + identity.rsplit("#", 1)[0] + ".jsonl")
+        row = self.rows[-1]
+        row["relationships"], row["evidence"] = [], row["evidence"][:1]
+        issues = Exceptions()
+        biomes.enrich_mineable_items(row, biomes.prepare_mineable_items(source), issues)
+        self.groups = self.groups[:-1] + issues.report()["groups"]
+        self.assertEqual("passed", self.check()["status"])
 
     def test_checker_does_not_import_builder_code(self):
         tree = ast.parse((ROOT / "tools/check_extraction.py").read_text())

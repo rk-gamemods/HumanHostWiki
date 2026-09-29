@@ -22,6 +22,9 @@ _ShootRange_Title _Recoil_Title _DummyRound_Title _Jam_Title _GatheringTool
 _GatheringToolSmallAxe""".split()
 TEXT_CLASSES = {"Language_Text", "Tooltip_Text"}
 DERIVED_GAP_CODES = {"english-text", "missing-field", "unsupported-field-type", "unresolved-reference"}
+TERRAIN_COMPONENT = {"assembly": "Build_System", "class": "Terrain_Block_Info"}
+MINEABLE_ITEMS = "Catalog/views/items.jsonl"
+MINEABLE_ADDRESSES = "Catalog/addressables.jsonl"
 
 
 def raw_records(source, commit, path):
@@ -155,24 +158,135 @@ def tooltip_references(raw):
     return {"data": {}}, links, evidence, gaps
 
 
+def pinned_objects(source, commit, identities):
+    """Read only requested objects, streaming each existing pinned shard once."""
+    paths = defaultdict(set)
+    for identity in identities:
+        shard, number = identity.rsplit("#", 1)
+        int(number)
+        paths["Catalog/objects/" + shard.replace("::", "/") + ".jsonl"].add(identity)
+    if not paths:
+        return {}
+    listed = subprocess.check_output(["git", "-C", str(source), "ls-tree", "-r", "--name-only", "-z",
+                                      commit, "--", *sorted(paths)])
+    available = set(listed.decode("utf-8").rstrip("\0").split("\0"))
+    objects = {}
+    for path, wanted in sorted(paths.items()):
+        # A catalog reference to an uncaptured object cannot establish a link.
+        if path in available:
+            for raw, _ in raw_records(source, commit, path):
+                if raw["id"] in wanted:
+                    objects[raw["id"]] = raw
+    return objects
+
+
+def mineable_entries(raw):
+    blocks = raw.get("fields", {}).get("_BlockInfo", [])
+    for block_index, block in enumerate(blocks if isinstance(blocks, list) else []):
+        entries = block.get("CollectableItems", []) if isinstance(block, dict) else []
+        for entry_index, entry in enumerate(entries if isinstance(entries, list) else []):
+            yield f"/_BlockInfo/{block_index}/CollectableItems/{entry_index}", entry if isinstance(entry, dict) else {}
+
+
+def mineable_relationships(source, commit, terrains):
+    """Rebuild mining joins from pinned catalog data, never observation targets."""
+    names, icons = defaultdict(set), defaultdict(set)
+    for item, _ in raw_records(source, commit, MINEABLE_ITEMS):
+        if not isinstance(item.get("id"), str):
+            continue
+        if isinstance(item.get("name"), str):
+            names[item["name"]].add(item["id"])
+        for identity in item.get("game_objects", []):
+            if isinstance(identity, str):
+                icons[identity].add(item["id"])
+    keys = {entry["ItemBI_refKey"] for raw in terrains for _, entry in mineable_entries(raw)
+            if isinstance(entry.get("ItemBI_refKey"), str)}
+    addresses = []
+    for record, _ in raw_records(source, commit, MINEABLE_ADDRESSES):
+        if record.get("resource_type", {}).get("m_ClassName") == "UnityEngine.GameObject":
+            matched = keys.intersection(key for key in record.get("keys", []) if isinstance(key, str))
+            if matched:
+                addresses.append((record, matched))
+    prefabs = pinned_objects(source, commit, {target for record, _ in addresses
+                                             for target in record.get("targets", []) if isinstance(target, str)})
+    members = {identity: [ref["target"] for ref in raw.get("references", [])
+                          if re.fullmatch(r"/m_Component/\d+/component", ref.get("field", ""))
+                          and ref.get("status") == "resolved" and isinstance(ref.get("target"), str)]
+               for identity, raw in prefabs.items() if raw.get("type") == "GameObject"}
+    components = pinned_objects(source, commit, {member for group in members.values() for member in group})
+    outputs, locators = defaultdict(set), defaultdict(list)
+    for identity, member_ids in members.items():
+        locators[identity].append({"path": "Catalog/objects/" + identity.rsplit("#", 1)[0].replace("::", "/") + ".jsonl",
+                                   "object": identity, "fields": ["/m_Component"]})
+        for member in member_ids:
+            raw = components.get(member, {})
+            script = raw.get("script", {})
+            if (script.get("assembly"), script.get("class")) != ("Build_System", "Build_Info"):
+                continue
+            fields = []
+            for ref in raw.get("references", []):
+                if (ref.get("status") == "resolved"
+                        and re.fullmatch(r"/_Collectable_Info/_Items/\d+/_IconRef", ref.get("field", ""))):
+                    fields.append(ref["field"])
+                    for target in ref.get("targets", [ref["target"]] if "target" in ref else []):
+                        outputs[identity].update(icons.get(target, ()))
+            if fields:
+                locators[identity].append({"path": "Catalog/objects/" + member.rsplit("#", 1)[0].replace("::", "/") + ".jsonl",
+                                           "object": member, "fields": sorted(fields)})
+    targets_by_key, evidence_by_key = defaultdict(set), defaultdict(list)
+    for record, matched in addresses:
+        for key in sorted(matched):
+            evidence_by_key[key].append({"path": MINEABLE_ADDRESSES, "entry": record.get("entry"), "fields": ["keys", "targets"]})
+            for target in record.get("targets", []):
+                targets_by_key[key].update(outputs.get(target, ()))
+                evidence_by_key[key].extend(locators.get(target, ()))
+    result = {}
+    for raw in terrains:
+        links, evidence, gaps = [], [], []
+        for field, entry in mineable_entries(raw):
+            key, name = entry.get("ItemBI_refKey"), entry.get("Name")
+            targets = targets_by_key.get(key, set()) if isinstance(key, str) else set()
+            if len(targets) == 1:
+                resolution, proof = "address", evidence_by_key[key]
+            elif not targets and isinstance(name, str) and len(names.get(name, ())) == 1:
+                targets, resolution = names[name], "name"
+                proof = [{"path": MINEABLE_ITEMS, "fields": ["name", "id"]}]
+            else:
+                targets, resolution, proof = set(), "unresolved", []
+            link = {"predicate": "mineable-item", "source_field": field,
+                    "target_source_ids": sorted(targets), "resolution": resolution}
+            if not targets:
+                link["status"] = "unresolved"
+                gaps.append(("mineable-item-gap", field))
+            else:
+                proof = [*proof, {"path": MINEABLE_ITEMS, "object": next(iter(targets)), "fields": ["id", "name", "game_objects"]}]
+                for locator in proof:
+                    if locator not in evidence:
+                        evidence.append(locator)
+            links.append(link)
+        result[raw["id"]] = links, evidence, gaps
+    return result
+
+
 def check_derived_gaps(root, run, expected, contracts, complete):
     """Grouped reports have bounded examples; audit counts, not example inclusion."""
     artifact = run.get("exceptions")
     if not artifact:
-        raise ValueError("Missing exception report for derived text contracts")
+        raise ValueError("Missing exception report for derived contracts")
     data = (root / artifact["path"]).read_bytes()
     if hashlib.sha256(data).hexdigest() != artifact["sha256"]:
         raise ValueError("Exception report does not match its recorded hash")
     actual = Counter()
     for group in json.loads(data)["groups"]:
-        if group["code"] in DERIVED_GAP_CODES and any(
-                group["topic"] == topic and (group["pattern"] == cls or group["pattern"].startswith(cls + "/"))
-                for topic, cls in contracts):
+        if any(group["code"] in codes and group["topic"] == topic
+               and (group["pattern"] == cls or group["pattern"].startswith(cls + "/"))
+               for (topic, cls), codes in contracts.items()):
             actual[(group["code"], group["topic"], group["pattern"])] += group["occurrences"]
     keys = expected.keys() | actual.keys() if complete else expected.keys()
     for key in sorted(keys):
         if actual[key] < expected[key] or (complete and actual[key] != expected[key]):
-            raise ValueError(f"Derived text gap count differs: {key}; expected {expected[key]}, found {actual[key]}")
+            label = "Mineable-item" if key[0] == "mineable-item-gap" else "Derived text"
+            raise ValueError(f"{label} gap count differs: {key}; expected {expected[key]}, found {actual[key]}")
 
 
 def check(root, source, complete=False):
@@ -213,8 +327,10 @@ def check(root, source, complete=False):
             if raw["id"] in wanted:
                 objects[raw["id"]] = raw
                 hashes[raw["id"]] = sha
+    terrain_records = [objects[row["evidence"][0]["object"]] for row in sample if row.get("component") == TERRAIN_COMPONENT]
+    mining = mineable_relationships(source, run["source_commit"], terrain_records) if terrain_records else {}
     checks = 0
-    derived_gaps, derived_contracts = Counter(), set()
+    derived_gaps, derived_contracts = Counter(), {}
     for row in sample:
         if row["kind"] == "loot-tag":
             manager, tag = row["source_id"].split("/tag/", 1)
@@ -243,6 +359,19 @@ def check(root, source, complete=False):
                     raise ValueError(f"Tooltip references differ: {row['source_id']}")
                 derived, topic = True, "items-equipment"
                 checks += len(links)
+            elif component == TERRAIN_COMPONENT:
+                links, evidence, gaps = mining[raw["id"]]
+                if sorted(links, key=lambda link: link["source_field"]) != sorted(row["relationships"], key=lambda link: link["source_field"]):
+                    raise ValueError(f"Mineable-item relationships differ: {row['source_id']}")
+                canonical = lambda locator: json.dumps(locator, sort_keys=True)
+                if sorted(map(canonical, evidence)) != sorted(map(canonical, row["evidence"][1:])):
+                    raise ValueError(f"Mineable-item evidence differs: {row['source_id']}")
+                topic, cls = "biomes-resources", "Terrain_Block_Info"
+                derived_contracts[(topic, cls)] = {"mineable-item-gap"}
+                for code, path in gaps:
+                    derived_gaps[(code, topic, cls + re.sub(r"/\d+(?=/|$)", "/*", path))] += 1
+                expected = raw["fields"]
+                checks += len(links) + 1
             else:
                 expected = at(raw["fields"], row.get("source_field_base", ""))
             if derived:
@@ -251,7 +380,7 @@ def check(root, source, complete=False):
                 if fields != set(row["evidence"][0]["fields"]):
                     raise ValueError(f"Derived text evidence differs: {row['source_id']}")
                 cls = component["class"]
-                derived_contracts.add((topic, cls))
+                derived_contracts[(topic, cls)] = DERIVED_GAP_CODES
                 for code, path in gaps:
                     pattern = cls + re.sub(r"/\d+(?=/|$)", "/*", path)
                     derived_gaps[(code, topic, pattern)] += 1
@@ -276,6 +405,8 @@ def check(root, source, complete=False):
             for link in row["relationships"]:
                 if link["predicate"] in {"defined-by", "coded-value"}:
                     continue
+                if component == TERRAIN_COMPONENT and link["predicate"] == "mineable-item":
+                    continue  # The complete derived link set was checked above.
                 ref = next((ref for ref in raw.get("references", []) if ref["field"] == link["source_field"]), {})
                 actual_targets = sorted(ref.get("targets", [ref["target"]] if "target" in ref else []))
                 status = ref.get("status", "unknown") if ref else "missing"
@@ -343,7 +474,7 @@ def check(root, source, complete=False):
             "sampling": "all" if complete else "first-middle-last-per-family",
             "prefab_identities_checked": prefab_count,
             "kinds": sorted({row["kind"] for row in sample}), "status": "passed", "type_summaries_checked": len(summaries),
-            "scope": "Selected serialized facts, English text and names, tooltip references and loot eligibility; not runtime verification"}
+            "scope": "Selected serialized facts, English text and names, tooltip references, mineable items and loot eligibility; not runtime verification"}
 
 
 if __name__ == "__main__":

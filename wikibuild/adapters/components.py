@@ -114,6 +114,10 @@ def selected_records(source):
 
 def extract(source, issues):
     pending = []
+    # Prepare before selected_records can yield from a still-open legacy shard.
+    mineable_items = (biomes.prepare_mineable_items(source)
+                     if any(spec_for(metadata).name == "Terrain_Block_Info"
+                            for metadata in source.catalog["selected"].values()) else None)
     for identity, record in selected_records(source):
         metadata = source.catalog["selected"][identity]
         spec = spec_for(metadata)
@@ -145,6 +149,8 @@ def extract(source, issues):
                                      if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved" and "target" in ref)
         if identity in source.locations:
             row["evidence"][0]["record_sha256"] = source.locations[identity]["sha256"]
+        if spec.name == "Terrain_Block_Info":
+            biomes.enrich_mineable_items(row, mineable_items, issues)
         if spec.name in {"All_Skills_Set", "Skill_Mgr"}:
             pending.append(row)
         else:
