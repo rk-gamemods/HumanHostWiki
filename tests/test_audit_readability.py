@@ -34,6 +34,65 @@ def site(root, topic, entries, semantics, provenance, backlinks, directory=False
 
 
 class ReadabilityAuditTests(unittest.TestCase):
+    def test_candidate_cards_report_and_repeat_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repositories = root / "repositories"
+            site(repositories, "items", {}, {}, {}, {})
+            candidate = root / ".local" / "readers" / "fixture"
+            reader = candidate / "items"
+            write(reader / "reader.json", {"default_snapshot": "snap-1",
+                   "versions": [{"snapshot_id": "snap-1"}]})
+            write(reader / "data/entries.json", {
+                "e-axe": {"name": "Crude Axe", "kind": "item", "status": "present", "card_id": "c-axe"},
+                "e-bullet": {"name": "Cop_Bullet", "kind": "item", "status": "present", "card_id": "c-bullet"},
+                "e-code": {"name": "Rifle", "kind": "combat-rule", "status": "present", "card_id": "c-code"},
+                "e-old": {"name": "Old", "kind": "item", "status": "removed"},
+                "e-other": {"name": "Other", "kind": "unregistered", "status": "present"},
+            })
+            write(reader / "data/cards.json", {
+                "c-axe": {"eyebrow": ["Melee weapon"], "stats": [
+                    {"field": "/_baseBladeHitProb", "label": "Execute", "display": "8%"},
+                    {"field": "/_GunType", "label": "Ammo", "display": "5"}],
+                    "notes": [], "technical": ["/_Tag", "/_newField"],
+                    "missing_game_text": ["_Missing"]},
+                "c-bullet": {"eyebrow": [], "stats": [
+                    {"field": "/_baseDamage", "label": "Damage", "display": "0.07999999821186066"},
+                    {"field": "/_HandCraftBullet", "label": "Materials", "display": [
+                        {"material": "Cop_Bullet", "effects": []}]}],
+                    "notes": [{"field": "/_Tag", "text": "Use HarvestTool"}],
+                    "technical": ["/_newField"], "missing_game_text": ["_Missing", "_Other"]},
+                "c-code": {"eyebrow": [], "stats": [
+                    {"field": "/_GunType", "label": "Weapon type", "display": "5"}],
+                    "notes": [], "technical": [], "missing_game_text": []},
+            })
+            write(reader / "snapshots/snap-1.json", {
+                "entries": [{"path": "data/entries.json"}],
+                "cards": [{"path": "data/cards.json"}],
+            })
+            out = root / "audit"
+            args = ["--repositories", str(repositories), "--candidate", str(candidate),
+                    "--out", str(out)]
+            audit_readability.main(args)
+            output_names = ("readability.json", "readability.md", "readability-walk.md")
+            first = [(out / name).read_bytes() for name in output_names]
+            report = json.loads(first[0])
+            cards = report["cards"]
+            self.assertEqual(cards["counts"], {"entries_registered_kind": 3,
+                             "entries_with_card": 3, "player_stats_total": 5})
+            self.assertEqual(cards["unclassified_fields"], [
+                {"kind": "item", "field": "/_newField", "count": 2}])
+            self.assertEqual(cards["missing_game_text"], [
+                {"key": "_Missing", "count": 2}, {"key": "_Other", "count": 1}])
+            self.assertEqual(cards["jargon"]["by_rule"], {"identifier": 2,
+                             "raw_enum": 1, "raw_float": 1})
+            self.assertEqual(cards["names"]["total"], 1)
+            self.assertEqual(cards["names"]["examples"][0]["name"], "Cop_Bullet")
+            self.assertIn("## Cards", first[1].decode("utf-8"))
+            self.assertNotIn("## Cards", first[2].decode("utf-8"))
+            audit_readability.main(args)
+            self.assertEqual(first, [(out / name).read_bytes() for name in output_names])
+
     def test_fixture_flags_labels_and_repeat_bytes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

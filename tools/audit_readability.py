@@ -7,6 +7,12 @@ import json
 import math
 from pathlib import Path
 import re
+import sys
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from wikibuild.lint import card_findings, jargon
 
 
 SOURCE_PREDICATES = sorted(("produces-item", "eligible-item", "merchant-stock-item",
@@ -369,6 +375,72 @@ def audit(repositories):
             "walk": walk, "walk_missing": missing}
 
 
+def audit_cards(candidate):
+    """Inspect current cards in a reader candidate without rebuilding them."""
+    registry = read(Path(__file__).resolve().parents[1] / "presentation" / "fields.json")
+    definitions = registry["kinds"]
+    registered = carded = stats = 0
+    unclassified = Counter()
+    missing_text = Counter()
+    rule_counts = Counter()
+    jargon_rows = []
+    name_rows = []
+    topics = sorted(path for path in candidate.iterdir() if path.is_dir() and (path / "reader.json").is_file())
+    if not topics:
+        raise ValueError(f"candidate has no topic readers: {candidate}")
+    for site in topics:
+        config = read(site / "reader.json")
+        snapshot = config["default_snapshot"]
+        index_path = (config.get("snapshots") or {}).get(snapshot, {}).get(
+            "path", f"snapshots/{snapshot}.json")
+        index = read(site / index_path)
+        entries = pack_map(site, index, "entries")
+        cards = pack_map(site, index, "cards")
+        for entity, entry in sorted(entries.items()):
+            if entry.get("status") != "present" or entry.get("kind") not in definitions:
+                continue
+            registered += 1
+            card_id = entry.get("card_id")
+            if card_id is None:
+                continue
+            carded += 1
+            card = cards[card_id]
+            kind = entry["kind"]
+            fields = definitions[kind]["fields"]
+            coded_fields = {pointer for pointer, spec in fields.items()
+                            if spec.get("format") == "coded" or
+                            any(case.get("format") == "coded" for case in spec.get("cases", []))}
+            stats += len(card.get("stats", []))
+            for field in card.get("technical", []):
+                if field not in fields:
+                    unclassified[(kind, field)] += 1
+            missing_text.update(set(card.get("missing_game_text", [])))
+            name = entry["name"]
+            for finding in card_findings(card, coded_fields=coded_fields):
+                rule_counts[finding["rule"]] += 1
+                jargon_rows.append({"entity": entity, "name": name, "field": finding["field"],
+                                    "rule": finding["rule"], "match": finding["match"]})
+            name_hits = jargon(name)
+            if name_hits:
+                name_rows.append({"entity": entity, "name": name, "topic": site.name,
+                                  "findings": name_hits})
+    jargon_rows.sort(key=lambda row: (row["entity"], row["field"], row["rule"], row["match"]))
+    name_rows.sort(key=lambda row: (row["entity"], row["topic"]))
+    return {
+        "counts": {"entries_registered_kind": registered, "entries_with_card": carded,
+                   "player_stats_total": stats},
+        "unclassified_fields": [{"kind": kind, "field": field, "count": count}
+                                for (kind, field), count in sorted(unclassified.items(),
+                                                                   key=lambda item: (-item[1], *item[0]))],
+        "missing_game_text": [{"key": key, "count": count}
+                              for key, count in sorted(missing_text.items(),
+                                                       key=lambda item: (-item[1], item[0]))],
+        "jargon": {"total": sum(rule_counts.values()), "by_rule": dict(sorted(rule_counts.items())),
+                   "examples": jargon_rows[:50]},
+        "names": {"total": len(name_rows), "examples": name_rows[:50]},
+    }
+
+
 def walk_markdown(report):
     lines = ["## Page walk", ""]
     if report["walk_missing"]:
@@ -426,20 +498,61 @@ def markdown(report):
                  str(row["label_is_identifier"]).lower(), json_text(row["sample_values"])]
         lines.append("| " + " | ".join(str(cell).replace("|", "\\|").replace("\n", " ")
                                        for cell in cells) + " |")
-    return "\n".join(lines) + "\n" + "\n" + walk_markdown(report)
+    result = "\n".join(lines) + "\n" + "\n" + walk_markdown(report)
+    if "cards" in report:
+        result += cards_markdown(report["cards"])
+    return result
+
+
+def cards_markdown(cards):
+    counts = cards["counts"]
+    lines = ["", "## Cards", "", "| Measure | Count |", "| --- | ---: |",
+             f"| Entries with a registered kind | {counts['entries_registered_kind']} |",
+             f"| Entries with a card | {counts['entries_with_card']} |",
+             f"| Player stats | {counts['player_stats_total']} |",
+             f"| Jargon findings | {cards['jargon']['total']} |",
+             f"| Names with jargon | {cards['names']['total']} |",
+             "", "### Unclassified fields", "", "| Kind | Field | Count |",
+             "| --- | --- | ---: |"]
+    for row in cards["unclassified_fields"]:
+        lines.append(f"| {row['kind']} | {row['field']} | {row['count']} |")
+    lines.extend(["", "### Missing game text", "", "| Key | Count |", "| --- | ---: |"])
+    for row in cards["missing_game_text"]:
+        lines.append(f"| {row['key']} | {row['count']} |")
+    lines.extend(["", "### Jargon examples", "", "| Entity | Name | Field | Rule | Match |",
+                  "| --- | --- | --- | --- | --- |"])
+    for row in cards["jargon"]["examples"]:
+        lines.append("| " + " | ".join(str(row[key]).replace("|", "\\|").replace("\n", " ")
+                                         for key in ("entity", "name", "field", "rule", "match")) + " |")
+    lines.extend(["", "### Names with jargon", "", "| Entity | Topic | Name | Findings |",
+                  "| --- | --- | --- | --- |"])
+    for row in cards["names"]["examples"]:
+        lines.append("| " + " | ".join(str(value).replace("|", "\\|").replace("\n", " ")
+                                         for value in (row["entity"], row["topic"], row["name"],
+                                                       json_text(row["findings"]))) + " |")
+    return "\n".join(lines) + "\n"
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repositories", type=Path, required=True)
+    parser.add_argument("--candidate", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     repositories, out = args.repositories.resolve(), args.out.resolve()
+    candidate = args.candidate.resolve() if args.candidate else None
     if not repositories.is_dir():
         parser.error(f"repositories directory does not exist: {repositories}")
     if out.is_relative_to(repositories):
         parser.error("--out must be outside --repositories")
+    if candidate is not None:
+        if not candidate.is_dir():
+            parser.error(f"candidate directory does not exist: {candidate}")
+        if out.is_relative_to(candidate):
+            parser.error("--out must be outside --candidate")
     report = audit(repositories)
+    if candidate is not None:
+        report["cards"] = audit_cards(candidate)
     out.mkdir(parents=True, exist_ok=True)
     (out / "readability.json").write_text(
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8", newline="\n")
