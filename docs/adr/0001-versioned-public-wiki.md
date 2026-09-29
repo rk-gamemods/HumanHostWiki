@@ -1,6 +1,8 @@
 # ADR-0001: Generated, versioned Human Host wiki
 
 **Accepted 2026-09-26.** Architecture contract for `HumanHostWiki`.
+[ADR-0002](0002-player-template-and-guides.md) amends the reader, the presentation of
+fields and the guides.
 Repository/category ownership and pipeline dependencies are defined in
 [project.json](../../project.json); the [generated map](../REPOSITORIES.md)
 shows their connections. Commands and recovery procedures belong in
