@@ -615,9 +615,11 @@ async function guidePage(id) {
   const toc = el("ol");
   const sections = doc.sections.map(section => {
     const heading = runsText(section.heading), ring = /^ring-(\d+)$/.exec(section.id);
+    // The heading carries the game's 1-based biome number; section ids keep the 0-based index.
+    const named = /^(?:Ring|Biome) (\d+):\s*(.*)$/.exec(heading), number = named ? named[1] : ring ? String(Number(ring[1]) + 1) : "", place = named ? named[2] : heading;
     toc.append(el("li", {}, el("a", {href: `#${section.id}`, "data-section": section.id}, heading)));
-    return el("section", {class: "gsec", id: section.id, "data-ring": ring ? `Ring ${ring[1]}: ${heading.replace(/^Ring \d+:\s*/, "")}` : null, "aria-labelledby": `${section.id}-h`},
-      el("h2", {id: `${section.id}-h`}, ring ? [el("span", {class: "no", "aria-hidden": "true"}, ring[1]), heading.replace(/^Ring \d+:\s*/, "")] : heading),
+    return el("section", {class: "gsec", id: section.id, "data-ring": ring ? `Biome ${number}: ${place}` : null, "aria-labelledby": `${section.id}-h`},
+      el("h2", {id: `${section.id}-h`}, ring ? [el("span", {class: "no", "aria-hidden": "true"}, number), place] : heading),
       section.blocks.map(block => guideBlock(block, links, `${doc.id}/${section.id}`)));
   });
   const rings = doc.sections.filter(section => /^ring-\d+$/.test(section.id));
@@ -680,7 +682,7 @@ function ringDiagram(rings) {
     drawing.append(band);
   });
   drawing.append(svg("circle", {cx: center, cy: center, r: 5, class: "ring-spawn"}));
-  const caption = el("p", {class: "gcap"}, "Spawn point in the centre. Each band is one ring.");
+  const caption = el("p", {class: "gcap"}, "Spawn point in the centre. Each band is one biome.");
   return el("figure", {class: "guide-rings"}, drawing, caption);
 }
 

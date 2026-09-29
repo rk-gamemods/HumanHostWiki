@@ -191,7 +191,7 @@ class GuideQueryTests(unittest.TestCase):
         self.assertEqual(queries.how_runs(self.ctx, key("ore"), ring=0), queries.how_runs(self.ctx, key("ore")))
         self.assertEqual(queries.how_runs(self.ctx, key("ore"), limit=0), [])
         self.assertEqual(words(queries.how_runs(self.ctx, key("part"), limit=1)), "found in crates in Mossy Forest")
-        self.assertEqual(queries.ring_label(self.ctx, 0), "Ring 0 (Mossy Forest)")
+        self.assertEqual(queries.ring_label(self.ctx, 0), "Biome 1 (Mossy Forest)")
         self.assertEqual(self.ctx["names"][key("base")]["name"], "Spawn area")
         self.assertEqual(queries.used_in(self.ctx, key("wood")), [entity("planks-wood", "Planks from Wood"),
                          entity("axe-recipe", "Stone Axe"), entity("build-first", "Workbench")])
@@ -234,8 +234,8 @@ class GuideQueryTests(unittest.TestCase):
         self.assertEqual(query(self.ctx, "world.near_spawn"), {"near_spawn_chance": "1%"})
         self.assertIsNone(query(self.ctx, "world.zombie_scaling"))
         self.assertIsNone(query(self.ctx, "world.loot_quality_scaling"))
-        rings = [{"index": "0", "biome": entity("forest", "Mossy Forest"), "start_distance": "12 m", "end_distance": "2 km"},
-                 {"index": "1", "biome": entity("desert", "Desert"), "start_distance": "2 km", "end_distance": "4 km"}]
+        rings = [{"index": "0", "number": "1", "biome": entity("forest", "Mossy Forest"), "start_distance": "12 m", "end_distance": "2 km"},
+                 {"index": "1", "number": "2", "biome": entity("desert", "Desert"), "start_distance": "2 km", "end_distance": "4 km"}]
         self.assertEqual(query(self.ctx, "rings"), rings)
         for scope in rings:
             self.assertEqual(queries.QUERIES["ring.span"](self.ctx, scope), scope)
@@ -772,7 +772,7 @@ class GuideQueryTests(unittest.TestCase):
             {"Bench": entity("bench1", "Workbench"), "Recipes": "2", "Build cost": [entity("wood", "2 × Wood")]},
             {"Bench": entity("bench2", "Forge"), "Recipes": "3", "Build cost": [entity("plank", "3 × Planks")]}])
         for bench in benches:
-            self.assertEqual(queries.QUERIES["bench.summary"](self.ctx, bench), {"ring": "0", "built_at": rich("by hand")})
+            self.assertEqual(queries.QUERIES["bench.summary"](self.ctx, bench), {"ring": "Biome 1 (Mossy Forest)", "built_at": rich("by hand")})
         self.assertEqual(queries.QUERIES["bench.cost"](self.ctx, benches[0]), [
             {"count": "2", "item": entity("wood", "Wood"), "how": rich("gathered from ", "trees")}])
         self.assertEqual(queries.QUERIES["bench.cost"](self.ctx, benches[1]), [
@@ -791,7 +791,7 @@ class GuideQueryTests(unittest.TestCase):
         ctx = context(rows)
         bench1, bench2 = query(ctx, "benches")
         self.assertEqual(queries.QUERIES["bench.summary"](ctx, bench2),
-                         {"ring": "0", "built_at": rich("at the ", entity("bench1", "Workbench"))})
+                         {"ring": "Biome 1 (Mossy Forest)", "built_at": rich("at the ", entity("bench1", "Workbench"))})
         self.assertEqual(len(queries.QUERIES["bench.recipes"](ctx, bench1)), 2)
         self.assertEqual(query(ctx, "benches.overview")[0]["Recipes"], "2")
         for name in ("start.hand_recipes", "ring.new_recipes"):

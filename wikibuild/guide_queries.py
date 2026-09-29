@@ -146,7 +146,8 @@ def ring_label(context, index) -> str:
     """Return the table label for a reliable acquisition ring."""
     ring = next(r for r in context["graph"]["rings"] if r["index"] == index)
     biomes = sorted((_name(context, key) for key in ring["biome_keys"]), key=str.casefold)
-    return f"Ring {index} ({' and '.join(biomes)})" if biomes else f"Ring {index}"
+    # The game counts biomes from 1 ("There are 10 biomes in total", "Biome 10 = max loot quality").
+    return f"Biome {index + 1} ({' and '.join(biomes)})" if biomes else f"Biome {index + 1}"
 
 
 def used_in(context, item_key) -> list:
@@ -660,7 +661,7 @@ def _biome_value(context, ring):
 
 
 def _rings(context, scope):
-    return [{"index": str(ring["index"]), "biome": _biome_value(context, ring),
+    return [{"index": str(ring["index"]), "number": str(ring["index"] + 1), "biome": _biome_value(context, ring),
              "start_distance": format_distance(ring["start_distance"]),
              "end_distance": format_distance(ring["end_distance"])}
             for ring in context["graph"]["rings"] if not ring["biome_keys"] or any(_visible(context, key) for key in ring["biome_keys"])]
@@ -955,7 +956,7 @@ def _bench_summary(context, scope):
     recipe = _construction_recipe(context, key)
     if index is None or recipe is None:
         return None
-    return {"ring": str(index), "built_at": _made(context, context["graph"]["recipes"][recipe])}
+    return {"ring": ring_label(context, index), "built_at": _made(context, context["graph"]["recipes"][recipe])}
 
 
 def _bench_cost(context, scope):

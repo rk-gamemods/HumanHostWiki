@@ -68,7 +68,7 @@ class PlayerProjectionTests(unittest.TestCase):
         self.assertEqual(record["player_id"], digest(packs.compact(player)))
         self.assertEqual(player["name"], "Iron Ore")
         self.assertEqual((player["name_source"], player["name_rule"]), ("game", None))
-        self.assertEqual(player["ring"], {"earliest": 2, "main": 2, "label": "Ring 2 (War Zone)"})
+        self.assertEqual(player["ring"], {"earliest": 2, "main": 2, "label": "Biome 3 (War Zone)"})
         self.assertEqual(player["how"], [[{"text": "mined in "}, {"entity": self.key("biome"), "text": "War Zone"},
                                           {"text": " (20% of dig hits)"}]])
         self.assertEqual(player["used_in"]["count"], 13)

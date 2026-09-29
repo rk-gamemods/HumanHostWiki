@@ -223,7 +223,7 @@ def player_projection(models, registry, text, snapshot, *, snapshot_metadata=Non
         if progression and any(progression[field] is not None for field in ("earliest_ring", "main_ring")):
             main = progression["main_ring"]
             label = (guide_queries.ring_label(context, main) if main in rings else
-                     f"Ring {main}" if main is not None else "Unknown")
+                     f"Biome {main + 1}" if main is not None else "Unknown")
             ring = {"earliest": progression["earliest_ring"], "main": main, "label": label}
         if (not how and not recipes and ring is None and name["name"] == row["semantic"]["name"]
                 and name["source"] == "game" and name["rule"] is None):

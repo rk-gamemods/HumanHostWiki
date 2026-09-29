@@ -110,8 +110,10 @@ Each item, recipe and bench therefore carries two rings:
   biome gives the highest chance per dig hit. For a crafted thing, it is the latest main ring
   among its ingredients and its bench.
 
-Guides show `main_ring` and label it "Ring". Each guide's sources line says what the ring
-means.
+Guides show `main_ring` and label it "Biome N", counting from 1 as the game does. The game's own
+text says "There are 10 biomes in total" and "Biome 10 = max loot quality", and no UI shows a
+0-based index (checked 2026-09-29). The graph keeps the 0-based index internally. Each guide's
+sources line says what the biome number means.
 
 Rates stay labelled as rates. ADR-0001 §4 forbids presenting them as probabilities without a
 verified selection rule. A rate that the game itself shows as a percentage, and whose roll is

@@ -4,7 +4,7 @@
   "title": "Choosing a weapon",
   "dek": "Every melee weapon, gun and bow side by side: how hard it hits, what it needs, and how early you can get it.",
   "audience": "A player comparing weapons.",
-  "rule": "No weapon is called best. Tables sort by ring, then by damage.",
+  "rule": "No weapon is called best. Tables sort by biome, then by damage.",
   "sections": [
     {
       "id": "reading-the-stats",
@@ -46,7 +46,7 @@
       "id": "sources",
       "heading": "Where this comes from",
       "blocks": [
-        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Stats are the item values the game's own tooltip shows, before quality bonuses. Every weapon here can be made or found from the starting ring; the progression guide shows what each later ring adds."}
+        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Stats are the item values the game's own tooltip shows, before quality bonuses. Every weapon here can be made or found in the first biome; the progression guide shows what each later biome adds."}
       ]
     }
   ]
