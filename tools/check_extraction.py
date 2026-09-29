@@ -9,7 +9,19 @@ from collections import Counter, defaultdict
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
+
+
+# Captured UI/UI.decompiled.cs: DynamicToolTipSet.ToolTipTiles. Every member
+# is a Language_Text reference; Unity identity fields are not tooltip bindings.
+TOOLTIP_MEMBERS = """_Dura_Title _BlockDura _Damage_Title _HitDown_Title _BladeHit_Title
+_GunFireRate_Title _SingleShot_Title _GunMaxMag_Title _GunAmmoType_Title _BowAmmoType_Str
+_Quality_Title _BladeHit_Instruct _HeadShot_Instruct _ArrowDamage _ArrowRange _ArrowSpeed
+_ShootRange_Title _Recoil_Title _DummyRound_Title _Jam_Title _GatheringTool
+_GatheringToolSmallAxe""".split()
+TEXT_CLASSES = {"Language_Text", "Tooltip_Text"}
+DERIVED_GAP_CODES = {"english-text", "missing-field", "unsupported-field-type", "unresolved-reference"}
 
 
 def raw_records(source, commit, path):
@@ -57,6 +69,112 @@ def scene_prop_counts(entries, table):
             "total_count": len(entries), "unresolved_count": len(entries) - sum(valid.values())}
 
 
+def english_text(raw):
+    """Recompute English facts, source locators and gaps from the pinned object."""
+    name = "text" if raw["script"]["class"] == "Language_Text" else "_ItemName"
+    facts, evidence, gaps = {name: None}, set(), []
+    source_fields = raw.get("fields")
+    if not isinstance(source_fields, dict):
+        return {}, evidence, [("unsupported-field-type", "")]
+    if "_Infos" not in source_fields:
+        return facts, evidence, [("missing-field", "/_Infos")]
+    infos = source_fields["_Infos"]
+    if not isinstance(infos, list):
+        return facts, evidence, [("unsupported-field-type", "/_Infos")]
+    english = []
+    for index, entry in enumerate(infos):
+        pointer = f"/_Infos/{index}"
+        if not isinstance(entry, dict):
+            gaps.append(("unsupported-field-type", pointer))
+        elif type(entry.get("languageType")) is not int:
+            gaps.append(("unsupported-field-type", pointer + "/languageType"))
+        # Captured LanguageType enum: English = 2, independent of list order.
+        elif entry["languageType"] == 2:
+            english.append((pointer, entry))
+    if len(english) != 1:
+        return facts, {"/_Infos"}, gaps + [("english-text", "/_Infos")]
+    pointer, entry = english[0]
+    evidence.add(pointer + "/languageType")
+    names = [name]
+    if name == "_ItemName" and "_ItemInstruction" in entry:
+        names.append("_ItemInstruction")
+    for field in names:
+        if field not in entry:
+            gaps.append(("missing-field", pointer + "/" + field))
+        elif not isinstance(entry[field], str):
+            facts[field] = None
+            gaps.append(("unsupported-field-type", pointer + "/" + field))
+        else:
+            facts[field] = entry[field]
+            evidence.add(pointer + "/" + field)
+    return facts, evidence, gaps
+
+
+def tooltip_references(raw):
+    """Recompute the complete selected reference set, including missing edges."""
+    links, evidence, gaps = [], set(), []
+    source_fields = raw.get("fields")
+    if not isinstance(source_fields, dict):
+        return {}, links, evidence, [("unsupported-field-type", "")]
+    if "data" not in source_fields:
+        return {}, links, evidence, [("missing-field", "/data")]
+    data = source_fields["data"]
+    if not isinstance(data, dict):
+        return {}, links, evidence, [("unsupported-field-type", "/data")]
+    references = {ref["field"]: ref for ref in raw.get("references", [])}
+    for member in TOOLTIP_MEMBERS:
+        pointer = "/data/" + member
+        if member not in data:
+            gaps.append(("missing-field", pointer))
+            continue
+        value = data[member]
+        if isinstance(value, dict) and "m_PathID" in value:
+            valid = type(value["m_PathID"]) is int and type(value.get("m_FileID")) is int
+            null = value["m_PathID"] == 0
+        else:
+            valid = isinstance(value, dict) and isinstance(value.get("m_AssetGUID"), str)
+            null = valid and not value["m_AssetGUID"]
+        if not valid:
+            gaps.append(("unsupported-field-type", pointer))
+            continue
+        evidence.add(pointer)
+        if null:
+            continue
+        ref = references.get(pointer)
+        link = {"predicate": "tooltip-text", "source_field": pointer}
+        if ref is None:
+            links.append({**link, "status": "missing"})
+            gaps.append(("unresolved-reference", pointer))
+        elif ref.get("status") != "null":
+            status = ref.get("status", "unknown")
+            links.append({**link, "status": status,
+                          "target_source_ids": sorted(ref.get("targets", [ref["target"]] if "target" in ref else [])),
+                          **({"guid": ref["guid"]} if "guid" in ref else {})})
+            if status != "resolved":
+                gaps.append(("unresolved-reference", pointer))
+    return {"data": {}}, links, evidence, gaps
+
+
+def check_derived_gaps(root, run, expected, contracts, complete):
+    """Grouped reports have bounded examples; audit counts, not example inclusion."""
+    artifact = run.get("exceptions")
+    if not artifact:
+        raise ValueError("Missing exception report for derived text contracts")
+    data = (root / artifact["path"]).read_bytes()
+    if hashlib.sha256(data).hexdigest() != artifact["sha256"]:
+        raise ValueError("Exception report does not match its recorded hash")
+    actual = Counter()
+    for group in json.loads(data)["groups"]:
+        if group["code"] in DERIVED_GAP_CODES and any(
+                group["topic"] == topic and (group["pattern"] == cls or group["pattern"].startswith(cls + "/"))
+                for topic, cls in contracts):
+            actual[(group["code"], group["topic"], group["pattern"])] += group["occurrences"]
+    keys = expected.keys() | actual.keys() if complete else expected.keys()
+    for key in sorted(keys):
+        if actual[key] < expected[key] or (complete and actual[key] != expected[key]):
+            raise ValueError(f"Derived text gap count differs: {key}; expected {expected[key]}, found {actual[key]}")
+
+
 def check(root, source, complete=False):
     pointer = json.loads((root / ".local/extraction-latest.json").read_text())
     run = json.loads((root / f".local/extractions/runs/{pointer['run_id']}.json").read_text())
@@ -96,6 +214,7 @@ def check(root, source, complete=False):
                 objects[raw["id"]] = raw
                 hashes[raw["id"]] = sha
     checks = 0
+    derived_gaps, derived_contracts = Counter(), set()
     for row in sample:
         if row["kind"] == "loot-tag":
             manager, tag = row["source_id"].split("/tag/", 1)
@@ -113,8 +232,31 @@ def check(root, source, complete=False):
                 raise ValueError(f"Loot rates differ: {row['source_id']}")
             checks += 1
         else:
-            expected = at(raw["fields"], row.get("source_field_base", ""))
-            if row.get("component") == {"assembly": "Build_System", "class": "ScenePropSpawner"}:
+            component = row.get("component", {})
+            derived = False
+            if component.get("assembly") == "Language" and component.get("class") in TEXT_CLASSES:
+                expected, fields, gaps = english_text(raw)
+                derived, topic = True, "technical-reference"
+            elif component == {"assembly": "UI", "class": "DynamicToolTipSet"}:
+                expected, links, fields, gaps = tooltip_references(raw)
+                if sorted(links, key=lambda link: link["source_field"]) != sorted(row["relationships"], key=lambda link: link["source_field"]):
+                    raise ValueError(f"Tooltip references differ: {row['source_id']}")
+                derived, topic = True, "items-equipment"
+                checks += len(links)
+            else:
+                expected = at(raw["fields"], row.get("source_field_base", ""))
+            if derived:
+                if expected != row["facts"]:
+                    raise ValueError(f"Derived text facts differ: {row['source_id']}")
+                if fields != set(row["evidence"][0]["fields"]):
+                    raise ValueError(f"Derived text evidence differs: {row['source_id']}")
+                cls = component["class"]
+                derived_contracts.add((topic, cls))
+                for code, path in gaps:
+                    pattern = cls + re.sub(r"/\d+(?=/|$)", "/*", path)
+                    derived_gaps[(code, topic, pattern)] += 1
+                checks += 2
+            if component == {"assembly": "Build_System", "class": "ScenePropSpawner"}:
                 expected = dict(expected)
                 for field, table in (("ScenePropsInfo", "PropsRefNoRepeat"), ("ScenePropsInfoBig", "PropsRefNoRepeatBig")):
                     if field in row["facts"]:
@@ -134,9 +276,10 @@ def check(root, source, complete=False):
             for link in row["relationships"]:
                 if link["predicate"] in {"defined-by", "coded-value"}:
                     continue
-                ref = next((ref for ref in raw["references"] if ref["field"] == link["source_field"]), {})
+                ref = next((ref for ref in raw.get("references", []) if ref["field"] == link["source_field"]), {})
                 actual_targets = sorted(ref.get("targets", [ref["target"]] if "target" in ref else []))
-                if link.get("target_source_ids", []) != actual_targets or link.get("status") != ref.get("status", "missing"):
+                status = ref.get("status", "unknown") if ref else "missing"
+                if link.get("target_source_ids", []) != actual_targets or link.get("status") != status:
                     raise ValueError(f"Reference differs: {row['source_id']} {link['source_field']}")
                 if link.get("guid") != ref.get("guid"):
                     raise ValueError(f"Reference GUID differs: {row['source_id']} {link['source_field']}")
@@ -157,6 +300,9 @@ def check(root, source, complete=False):
             if names != {row["name"]}:
                 raise ValueError(f"Definition name differs: {row['source_id']}")
             checks += 1
+    if derived_contracts:
+        check_derived_gaps(root, run, derived_gaps, derived_contracts, complete)
+        checks += 1
     totals = Counter()
     for record, _ in raw_records(source, run["source_commit"], "Catalog/views/object-index.jsonl"):
         totals[(record["type"], record.get("assembly"), record.get("class"))] += 1
@@ -197,7 +343,7 @@ def check(root, source, complete=False):
             "sampling": "all" if complete else "first-middle-last-per-family",
             "prefab_identities_checked": prefab_count,
             "kinds": sorted({row["kind"] for row in sample}), "status": "passed", "type_summaries_checked": len(summaries),
-            "scope": "Selected serialized facts, English names and loot eligibility; not runtime verification"}
+            "scope": "Selected serialized facts, English text and names, tooltip references and loot eligibility; not runtime verification"}
 
 
 if __name__ == "__main__":

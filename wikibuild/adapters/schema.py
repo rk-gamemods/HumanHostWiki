@@ -19,6 +19,14 @@ class Ref:
 
 
 @dataclass(frozen=True)
+class EnglishText:
+    """Project an English _Infos entry into its parent's text facts."""
+    field: str
+    optional: tuple = ()
+    excluded: frozenset = frozenset()
+
+
+@dataclass(frozen=True)
 class NumberWithSentinel:
     """Opt-in to exact catalog-encoded float markers used by a source contract."""
     markers: frozenset
@@ -74,6 +82,44 @@ class Selection:
         self.issues.add(code, self.spec.topic, pattern, message, self.record["id"])
 
     def select(self, value, schema, path=""):
+        if isinstance(schema, EnglishText):
+            result = {schema.field: None}
+            if not isinstance(value, list):
+                self.invalid(path)
+                return result
+            candidates = []
+            known = {"languageType", schema.field, *schema.optional} | schema.excluded
+            for index, entry in enumerate(value):
+                pointer = f"{path}/{index}"
+                if not isinstance(entry, dict):
+                    self.invalid(pointer)
+                    continue
+                for key in sorted(entry.keys() - known):
+                    self.issue("new-field", pointer + "/" + key,
+                               "A new source field needs an extraction decision; known fields were processed.")
+                if type(entry.get("languageType")) is not int:
+                    self.invalid(pointer + "/languageType")
+                    continue
+                # Language/Language.decompiled.cs: LanguageType.English = 2.
+                # This is the stored enum value, never the list position.
+                if entry["languageType"] == 2:
+                    candidates.append((pointer, entry))
+            if len(candidates) != 1:
+                self.issue("english-text", path,
+                           "No unique English entry; the selected text is null.")
+                self.evidence.append(path)
+                return result
+            pointer, entry = candidates[0]
+            self.evidence.append(pointer + "/languageType")
+            for key in (schema.field, *schema.optional):
+                if key not in entry:
+                    if key == schema.field:
+                        self.issue("missing-field", pointer + "/" + key,
+                                   "The English text field is absent; its fact is null.")
+                    continue
+                selected = self.select(entry[key], str, pointer + "/" + key)
+                result[key] = None if selected is OMIT else selected
+            return result
         if isinstance(schema, IndexCounts):
             table = self.record.get("fields", {}).get(schema.table)
             if not isinstance(value, list) or not isinstance(table, list):
@@ -108,9 +154,13 @@ class Selection:
                 pointer = path + "/" + key.replace("~", "~0").replace("/", "~1")
                 if key not in value:
                     self.issue("missing-field", pointer, "A known field is absent; dependent facts were omitted.")
+                    if isinstance(child, EnglishText):
+                        result[child.field] = None
                     continue
                 selected = self.select(value[key], child, pointer)
-                if selected is not OMIT:
+                if isinstance(child, EnglishText):
+                    result.update(selected)
+                elif selected is not OMIT:
                     result[key] = selected
             for key in sorted(value.keys() - schema.selected.keys() - schema.excluded):
                 self.issue("new-field", path + "/" + key,
