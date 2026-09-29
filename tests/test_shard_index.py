@@ -23,7 +23,7 @@ class ShardIndexTests(unittest.TestCase):
                          {("items", "one"): data})
 
     def test_multilevel_split_keeps_order_ranges_and_repeats_identically(self):
-        for kind in ("entries", "cards"):
+        for kind in ("entries", "cards", "player"):
             with self.subTest(kind=kind):
                 self.check_multilevel_split(kind)
 
@@ -36,6 +36,7 @@ class ShardIndexTests(unittest.TestCase):
             original[kind], original["entries"] = original["entries"], []
         if legacy:
             original.pop("cards", None)
+            original.pop("player", None)
         # Reused packs may overlap ranges. Parent bounds must cover every child,
         # not just the first/last list entries.
         original[kind][0]["last"] = "zzzz"
@@ -70,6 +71,7 @@ class ShardIndexTests(unittest.TestCase):
         self.assertEqual(list(flatten(projected[kind])), original[kind])
         if legacy:
             self.assertNotIn("cards", projected)
+            self.assertNotIn("player", projected)
         before = dict(outputs)
         self.assertEqual(shard_index.compact(request, 2048, emit), result)
         self.assertEqual(outputs, before)

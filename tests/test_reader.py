@@ -17,7 +17,8 @@ class ReaderTests(unittest.TestCase):
         self.root = Path(self.folder.name)
         self.registry_path = self.root / "presentation/fields.json"
         self.registry_path.parent.mkdir()
-        self.registry_path.write_bytes(json_bytes({"schema_version": 1, "glossaries": {}, "kinds": {
+        names = json.loads((Path(reader.__file__).resolve().parents[1] / "presentation/fields.json").read_bytes())["names"]
+        self.registry_path.write_bytes(json_bytes({"schema_version": 1, "names": names, "glossaries": {}, "kinds": {
             "item": {"fields": {"/weight": {"tier": "player", "format": "round2",
                                             "label": {"game": "_Weight_Title", "fallback": "Weight"}}}}}}))
         self.project = {"repositories": [
