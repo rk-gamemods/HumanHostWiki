@@ -417,10 +417,12 @@ function playerCard(card, player, record) {
     parts.push(el("dl", {class: "stats"}, card.stats.map(stat => el("div", {class: Array.isArray(stat.display) ? "stat wide" : "stat"}, el("dt", {}, stat.label), statValue(stat, links)))));
   }
   const side = [];
-  if (player?.how?.length) side.push(el("section", {}, el("h2", {}, "How to get it"), el("ul", {}, player.how.map(runs => el("li", {}, runsNode(runs, links))))));
+  // Guide phrases start lowercase to sit mid-sentence; as standalone list items they start with a capital.
+  const capitalized = runs => runs.map((run, i) => i ? run : {...run, text: run.text.charAt(0).toUpperCase() + run.text.slice(1)});
+  if (player?.how?.length) side.push(el("section", {}, el("h2", {}, "How to get it"), el("ul", {class: "how"}, player.how.map(runs => el("li", {}, runsNode(capitalized(runs), links))))));
   if (player?.used_in?.count) {
     const more = player.used_in.count - player.used_in.items.length;
-    side.push(el("section", {}, el("h2", {}, "Used to make"), el("ul", {}, player.used_in.items.map(runs => el("li", {}, runsNode(Array.isArray(runs) ? runs : [runs], links)))),
+    side.push(el("section", {}, el("h2", {}, "Used to make ", el("small", {}, count(player.used_in.count))), el("ul", {class: "uses"}, player.used_in.items.map(runs => el("li", {}, runsNode(Array.isArray(runs) ? runs : [runs], links)))),
       more > 0 ? el("p", {class: "muted"}, `and ${count(more)} more`) : null));
   }
   if (card?.notes?.length) side.push(el("section", {}, card.notes.map(note => el("p", {class: "gamenote"}, el("b", {}, "In the game"), note.text))));

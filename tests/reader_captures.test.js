@@ -265,8 +265,8 @@ function fixture(count = 121) {
       [{text: "crafted by hand"}]], used_in: {count: 13, items: [{text: "Stone Axe", entity: "recipe"}]},
     links: {biome: {name: "War Zone", topic: "items"}, recipe: {name: "Stone Axe", topic: "items"}}};
   const playerView = subject.context.playerCard(null, player, {links: {}});
-  assert.match(flattened(playerView).join(" "), /mined in.*War Zone.*20% of dig hits/);
-  assert.ok(flattened(playerView).includes("crafted by hand"));
+  assert.match(flattened(playerView).join(" "), /Mined in.*War Zone.*20% of dig hits/);
+  assert.ok(flattened(playerView).includes("Crafted by hand"));
   const playerLinks = descendants(playerView).filter(node => node.tag === "a");
   assert.equal(playerLinks.length, 2);
   assert.match(playerLinks[0].href, /entry\/biome\//);

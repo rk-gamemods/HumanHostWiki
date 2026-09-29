@@ -203,6 +203,9 @@ kbd { font: .66rem var(--mono); border: 1px solid var(--rule); padding: 0 .35rem
 .facts-side section { margin-bottom: 1.4rem; }
 .facts-side ul { list-style: none; margin: 0; padding: 0; }
 .facts-side li { padding: .3rem 0; border-bottom: 1px solid var(--rule); }
+.facts-side h2 small { font: .8rem var(--sans); color: var(--muted); margin-left: .3rem; }
+.facts-side .uses { columns: 2 11rem; column-gap: 1.6rem; font: .9rem/1.35 var(--sans); }
+.facts-side .uses li { break-inside: avoid; border-bottom: 0; padding: .18rem 0; }
 .ringchip { display: inline-block; font: 600 .74rem var(--sans); background: var(--ink); color: var(--cream); padding: .1rem .55rem; margin: .2rem 0 .6rem; }
 .lead { font-size: 1.1rem; max-width: 42rem; margin: .8rem 0 0; }
 
