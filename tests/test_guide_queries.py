@@ -53,6 +53,12 @@ def mining(identity, amounts):
          for index, (item, _) in enumerate(amounts)])
 
 
+def harvest_source(identity, name, item):
+    return row(identity, "building-piece", name,
+               {"_Collectable_Info": {"_Items": [{"_RandomRate": 1}]}},
+               [link("collectible-item", item, "/_Collectable_Info/_Items/0/_IconRef")])
+
+
 def fixture():
     """Two main rings, a separate Base patch, and an ingredient/bench chain."""
     items = [
@@ -174,7 +180,7 @@ class GuideQueryTests(unittest.TestCase):
 
     def test_public_helpers_links_and_wording(self):
         expected = {"ore": "mined in Desert (20% of dig hits)", "fiber": "cut from grass",
-                    "wood": "gathered from oak", "plank": "crafted at the Workbench",
+                    "wood": "gathered from trees", "plank": "crafted at the Workbench",
                     "axe": "crafted by hand", "stock": "sold by merchants in Mossy Forest",
                     "part": "found in crates in Mossy Forest; salvaged from Rifle"}
         for identity, wording in expected.items():
@@ -197,7 +203,7 @@ class GuideQueryTests(unittest.TestCase):
         self.assertEqual(query(self.ctx, "start.first_biome"), {"first_biome": entity("forest", "Mossy Forest")})
         self.assertEqual(query(self.ctx, "start.materials"), [
             {"item": entity("stone", "Stone"), "method": "Mining", "how": rich("mined in ", entity("forest", "Mossy Forest"), " (20% of dig hits)")},
-            {"item": entity("wood", "Wood"), "method": "Gathering", "how": rich("gathered from ", "oak")},
+            {"item": entity("wood", "Wood"), "method": "Gathering", "how": rich("gathered from ", "trees")},
             {"item": entity("fiber", "Plant Fiber"), "method": "Gathering", "how": rich("cut from grass")},
             {"item": entity("part", "Spare Part"), "method": "Scavenging", "how": rich("found in ", "crates", " in ", entity("forest", "Mossy Forest"))},
             {"item": entity("stock", "Flux"), "method": "Buying", "how": rich("sold by merchants in ", entity("forest", "Mossy Forest"))},
@@ -381,15 +387,87 @@ class GuideQueryTests(unittest.TestCase):
             rows.append(row(identity, "building-piece", name, {"_Collectable_Info": {"_Items": [{"_RandomRate": 1}]}},
                             [link("collectible-item", "wood", "/_Collectable_Info/_Items/0/_IconRef")]))
         ctx = context(rows)
-        self.assertEqual(words(queries.how_runs(ctx, key("wood"))), "gathered from ash, birch, cedar and 1 more")
-        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)), "gathered from ash, birch, cedar and 1 more")
-        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=1)), "gathered from ash, birch and cedar")
+        self.assertEqual(words(queries.how_runs(ctx, key("wood"))), "gathered from trees and other scenery")
+        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)), "gathered from trees and other scenery")
+        self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=1)), "gathered from trees and other scenery")
         # A crafted recipe must not invent a fifth material grouping, and the
         # public limit cannot expose more than two acquisition phrases.
         ctx = context(fixture() + [recipe("make-part", "part", [("wood", 2)])])
         self.assertEqual(queries.method(ctx, key("part")), "Scavenging")
         self.assertEqual(words(queries.how_runs(ctx, key("part"), limit=20)),
                          "crafted by hand; found in crates in Mossy Forest")
+
+    def test_registry_harvest_kinds_cover_each_rule_without_model_names(self):
+        examples = [
+            ("car", "AM165_002_VRay", "wrecked cars"),
+            ("beech-source", "Beech_tree_03", "trees"),
+            ("branch", "Mountain_branch_03", "fallen branches"),
+            ("plant", "Cactus_Bush_var1", "plants"),
+            ("bone", "Skull_01", "bones"),
+            ("rubble", "ConBrick_Debris_S_04", "rubble"),
+            ("metal", "Metal_Debris_S_03", "scrap metal"),
+            ("debris", "Wood_Trash_L_06", "debris"),
+            ("rock", "Ground_rock_var1", "rocks"),
+            ("mushroom", "Mushroom_Pennybun_02", "mushrooms"),
+            ("mineral", "Limestone_03", "mineral deposits"),
+            ("wall", "Bastion_Wall_B_02", "ruined walls"),
+            ("supplies", "Soda_Can_01", "abandoned supplies"),
+            ("packaging", "Packaging_Grp_D", "packaging"),
+            ("household", "Bedroom_Cupboard", "household clutter"),
+        ]
+        ctx = context(fixture() + [harvest_source(identity, name, "wood")
+                                   for identity, name, _ in examples])
+        for identity, _, expected in examples:
+            self.assertEqual(queries._harvest_kind(ctx, key("wood"), key(identity))[0], expected)
+        phrase = words(queries.how_runs(ctx, key("wood")))
+        self.assertEqual(phrase, "gathered from trees, abandoned supplies, bones and 12 more kinds")
+        for _, name, _ in examples:
+            self.assertNotIn(queries._scenery_family(name), phrase)
+
+    def test_real_family_collisions_take_the_plain_kind(self):
+        examples = [
+            ("tree-rubble", "Concrete_Debris_Big_01_Tree", "rubble"),
+            ("tree-rock", "beech_forest_stones_01_3", "rocks"),
+            ("tree-mushroom", "mushroom_birch_bolete_03", "mushrooms"),
+            ("tree-branch", "pine_broken_branch_01", "fallen branches"),
+            ("stones", "SM_StonesPile01", "rocks"),
+        ]
+        ctx = context(fixture() + [harvest_source(identity, name, "wood")
+                                   for identity, name, _ in examples])
+        for identity, _, expected in examples:
+            self.assertEqual(queries._harvest_kind(ctx, key("wood"), key(identity))[0], expected)
+
+    def test_item_record_words_make_surface_deposits_before_family_rules(self):
+        rows = fixture() + [
+            row("copper", "item", "Ore_Copper"),
+            row("wax", "item", "Chrismatite_Icon"),
+            row("marble", "item", "Marble"),
+            row("wrong", "item", "Wood"),
+            harvest_source("copper-source", "Ore_Copper", "copper"),
+            harvest_source("wax-source", "Chrismatite", "wax"),
+            harvest_source("marble-source", "Marble", "marble"),
+            harvest_source("wrong-source", "Wood_Trash_03", "wrong"),
+        ]
+        ctx = context(rows)
+        for item in ("copper", "wax", "marble"):
+            self.assertEqual(words(queries.how_runs(ctx, key(item))), "gathered from mineral deposits")
+        self.assertEqual(words(queries.how_runs(ctx, key("wrong"))), "gathered from debris")
+
+    def test_other_scenery_stays_last_and_remainder_counts_kinds(self):
+        rows = fixture() + [harvest_source("duct-1", "Terra_Block_01", "wood"),
+                            harvest_source("duct-2", "Terra_Block_02", "wood")]
+        ctx = context(rows)
+        self.assertEqual(words(queries.how_runs(ctx, key("wood"))),
+                         "gathered from trees and other scenery")
+        self.assertEqual(set(queries.other_scenery_sources(ctx)), {key("duct-1"), key("duct-2")})
+        rows += [harvest_source("skull", "Skull_01", "wood"),
+                 harvest_source("brick", "ConBrick_Debris_01", "wood"),
+                 harvest_source("rock", "Ground_rock_var1", "wood")]
+        self.assertEqual(words(queries.how_runs(context(rows), key("wood"))),
+                         "gathered from bones, rocks, rubble and 2 more kinds")
+        rows = fixture() + rows[-3:]
+        self.assertEqual(words(queries.how_runs(context(rows), key("wood"))),
+                         "gathered from bones, rocks, rubble and 1 more kind")
 
     def test_tool_stats_use_card_fields_and_localized_labels(self):
         ctx = queries.build_context(fixture(), REGISTRY, {"_Damage_Title": "Impact: ", "_Dura_Title": "Lifetime: "}, SNAPSHOT)
@@ -421,12 +499,12 @@ class GuideQueryTests(unittest.TestCase):
                             [link("collectible-item", "wood", "/_Collectable_Info/_Items/0/_IconRef")]))
         ctx = context(rows)
         self.assertEqual(words(queries.how_runs(ctx, key("wood"))),
-                         "gathered from ground rock, air duct, beech tree and 3 more")
+                         "gathered from rocks, debris, trees and 1 more kind")
         for source, family in zip(names, ["ground rock"] * 3 + ["air duct", "wood trash", "debris burned", "beech tree"]):
             self.assertEqual(queries._scenery_family(source), family)
         # Unlocated scenery belongs in every ring's harvesting phrase.
         self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)),
-                         "gathered from ground rock, air duct, beech tree and 3 more")
+                         "gathered from rocks, debris, trees and 1 more kind")
         self.assertEqual(queries._scenery_family("Prefab mountain branch 03 lod0"), "mountain branch")
 
     def test_scenery_model_tokens_anywhere_and_leading_prefixes_deduplicate(self):
@@ -441,9 +519,9 @@ class GuideQueryTests(unittest.TestCase):
         for source, family in zip(names, ["concrete debris big tree"] * 3 + ["rock"] * 3):
             self.assertEqual(queries._scenery_family(source), family)
         self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)),
-                         "gathered from concrete debris big tree, rock and oak")
+                         "gathered from rocks, rubble and trees")
         self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=1)),
-                         "gathered from concrete debris big tree and rock")
+                         "gathered from rocks and rubble")
         self.assertEqual(payloads(ctx), payloads(context(list(reversed(rows)))))
 
     def test_unknown_biome_harvest_survives_ring_scope_alongside_crafting(self):
@@ -455,10 +533,10 @@ class GuideQueryTests(unittest.TestCase):
         next(r for r in rows if r["entity_key"] == key("top1"))["semantic"]["relationships"].append(
             link("vegetation", "desert-prop"))
         ctx = context(rows)
-        expected = rich("gathered from ", "wood trash", "; ", "crafted at the ", entity("bench1", "Workbench"))
+        expected = rich("gathered from ", "debris", "; ", "crafted at the ", entity("bench1", "Workbench"))
         self.assertEqual(queries.how_runs(ctx, key("plank"), ring=0), expected["runs"])
         self.assertEqual(words(queries.how_runs(ctx, key("plank"), ring=1)),
-                         "gathered from desert cactus and wood trash")
+                         "gathered from debris and plants")
         for name, index in [("start.materials", None), ("ring.new_materials", 0)]:
             result = next(r for r in query(ctx, name, index) if r["item"]["entity"] == key("plank"))
             self.assertEqual(result, {"item": entity("plank", "Planks"), "method": "Gathering", "how": expected})
@@ -687,7 +765,7 @@ class GuideQueryTests(unittest.TestCase):
         for bench in benches:
             self.assertEqual(queries.QUERIES["bench.summary"](self.ctx, bench), {"ring": "0", "built_at": rich("by hand")})
         self.assertEqual(queries.QUERIES["bench.cost"](self.ctx, benches[0]), [
-            {"count": "2", "item": entity("wood", "Wood"), "how": rich("gathered from ", "oak")}])
+            {"count": "2", "item": entity("wood", "Wood"), "how": rich("gathered from ", "trees")}])
         self.assertEqual(queries.QUERIES["bench.cost"](self.ctx, benches[1]), [
             {"count": "3", "item": entity("plank", "Planks"), "how": rich("crafted at the ", entity("bench1", "Workbench"))}])
         self.assertEqual(queries.QUERIES["bench.recipes"](self.ctx, benches[0]), [
@@ -733,6 +811,15 @@ class GuideQueryTests(unittest.TestCase):
 
 
 class RenderGuidesToolTests(unittest.TestCase):
+    def test_report_lists_distinct_unmatched_source_families(self):
+        ctx = context(fixture() + [harvest_source("duct-1", "Terra_Block_01", "wood"),
+                                   harvest_source("duct-2", "Terra_Block_02", "wood")])
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(render_guides, "load_context", return_value=ctx), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(render_guides.main(["--out", directory, "--guides", "getting-started"]), 0)
+        self.assertIn("Other scenery sources: 2\n", output.getvalue())
+        self.assertIn('Other scenery families: ["terra block"]\n', output.getvalue())
+
     def test_default_selection_files_repeat_bytes_and_explicit_selection(self):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory) / "guides"

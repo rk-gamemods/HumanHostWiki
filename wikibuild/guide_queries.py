@@ -78,6 +78,8 @@ def build_context(rows, registry, game_text, snapshot) -> dict:
                "registry": registry, "game_text": game_text,
                "snapshot": {key: str(value) for key, value in snapshot.items()}}
     guide_rules = registry.get("guides", {})
+    context["harvest_patterns"] = [(re.compile(rule["match"], re.IGNORECASE), rule["family"])
+                                   for rule in guide_rules.get("harvest_families", [])]
     patterns = [re.compile(pattern) for pattern in guide_rules.get("exclude_patterns", [])]
     context["excluded"] = {key for key, row in by_key.items()
                            if names[key]["name"] in guide_rules.get("exclude_names", [])
@@ -201,12 +203,44 @@ def _scenery_family(name):
     return " ".join(tokens) or name.lower()
 
 
-def _harvest_runs(context, sources):
-    families = defaultdict(set)
+def _harvest_kind(context, item_key, source_key):
+    family = _scenery_family(_name(context, source_key))
+    item_name = context["rows"][item_key]["semantic"]["name"]
+    item_name = re.sub(r"(?:[_ ]*Icon)$", "", item_name, flags=re.IGNORECASE)
+    item_words = {word.casefold() for word in re.split(r"[_\s]+", item_name) if word}
+    if set(family.casefold().split()) <= item_words:
+        return "mineral deposits", family
+    for pattern, kind in context["harvest_patterns"]:
+        if pattern.search(family):
+            return kind, family
+    return "other scenery", family
+
+
+def other_scenery_sources(context):
+    """Return distinct unmatched harvest sources and their model families."""
+    unmatched = {}
+    for item_key, item in context["graph"]["items"].items():
+        if item_key in context["grass_fibers"]:
+            continue
+        for source in item["sources"]:
+            if source["type"] == "harvested":
+                kind, family = _harvest_kind(context, item_key, source["via"])
+                if kind == "other scenery":
+                    unmatched[source["via"]] = family
+    return unmatched
+
+
+def _harvest_runs(context, item_key, sources):
+    kinds = defaultdict(set)
     for source in sources:
-        families[_scenery_family(_name(context, source["via"]))].add(source["via"])
-    ordered = sorted(families, key=lambda name: (-len(families[name]), name))
-    return [_text("gathered from ")] + _limited_runs([[_text(name)] for name in ordered])
+        kind, _ = _harvest_kind(context, item_key, source["via"])
+        kinds[kind].add(source["via"])
+    ordered = sorted(kinds, key=lambda name: (name == "other scenery", -len(kinds[name]), name))
+    selected = [[_text(name)] for name in ordered[:3]]
+    if len(ordered) > 3:
+        remainder = len(ordered) - 3
+        selected.append([_text(f"{remainder} more {'kind' if remainder == 1 else 'kinds'}")])
+    return [_text("gathered from ")] + _join_runs(selected)
 
 
 def _loot_runs(context, sources, ring):
@@ -277,7 +311,7 @@ def how_runs(context, item_key, ring=None, limit=2) -> list:
             if item_key in context["grass_fibers"]:
                 result = [_text("cut from grass")]
             else:
-                result = _harvest_runs(context, group)
+                result = _harvest_runs(context, item_key, group)
         elif kind == "crafted":
             recipe = _crafted_recipe(context, group)
             bench = recipe["bench"]

@@ -80,6 +80,9 @@ def main(argv=None):
         (args.out / f"{guide_id}.md").write_text(markdown, encoding="utf-8", newline="\n")
         print(f"{guide_id}: {len(document['sections'])} sections")
     print("Rows per query: " + json.dumps(counts, sort_keys=True))
+    unmatched = guide_queries.other_scenery_sources(context)
+    print("Other scenery sources: " + str(len(unmatched)))
+    print("Other scenery families: " + json.dumps(sorted(set(unmatched.values())), ensure_ascii=False))
     if "progression-by-biome" in ids:
         missing_fields = [field for field in ("_MutantLvDisInterval", "_Z_Mutant_F", "_QualityCapDistanceInterval")
                           if not any(field in row["semantic"].get("facts", {}) for row in context["rows"].values())]

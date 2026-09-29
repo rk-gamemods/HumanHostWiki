@@ -1,6 +1,7 @@
 """Pure player-card projection from the reviewed presentation registry."""
 
 import json
+import re
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
@@ -115,6 +116,19 @@ def load(path: str | Path) -> Registry:
         raise ValueError("kinds: expected an object")
     if not isinstance(registry.get("glossaries"), dict):
         raise ValueError("glossaries: expected an object")
+    guides = registry.get("guides")
+    if not isinstance(guides, dict) or not isinstance(guides.get("harvest_families"), list):
+        raise ValueError("guides.harvest_families: expected a list")
+    for index, rule in enumerate(guides["harvest_families"]):
+        key = f"guides.harvest_families[{index}]"
+        if not isinstance(rule, dict) or set(rule) != {"match", "family"} or any(
+            not isinstance(rule[name], str) for name in ("match", "family")
+        ):
+            raise ValueError(f"{key}: expected match and family strings")
+        try:
+            re.compile(rule["match"], re.IGNORECASE)
+        except re.error as error:
+            raise ValueError(f"{key}.match: invalid regex: {error}") from error
     for name in registry.get("formats", {}):
         if name not in _FORMATS:
             raise ValueError(f"formats.{name}: unknown format")

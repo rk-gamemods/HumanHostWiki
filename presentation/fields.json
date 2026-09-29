@@ -135,7 +135,24 @@
     }
   },
   "guides": {"about": "Records guides leave out. Their entry pages stay; they are placeholders or test content, not things a player can use.",
-    "exclude_names": ["WIP"], "exclude_patterns": ["G_Mode", "^Test[ _]", "^test[ _]"]},
+    "exclude_names": ["WIP"], "exclude_patterns": ["G_Mode", "^Test[ _]", "^test[ _]"],
+    "harvest_families": [
+      {"match": "\\b(am\\d+|car|cars|truck|bus|van|vehicle|wreck)\\b", "family": "wrecked cars"},
+      {"match": "\\bmushrooms?\\b", "family": "mushrooms"},
+      {"match": "^(?!.*\\b(?:branch(?:es)?|brick|concrete|rock(?:s)?|stone(?:s)?|mushroom)\\b).*\\b(tree|pine|beech|birch|oak|spruce|fir|palm|trunk|stump|log)\\b", "family": "trees"},
+      {"match": "\\bbranch(es)?\\b", "family": "fallen branches"},
+      {"match": "\\b(bush|shrub|plant|flower|fern|reed|cactus|biznaga|nopal|rabbit brush|oreopanax|corn)\\b", "family": "plants"},
+      {"match": "\\b(skull|bone|bones|skeleton|carcass)\\b", "family": "bones"},
+      {"match": "\\b(ore|chrismatite|limestone|marble|epidote|sulfur|obsidian|lapis|graphite|clay)\\b", "family": "mineral deposits"},
+      {"match": "\\b(bastion|facade|barbwire|fence|wall)\\b", "family": "ruined walls"},
+      {"match": "\\b(brick|concrete|con)\\b", "family": "rubble"},
+      {"match": "\\b(metal|duct|extractor|faucet|bedspring)\\b", "family": "scrap metal"},
+      {"match": "\\b(can|cans|canned|bottle|cereals|chips|milk|juice|soda|soup|squid|tuna|ketchup|food|medication)\\b", "family": "abandoned supplies"},
+      {"match": "\\b(packaging|box|boxes|pallet)\\b", "family": "packaging"},
+      {"match": "\\b(book|folder|household|cupboard|mattress|cooking)\\b", "family": "household clutter"},
+      {"match": "\\b(debris|trash|junk|pile|burned)\\b", "family": "debris"},
+      {"match": "\\b(rock|rocks|stone|stones|boulder|plate|cliff|pebble)\\b", "family": "rocks"}
+    ]},
   "names": {
     "about": "Distinct player names for records that share a display name (ADR-0002 §3). Rules apply in order; the first that makes names unique within the topic and kind wins. Implemented in phase 2, extended by phase 3 joins.",
     "rules": [

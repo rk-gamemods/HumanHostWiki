@@ -44,6 +44,22 @@ class PresentationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown glossary"):
                 presentation.load(path)
 
+    def test_harvest_family_registry_requires_exact_string_rules_and_valid_regex(self):
+        base = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        invalid = [None, {}, ["trees"], [{"match": "tree"}],
+                   [{"match": "tree", "family": "trees", "priority": 1}],
+                   [{"match": 5, "family": "trees"}],
+                   [{"match": "tree", "family": None}],
+                   [{"match": "(", "family": "trees"}]]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "fields.json"
+            for rules in invalid:
+                registry = copy.deepcopy(base)
+                registry["guides"]["harvest_families"] = rules
+                path.write_text(json.dumps(registry), encoding="utf-8")
+                with self.subTest(rules=rules), self.assertRaisesRegex(ValueError, "guides.harvest_families"):
+                    presentation.load(path)
+
     def test_every_player_tier_value_has_a_label_and_format(self):
         """A31: a player sees no field without a label or with a raw value."""
         registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
