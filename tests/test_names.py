@@ -248,6 +248,97 @@ class PlayerNamesTests(unittest.TestCase):
         self.assertEqual(names["unknown-a"]["name"], "Unknown (variant 1)")
         self.assertEqual(names["unknown-b"]["name"], "Unknown (variant 2)")
 
+    def test_construction_pieces_take_unique_buildmat_item_name(self):
+        base = "7_5_Triangle_Small_1.4_Obsidian"
+        rows = [
+            row("quarter", "item", "Obsidian", topic="items", facts={"_Tag": "BuildMat"},
+                evidence=["quarter-tooltip"]),
+            row("half", "item", "Obsidian", topic="items", facts={"_Tag": "BuildMat"},
+                evidence=["half-tooltip"]),
+            row("quarter-tooltip-row", "configuration", base + "_Tooltip",
+                source="quarter-tooltip",
+                component={"assembly": "Language", "class": "Tooltip_Text"}),
+            row("half-tooltip-row", "configuration", "7_5_Triangle_Small_1.2_Obsidian_Tooltip",
+                source="half-tooltip",
+                component={"assembly": "Language", "class": "Tooltip_Text"}),
+            row("piece", "building-piece", base, topic="construction"),
+            row("rule", "construction-rule", base, topic="construction"),
+            row("rubble", "building-piece", "Rubble_Debris_07_Lod0", topic="construction"),
+            row("metal", "building-piece", "Metal_W_Pile_01_Lod0", topic="construction"),
+        ]
+        next(r for r in rows if r["entity_key"] == "quarter")["provenance"]["relationships"] = [
+            {"predicate": "model", "target_source_id": "model-object"}]
+        for record in rows:
+            if record["semantic"]["kind"] in {"building-piece", "construction-rule"}:
+                record["semantic"]["name_status"] = "internal"
+            if record["entity_key"] in {"piece", "rule"}:
+                record["provenance"]["game_objects"] = ["model-object"]
+        names = player_names(rows, REGISTRY, {}, {})
+        self.assertEqual(names["quarter"]["name"], "Obsidian (Triangle small 1/4)")
+        for key in ("piece", "rule"):
+            self.assertEqual(names[key], {"name": "Obsidian (Triangle small 1/4)",
+                                          "source": "wiki", "rule": "construction-item"})
+        self.assertEqual(names["rubble"]["name"], "Rubble debris 07")
+        self.assertEqual(names["metal"]["name"], "Metal w pile 01")
+        for seed in range(3):
+            shuffled = copy.deepcopy(rows)
+            random.Random(seed).shuffle(shuffled)
+            self.assertEqual(player_names(shuffled, REGISTRY, {}, {}), names)
+
+    def test_construction_item_no_match_and_many_match_fall_back(self):
+        base = "7_5_Triangle_Small_1.4_Obsidian"
+        piece = row("piece", "building-piece", base, topic="construction")
+        piece["semantic"]["name_status"] = "internal"
+        expected = {"name": "7 5 triangle small 1.4 obsidian", "source": "wiki",
+                    "rule": "humanize"}
+        self.assertEqual(player_names([piece], REGISTRY, {}, {})["piece"], expected)
+
+        rows = [piece]
+        for key in ("first", "second"):
+            rows.extend([row(key, "item", "Obsidian " + key,
+                             facts={"_Tag": "BuildMat"}, evidence=[key + "-tooltip"]),
+                         row(key + "-tooltip-row", "configuration", base + "_Tooltip",
+                             source=key + "-tooltip",
+                             component={"assembly": "Language", "class": "Tooltip_Text"})])
+        self.assertEqual(player_names(rows, REGISTRY, {}, {})["piece"], expected)
+
+        linked = [piece, row("linked-item", "item", "Obsidian",
+                             facts={"_Tag": "BuildMat"}, evidence=["linked-tooltip"]),
+                  row("linked-tooltip-row", "configuration", base + "_Tooltip",
+                      source="linked-tooltip",
+                      component={"assembly": "Language", "class": "Tooltip_Text"})]
+        piece["provenance"]["game_objects"] = ["piece-object"]
+        linked[1]["provenance"]["relationships"] = [
+            {"predicate": "model", "target_source_id": "different-object"}]
+        self.assertEqual(player_names(linked, REGISTRY, {}, {})["piece"], expected)
+        linked[1]["provenance"]["relationships"] = []
+        self.assertEqual(player_names(linked, REGISTRY, {}, {})["piece"],
+                         {"name": "Obsidian", "source": "wiki", "rule": "construction-item"})
+
+    def test_scenery_tokens_and_new_collisions_keep_names_distinct(self):
+        rows = [row("lod", "building-piece", "Rubble_Debris_07_Lod0", topic="construction"),
+                row("sm", "building-piece", "SM_Rubble_Debris_07", topic="construction"),
+                row("reserved", "building-piece", "Rubble debris 07 (variant 1)",
+                    topic="construction"),
+                row("prefab", "building-piece", "Prefab_pine_cone_03", topic="construction"),
+                row("empty", "building-piece", "sm_pReFaB_lOd123", topic="construction"),
+                row("tree", "building-piece", "Tree_lOd12_pReFaB", topic="construction"),
+                row("item", "item", "Prefab_pine_cone_03", topic="items")]
+        for record in rows:
+            if record["entity_key"] != "reserved":
+                record["semantic"]["name_status"] = "internal"
+        names = player_names(rows, REGISTRY, {}, {})
+        self.assertEqual(names["reserved"]["name"], "Rubble debris 07 (variant 1)")
+        self.assertEqual(names["lod"]["name"], "Rubble debris 07 (variant 2)")
+        self.assertEqual(names["sm"]["name"], "Rubble debris 07 (variant 3)")
+        self.assertEqual(names["prefab"]["name"], "Pine cone 03")
+        self.assertEqual(names["empty"]["name"], "Unnamed record")
+        self.assertEqual(names["tree"]["name"], "Tree")
+        self.assertEqual(names["item"]["name"], "Prefab pine cone 03")
+        construction = [names[record["entity_key"]]["name"] for record in rows
+                        if record["semantic"]["topic"] == "construction"]
+        self.assertEqual(len(construction), len(set(construction)))
+
     def test_container_families_biomes_ordinals_and_numeric_table(self):
         rows = [row(key, "biome", name) for key, name in
                 (("forest", "Forest"), ("desert", "Desert"), ("base", "Base"),

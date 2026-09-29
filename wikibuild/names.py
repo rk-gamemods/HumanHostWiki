@@ -16,11 +16,23 @@ def _targets(row, predicate):
     return {target for link in _links(row, predicate) for target in link.get("targets", [])}
 
 
-def _humanize(value):
+def _humanize(value, *, scenery=False):
+    # Model and detail-level tokens name a file, not a thing; variant numbers stay.
+    # They are dropped before the case split (odd casing such as "lOD0") and after it ("PrefabPine").
+    if scenery:
+        parts = re.sub(r"[_/\\-]+", " ", str(value)).split()
+        parts = [part for part in parts if part.casefold() not in {"sm", "prefab"}]
+        if parts and re.fullmatch(r"lod\d+", parts[-1], re.IGNORECASE):
+            parts.pop()
+        value = " ".join(parts)
     value = re.sub(r"([a-z0-9])([A-Z])|([A-Z])([A-Z][a-z])", r"\1\3 \2\4", str(value))
     words = re.sub(r"[_/\\-]+", " ", value).split()
     if len(words) >= 2 and [part.casefold() for part in words[-2:]] == ["hit", "set"]:
         words = words[:-2]
+    if scenery:
+        words = [word for word in words if word.casefold() not in {"sm", "prefab"}]
+        if words and re.fullmatch(r"lod\d+", words[-1], re.IGNORECASE):
+            words.pop()
     return " ".join(words).capitalize() or "Unnamed record"
 
 
@@ -75,6 +87,22 @@ def _shape(row, by_key, by_source):
     sizes = {"l": "large", "m": "medium", "s": "small"}
     shape = re.sub(r"(?<= )[lms]$", lambda letter: sizes[letter[0]], shape)
     return re.sub(r"(?<=\d)\.(?=\d)", "/", shape)
+
+
+def _construction_item(row, items_by_tooltip, by_key):
+    """Use a unique BuildMat tooltip title, checking a model link when present."""
+    candidates = items_by_tooltip.get(row["semantic"].get("name"), set())
+    if len(candidates) != 1:
+        return None
+    item = by_key[next(iter(candidates))]
+    model_targets = {target for link in item.get("provenance", {}).get("relationships", [])
+                     if link.get("predicate") == "model"
+                     for target in link.get("target_source_ids",
+                                            [link.get("target_source_id")]) if target}
+    game_objects = set(row.get("provenance", {}).get("game_objects", []))
+    if model_targets and game_objects and model_targets.isdisjoint(game_objects):
+        return None
+    return item["entity_key"]
 
 
 def _biome_name(row, sources):
@@ -172,7 +200,20 @@ def _disambiguate(result, rows, registry, game_text, graph, by_key, by_source):
             elif rule == "distinguishing-stat":
                 suffixes = _stat_candidates(keys, rows, registry, game_text)
             elif rule == "ordinal":
-                suffixes = {key: f"variant {index}" for index, key in enumerate(keys, 1)}
+                if kind in {"building-piece", "construction-rule"}:
+                    topic = rows[keys[0]]["semantic"]["topic"]
+                    occupied = {value["name"] for other, value in result.items()
+                                if other not in keys and rows[other]["semantic"]["topic"] == topic
+                                and rows[other]["semantic"]["kind"] == kind}
+                    index = 1
+                    for key in keys:
+                        while f"{base} (variant {index})" in occupied:
+                            index += 1
+                        suffixes[key] = f"variant {index}"
+                        occupied.add(f"{base} (variant {index})")
+                        index += 1
+                else:
+                    suffixes = {key: f"variant {index}" for index, key in enumerate(keys, 1)}
             if not suffixes:
                 continue
             candidates = {key: f"{base} ({suffix})" for key, suffix in suffixes.items()}
@@ -202,6 +243,16 @@ def _compute(rows, registry, game_text, graph, audit=None):
                 inbound[target].add(key)
         for identity in row.get("provenance", {}).get("game_objects", []):
             by_object[identity].add(key)
+
+    items_by_tooltip = defaultdict(set)
+    for key, row in by_key.items():
+        if (row["semantic"]["kind"] == "item"
+                and row["semantic"].get("facts", {}).get("_Tag") == "BuildMat"):
+            tooltip = _tooltip(row, by_key, by_source)
+            if tooltip:
+                title = tooltip["semantic"].get("name", "")
+                if title.endswith("_Tooltip"):
+                    items_by_tooltip[title[:-len("_Tooltip")]].add(key)
 
     def put(key, name, source="game", rule=None):
         result[key] = {"name": name, "source": source, "rule": rule}
@@ -250,7 +301,7 @@ def _compute(rows, registry, game_text, graph, audit=None):
                 put(key, _humanize(original), "wiki", "loot-source")
         else:
             if sem.get("name_status") == "internal":
-                replacement = _humanize(original)
+                replacement = _humanize(original, scenery=kind in {"building-piece", "construction-rule"})
                 if replacement != original:
                     humanized_keys.add(key)
                 put(key, replacement, "wiki", "humanize")
@@ -258,6 +309,13 @@ def _compute(rows, registry, game_text, graph, audit=None):
                 put(key, original, "game")
     clean_identifiers()
     _disambiguate(result, by_key, registry, game_text, graph, by_key, by_source)
+
+    for key, row in sorted(by_key.items()):
+        if row["semantic"]["kind"] not in {"building-piece", "construction-rule"}:
+            continue
+        item = _construction_item(row, items_by_tooltip, by_key)
+        if item is not None:
+            put(key, result[item]["name"], "wiki", "construction-item")
 
     recipes_by_output = defaultdict(list)
     for key, recipe in graph.get("recipes", {}).items():
