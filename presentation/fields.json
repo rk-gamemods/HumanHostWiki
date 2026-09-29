@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "about": "Player-facing presentation of extracted fields (ADR-0002 §2-§3). Reviewed data, not a run-time gate. Fields not listed are technical. Each decision cites the code that reads the field; see docs/adr/0002-player-template-and-guides.md.",
+  "game_text": {
+    "about": "Labels named {\"game\": KEY} are read per snapshot from the capture's item-tooltip text object (dynamicTooltip in UI.decompiled.cs) and localized Language_Mgr keys. English only; a trailing ': ' is removed. If the key is missing in a capture, the fallback label is used and the audit reports it.",
+    "language": "English"
+  },
+  "formats": {
+    "integer": "Round half away from zero to a whole number; thousands separator.",
+    "round2": "Round to 2 decimal places like the game's Math.Round(x, 2); drop trailing zeros.",
+    "percent": "x * 100, rounded to 2 places, then '%'. Used where the game's tooltip shows a percentage.",
+    "multiplier": "'× ' + round2(x).",
+    "range": "Object {x, y}: 'x–y', or just 'x' when equal.",
+    "text": "String as stored, trimmed.",
+    "signed_text": "String as stored; the game shows these with their sign, e.g. '+10'.",
+    "per_minute_from_seconds": "60 / x shots per minute, rounded to a whole number, then ' / min'.",
+    "positive_integer": "abs(x) rounded to a whole number."
+  },
+  "kinds": {
+    "item": {
+      "card": {
+        "eyebrow": [{"field": "/_Tag", "glossary": "item-category"}, {"field": "/_SlotType", "glossary": "slot-type"}],
+        "name": "variant"
+      },
+      "fields": {
+        "/_baseDamage": {"tier": "player", "label": {"game": "_Damage_Title", "fallback": "Damage"}, "format": "round2", "omit": ["zero"], "order": 10,
+          "cases": [{"when": {"/_Tag": "Bow"}, "label": {"game": "_ArrowDamage", "fallback": "Arrow Damage"}, "format": "percent"}],
+          "evidence": "UI.decompiled.cs:10322 (Get_Damage_Text, Math.Round 2); bows :10408-10411 (x100 %)"},
+        "/_fireRate": {"tier": "player", "label": {"game": "_GunFireRate_Title", "fallback": "Fire rate"}, "format": "text", "omit": ["empty", {"equals": "00"}], "order": 20,
+          "cases": [{"when": {"/_Tag": "Bow"}, "label": {"game": "_ArrowSpeed", "fallback": "Speed"}, "format": "text", "unit": "m/s"}],
+          "evidence": "UI.decompiled.cs:10340-10349 (\"00\" means no line, Single Shot); bows :10104-10105 (' m/s')"},
+        "/_maxMagCount": {"tier": "player", "label": {"game": "_GunMaxMag_Title", "fallback": "Capacity"}, "format": "integer", "omit": ["zero"], "order": 30,
+          "evidence": "UI.decompiled.cs:10364-10365"},
+        "/_ammoType": {"tier": "player", "label": {"game": "_GunAmmoType_Title", "fallback": "Ammo"}, "format": "text", "omit": ["empty"], "order": 40,
+          "cases": [{"when": {"/_Tag": "Bow"}, "label": {"game": "_BowAmmoType_Str", "fallback": "Arrow"}}],
+          "evidence": "UI.decompiled.cs:10355-10363"},
+        "/_headShotFactor": {"tier": "player", "label": {"game": "_HeadShot_Instruct", "fallback": "Head Damage"}, "format": "multiplier", "omit": ["zero"], "order": 50,
+          "evidence": "UI.decompiled.cs:10422-10423 (' x ' + value)"},
+        "/_baseBladeHitProb": {"tier": "player", "label": {"game": "_BladeHit_Title", "fallback": "Execute"}, "format": "percent", "omit": ["zero"], "order": 60,
+          "note": {"game": "_BladeHit_Instruct"},
+          "evidence": "Hand_Tools.decompiled.cs:2086-2093 (+100 damage, execute icon); UI.decompiled.cs:10311-10316"},
+        "/_baseHitDownProb": {"tier": "player", "label": {"game": "_HitDown_Title", "fallback": "Knockdown"}, "format": "percent", "omit": ["zero"], "order": 70,
+          "evidence": "Hand_Tools.decompiled.cs:1658, 2141; UI.decompiled.cs:10368-10373"},
+        "/_BaseMaxDurability": {"tier": "player", "label": {"game": "_Dura_Title", "fallback": "Durability"}, "format": "integer", "omit": ["zero"], "order": 80,
+          "evidence": "UI.decompiled.cs:10327-10332"},
+        "/_blockDurability": {"tier": "player", "label": {"game": "_BlockDura", "fallback": "Durability"}, "format": "integer", "omit": ["zero"], "order": 85,
+          "require": {"/_Tags/0": "ShowBI_Dura"},
+          "evidence": "UI.decompiled.cs:10385-10388 (shown only when _Tags[0] is ShowBI_Dura: building blocks and shields)"},
+        "/_Tags": {"tier": "technical",
+          "cases": [
+            {"when": {"/_Tag": ["Food", "Water", "SimpleBandage", "PainKiller", "Medkit", "MedicalCase", "MedicalBandage", "FractureSplint", "Antibiotics"]},
+             "tier": "player", "positional": [
+               {"index": 0, "label": {"game_key": "Food", "fallback": "Food"}, "format": "signed_text", "omit": ["empty"], "order": 90},
+               {"index": 1, "label": {"game_key": "Water", "fallback": "Water"}, "format": "signed_text", "omit": ["empty"], "order": 91},
+               {"index": 2, "label": {"game_key": "Stamina", "fallback": "Stamina"}, "format": "signed_text", "omit": ["empty"], "order": 92},
+               {"index": 3, "label": {"game_key": "HP", "fallback": "HP"}, "format": "signed_text", "omit": ["empty"], "order": 93}]},
+            {"when": {"/_Tags/0": ["HarvestTool", "StoneAxeHarvest"]}, "tier": "player",
+             "positional": [{"index": 0, "label": {"fallback": "Harvest"}, "format": "flag", "note": {"game": "_GatheringTool", "cases": {"StoneAxeHarvest": "_GatheringToolSmallAxe"}}, "order": 95}]}
+          ],
+          "evidence": "UI.decompiled.cs:10194-10211 (Food/Water/Stamina/HP via Language_Mgr); :10444-10458 (harvest). Gun attachment strings such as X2|X4 and 枪管：消音器 have no code reader and stay technical."},
+        "/_Can_Repair": {"tier": "player", "label": {"fallback": "Repair with"}, "format": "repair_link", "omit": [{"equals": 0}, {"equals": false}], "order": 100,
+          "evidence": "Hand_Tools.decompiled.cs:2885, 3837; the repair item comes from the repair-item relationship"},
+        "/MaxStack": {"tier": "player", "label": {"fallback": "Stack size"}, "format": "integer", "order": 110,
+          "evidence": "UI.decompiled.cs:936-943, 6916 (not in the tooltip; shown on the inventory slot)"},
+        "/_LootCountRange": {"tier": "player", "label": {"fallback": "Found in stacks of"}, "format": "range", "omit": [{"max_below": 2}], "order": 120,
+          "evidence": "UI.decompiled.cs:9257 Random.Range(x, y + 1) when spawned as loot"},
+        "/_BuySellValue": {"tier": "technical",
+          "evidence": "Merchant_Mgr.cs:1742 base price only when the item has no durability; items with durability are priced from _BaseMaxDurability (:1745-1789). A player price needs the merchant formula (phase 3)."},
+        "/_Can_Stack": {"tier": "hidden", "evidence": "Repeats MaxStack > 1."},
+        "/_DuraCostPerAttack": {"tier": "hidden", "evidence": "-5 on all 944 items; the real per-weapon cost is on the combat record."},
+        "/_noiseDistance": {"tier": "hidden", "evidence": "0 on all items; no code reads it (declaration only, Item_Info.decompiled.cs:104)."},
+        "/_SlotType": {"tier": "technical", "evidence": "Shown in the card eyebrow through the slot-type glossary."},
+        "/_Tag": {"tier": "technical", "evidence": "Shown in the card eyebrow through the item-category glossary."}
+      }
+    },
+    "combat-rule": {
+      "card": {"name": "variant"},
+      "fields": {
+        "/_Damage": {"tier": "player", "label": {"game": "_Damage_Title", "fallback": "Damage"}, "format": "round2", "omit": ["zero"], "order": 10, "evidence": "Hand_Tools.decompiled.cs:451-454"},
+        "/_ArrowDamage": {"tier": "player", "label": {"game": "_ArrowDamage", "fallback": "Arrow Damage"}, "format": "round2", "omit": ["zero"], "order": 11, "evidence": "Hand_Tools.decompiled.cs:6956"},
+        "/_TrapDamage": {"tier": "player", "label": {"fallback": "Trap damage"}, "format": "round2", "omit": ["zero"], "order": 12, "evidence": "Trap_Base.cs:11; Trap_Spike.cs:16"},
+        "/_FireRate": {"tier": "player", "label": {"game": "_GunFireRate_Title", "fallback": "Fire rate"}, "format": "per_minute_from_seconds", "omit": ["zero"], "order": 20, "evidence": "Hand_Tools.decompiled.cs:8470 (seconds between shots)"},
+        "/_MaxMagCount": {"tier": "player", "label": {"game": "_GunMaxMag_Title", "fallback": "Capacity"}, "format": "integer", "omit": ["zero"], "order": 30, "evidence": "Hand_Tools.decompiled.cs:8460"},
+        "/_RaysPerShot": {"tier": "player", "label": {"fallback": "Pellets per shot"}, "format": "integer", "omit": [{"max_below": 2}], "order": 31, "evidence": "Hand_Tools.decompiled.cs:8494"},
+        "/_AutoFire": {"tier": "player", "label": {"fallback": "Automatic"}, "format": "yes_no", "omit": [{"equals": 0}, {"equals": false}], "order": 32, "evidence": "Hand_Tools.decompiled.cs:8491"},
+        "/_FireDistance": {"tier": "player", "label": {"game": "_ShootRange_Title", "fallback": "Range"}, "format": "integer", "omit": ["zero"], "order": 40, "evidence": "Hand_Tools.decompiled.cs:8473; no unit in game text"},
+        "/_BulletSpeed": {"tier": "player", "label": {"fallback": "Bullet speed"}, "format": "integer", "unit": "m/s", "omit": ["zero"], "order": 41, "evidence": "Hand_Tools.decompiled.cs:8478; the game labels projectile speed in m/s (UI.decompiled.cs:10105)"},
+        "/_ArrowSpeed": {"tier": "player", "label": {"game": "_ArrowSpeed", "fallback": "Speed"}, "format": "integer", "unit": "m/s", "omit": ["zero"], "order": 42, "evidence": "Hand_Tools.decompiled.cs:6958; UI.decompiled.cs:10105"},
+        "/_GunType": {"tier": "player", "label": {"fallback": "Type"}, "format": "coded", "order": 5, "evidence": "Hand_Tools.decompiled.cs:8012-8023"},
+        "/_DamageType": {"tier": "player", "label": {"fallback": "Damage type"}, "format": "coded", "order": 6, "evidence": "Hand_Tools.decompiled.cs:417-423 (Unarmed, Blunt, Sharp, Fire)"},
+        "/_AmmoType": {"tier": "player", "label": {"game": "_GunAmmoType_Title", "fallback": "Ammo"}, "format": "coded", "order": 7, "evidence": "Hand_Tools.decompiled.cs:8031-8042"},
+        "/_StaminaCost": {"tier": "player", "label": {"fallback": "Stamina per swing"}, "format": "positive_integer", "omit": ["zero"], "order": 50, "evidence": "Hand_Tools.decompiled.cs:4737 (negative = cost)"},
+        "/_ComboDmgFactors": {"tier": "player", "label": {"fallback": "Combo damage"}, "format": "multiplier_list", "omit": ["empty"], "order": 51, "evidence": "Hand_Tools.decompiled.cs:4726"},
+        "/_BladeHitProb": {"tier": "player", "label": {"game": "_BladeHit_Title", "fallback": "Execute"}, "format": "percent", "omit": ["zero"], "order": 60, "evidence": "Hand_Tools.decompiled.cs:2086"},
+        "/_HitDownProb": {"tier": "player", "label": {"game": "_HitDown_Title", "fallback": "Knockdown"}, "format": "percent", "omit": ["zero"], "order": 61, "evidence": "Hand_Tools.decompiled.cs:2141"},
+        "/_HandCraftBullet": {"tier": "player", "label": {"fallback": "Handmade ammo"}, "format": "handmade_ammo", "omit": ["empty"], "order": 70,
+          "evidence": "Hand_Tools.decompiled.cs:11205-11216; UI.decompiled.cs:10285-10305 (damage −%, range −%, recoil +%, dud %, jam %; neutral values hidden)"}
+      }
+    },
+    "recipe": {
+      "card": {"name": "variant"},
+      "fields": {
+        "/craftNum": {"tier": "player", "label": {"fallback": "Makes"}, "format": "multiplier", "order": 10},
+        "/craftSeconds": {"tier": "player", "label": {"fallback": "Craft time"}, "format": "round2", "unit": "s", "order": 20},
+        "/matsData": {"tier": "player", "label": {"fallback": "Ingredients"}, "format": "ingredients", "order": 30,
+          "evidence": "Joins matsData[i].matNeedCount to the consumes-item-asset target named by /matsData/i/matIcon (phase 3 join)."}
+      }
+    }
+  },
+  "glossaries": {
+    "item-category": {
+      "BuildMat": "Building material", "MeleeWeapon": "Melee weapon", "Gun": "Gun", "Bow": "Bow", "Arrow": "Arrows",
+      "Head": "Head armor", "Chest": "Chest armor", "LegArmor": "Leg armor", "HandArmor": "Hand armor", "FootArmor": "Foot armor", "ArmArmor": "Arm armor",
+      "Shield": "Shield", "Scope": "Scope", "Food": "Food", "Water": "Drink", "CarMat": "Vehicle material", "Bike": "Bike part",
+      "9x19": "Ammo", "7.62x54": "Ammo", "7.62x51": "Ammo", "7.62x39": "Ammo", "5.56x45": "Ammo", "12x70": "Ammo", ".45": "Ammo",
+      "SimpleBandage": "Medical", "PainKiller": "Medical", "Medkit": "Medical", "MedicalCase": "Medical", "MedicalBandage": "Medical", "FractureSplint": "Medical", "Antibiotics": "Medical",
+      "废旧材料": "Scrap material", "工具": "Tool",
+      "": null
+    },
+    "slot-type": {
+      "Nothing": null, "Hand R": "Main hand", "Hand_R": "Main hand", "Hand L": "Off hand", "Hand_L": "Off hand",
+      "Equip": "Worn", "Ammo": null, "GunAttach": "Gun attachment", "Gun Attach": "Gun attachment", "Merchant": null
+    }
+  },
+  "names": {
+    "about": "Distinct player names for records that share a display name (ADR-0002 §3). Rules apply in order; the first that makes names unique within the topic and kind wins. Implemented in phase 2, extended by phase 3 joins.",
+    "rules": [
+      {"id": "acquisition", "description": "Suffix by how the record is obtained when that differs: '(crafted)' when a recipe produces it, '(loot)' when only loot or merchants provide it."},
+      {"id": "building-shape", "description": "Building materials: suffix the block shape from the record's tooltip text object name, e.g. 7_5_Block_1.4_Obsidian_Tooltip → 'Block 1/4'."},
+      {"id": "distinguishing-stat", "description": "Otherwise suffix the first player-tier stat that differs, e.g. 'Military Helmet (Durability 600)'."},
+      {"id": "ordinal", "description": "Last resort: '(variant N)' in stable key order, reported by the audit."}
+    ],
+    "sources": {
+      "about": "Where a readable name comes from when the record name is internal. Game text wins; wiki names are used only where the game shows none, and pages say so.",
+      "workbench": {"source": "game", "how": "The bench prefab's Language_Text title object (e.g. 'Cutting Workbench', 'Gunsmith Workbench', 'Anvil', 'Furnace'). The craft window title is baked in each bench prefab (UI.decompiled.cs declares _CraftWindow_Title but never assigns it).",
+        "fallback": {"WB_Campfire": "Campfire", "WB_Cutting": "Cutting Workbench", "WB_Gunsmith": "Gunsmith Workbench", "WB_Carpentry": "Carpentry Workbench", "WB_Anvil": "Anvil", "WB_Furnace": "Furnace", "WB_Mechanical": "Mechanical Workstation", "WB_Biochemical": "Biochemical Workbench", "WB_Electronic": "Electronic Workbench", "WB_Concrete_Mixer": "Concrete Mixer"}},
+      "loot-source": {"source": "game", "how": "The container's Tooltip_Text _ItemName (e.g. Wooden_Crate_Tooltip)."},
+      "skill": {"source": "game", "how": "Skill_Mgr.AllSkill _name / _instruct Language_Text; the description's {0}-style placeholders are filled per level from _values[level-1]._replaceStrs (Creature.decompiled.cs ~12381, Replace_One_By_One)."},
+      "creature": {"source": "wiki", "how": "The game shows no creature names (no nameplate, no kill log). Pattern Z_Man_N → 'Male zombie (type N)', Z_Woman_N → 'Female zombie (type N)', names containing ZBoss → 'Boss zombie (type N)'. Pages mark these as wiki names."},
+      "biome": {"source": "wiki", "how": "The game shows no biome names (Merchant_Mgr.GetBiomeNameFromHit is internal only). Wiki names; pages mark them as such.",
+        "names": {"Mountain_Forest": "Mountain Forest", "Moss_Forest": "Moss Forest", "War_Zone": "War Zone", "Wasteland": "Wasteland", "Desert": "Desert", "Desert_Rocky": "Rocky Desert", "Tropical_Jungle": "Tropical Jungle", "Tropical_Swamp": "Tropical Swamp", "Winter_Town": "Winter Town", "Winter_Forest": "Winter Forest", "Base": "Base"}}
+    }
+  }
+}
