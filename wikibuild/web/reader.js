@@ -447,7 +447,8 @@ async function showEntry(key) {
   const head = el("header", {class: "entry-head"},
     el("p", {class: "kicker"}, link(topicOf(record.topic).title, url(record.topic)), ` · ${kindLabel(record.kind)}`),
     el("h1", {class: "hed"}, name),
-    player?.name_source === "wiki" ? el("p", {class: "note"}, el("span", {class: "wikiname", title: "The game shows no name for this. The wiki named it."}, "Wiki name"), record.name !== name ? ` Game file name: ${record.name}` : null) : null,
+    // The game's file name stays in the technical reference; the header says only that the wiki chose the name.
+    player?.name_source === "wiki" ? el("p", {class: "note"}, el("span", {class: "wikiname"}, "Wiki name"), " The game shows no name for this, so the wiki named it.") : null,
     card?.eyebrow?.length ? el("ul", {class: "eyebrow", "aria-label": "Type"}, card.eyebrow.map(word => el("li", {}, word))) : null,
     player?.ring?.label ? el("p", {}, el("span", {class: "ringchip", title: "The first ring of the world where you can reliably get it"}, player.ring.label)) : null);
   const body = [head];
