@@ -91,7 +91,7 @@ class PlayerProjectionTests(unittest.TestCase):
 
     def test_history_existing_kinds_and_repeat_bytes(self):
         old = self.fixture.make_run("300", self.rows(1))
-        def legacy(models, registry, text, snapshot):
+        def legacy(models, registry, text, snapshot, **kwargs):
             return ({row["entity_key"]: {"name": row["semantic"]["name"]}
                      for row in model.rows(models)}, {})
         with patch.object(reader, "player_projection", side_effect=legacy):

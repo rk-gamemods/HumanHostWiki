@@ -21,6 +21,7 @@ class CapacityProjectionTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_reader.ReaderTests()
         self.fixture.setUp()
+        test_reader.install_guide(self.fixture)
         self.addCleanup(self.fixture.doCleanups)
         self.project = self.fixture.project
         self.project["github_owner"] = "wiki-fixture"
@@ -77,8 +78,11 @@ class CapacityProjectionTests(unittest.TestCase):
             for snapshot, ref in config["snapshots"].items():
                 index = fetch(ref)
                 before = json.loads((self.path / topic / "snapshots" / (snapshot + ".json")).read_bytes())
-                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player"):
-                    index[kind] = list(leaves(index[kind], fetch))
+                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player", "guides"):
+                    if kind not in before:
+                        continue
+                    if kind != "guides":
+                        index[kind] = list(leaves(index[kind], fetch))
                     self.assertEqual(len(index[kind]), len(before[kind]))
                     for actual, expected in zip(index[kind], before[kind]):
                         counts["relocated"] += actual["path"] != expected["path"]
@@ -306,15 +310,18 @@ class CapacityProjectionTests(unittest.TestCase):
     def test_independent_auditor_rejects_changed_player_membership(self):
         self.check_changed_snapshot_membership("player")
 
+    def test_independent_auditor_rejects_changed_guide_membership(self):
+        self.check_changed_snapshot_membership("guides")
+
     def check_changed_snapshot_membership(self, kind):
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals))
         checked = audit(self.path, result, "wiki-fixture")
         self.assertGreater(checked["pack_references"], 0)
         key = next(key for key, payload in result.payloads.items()
-                   if "/site/objects/" in key and json.loads(payload.read())[kind])
+                   if "/site/objects/" in key and json.loads(payload.read()).get(kind))
         old = result.payloads[key]
         value = json.loads(old.read())
-        value[kind][0]["first"] = "corrupted-member-boundary"
+        value[kind][0]["title" if kind == "guides" else "first"] = "corrupted-member-boundary"
         data = json_bytes(value)
         # Keep the forged payload internally self-consistent. The audit must
         # still reject disagreement with the candidate, even if hashes pass.

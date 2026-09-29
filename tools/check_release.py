@@ -169,10 +169,11 @@ def check(root):
         if relative.startswith("snapshots/"):
             index = json.loads(public(topic, config["snapshots"][Path(relative).stem]))
             original = json.loads(data)
-            for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player"):
-                if kind in {"cards", "player"} and kind not in original:
+            for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player", "guides"):
+                if kind in {"cards", "player", "guides"} and kind not in original:
                     continue
-                index[kind] = list(leaves(index[kind], lambda ref: json.loads(public(topic, ref))))
+                if kind != "guides":
+                    index[kind] = list(leaves(index[kind], lambda ref: json.loads(public(topic, ref))))
                 assert len(index[kind]) == len(original[kind])
                 for actual, before in zip(index[kind], original[kind]):
                     assert {k: v for k, v in actual.items() if k != "path"} == {k: v for k, v in before.items() if k != "path"}
@@ -222,6 +223,8 @@ def check(root):
                     continue
                 for pack in leaves(index[kind], lambda ref: json.loads(public(topic, ref))):
                     public(topic, pack)
+            for guide in index.get("guides", []):
+                public(topic, guide)
         counts["historical_configs"] += 1
     return {"status": "passed", "release_id": release_id, **counts,
             "scope": "Committed bytes, candidate conservation and retained release reachability; not gameplay or deployment verification"}

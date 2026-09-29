@@ -131,6 +131,7 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
             configs[topic] = (source, metadata)
         elif (relative in {"index.html", "404.html", ".nojekyll"} or
               re.fullmatch(r"groups/[a-z][a-z0-9-]*/index\.html", relative) or
+              (topic == "hub" and re.fullmatch(r"reference/guides/[a-z][a-z0-9-]*\.md", relative)) or
               re.fullmatch(r"reference/[a-z][a-z0-9-]*/[0-9]{4,}\.md", relative)):
             pass  # Mutable shells/reference are owned by the release writer.
         else:

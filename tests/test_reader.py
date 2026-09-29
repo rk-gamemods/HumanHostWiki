@@ -10,6 +10,16 @@ from wikibuild import game_text, history, model, packs, presentation, reader
 from wikibuild.storage import ContractError, digest, json_bytes, writer_lock
 
 
+def install_guide(fixture):
+    """A small real guide also travels through release/capacity fixtures."""
+    (fixture.root / "presentation/site.json").write_bytes(json_bytes({"guides": ["capture"]}))
+    folder = fixture.root / "guides"
+    folder.mkdir(exist_ok=True)
+    (folder / "capture.json").write_bytes(json_bytes({"id": "capture", "title": "Capture", "dek": "Captured facts",
+        "sections": [{"id": "sources", "heading": "Sources", "blocks": [
+            {"type": "sources", "template": "Build {build_id}, version {game_version}."}]}]}))
+
+
 class ReaderTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
@@ -17,6 +27,7 @@ class ReaderTests(unittest.TestCase):
         self.root = Path(self.folder.name)
         self.registry_path = self.root / "presentation/fields.json"
         self.registry_path.parent.mkdir()
+        (self.registry_path.parent / "site.json").write_bytes(json_bytes({"guides": []}))
         names = json.loads((Path(reader.__file__).resolve().parents[1] / "presentation/fields.json").read_bytes())["names"]
         self.registry_path.write_bytes(json_bytes({"schema_version": 1, "names": names, "glossaries": {}, "kinds": {
             "item": {"fields": {"/weight": {"tier": "player", "format": "round2",
