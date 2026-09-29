@@ -17,14 +17,14 @@
       "id": "melee",
       "heading": "Melee weapons",
       "blocks": [
-        {"type": "table", "query": "weapons.melee", "columns": ["Weapon", "Damage", "Execute", "Knockdown", "Durability", "Ring", "How to get it"]}
+        {"type": "table", "query": "weapons.melee", "columns": ["Weapon", "Damage", "Execute", "Knockdown", "Durability", "How to get it"]}
       ]
     },
     {
       "id": "guns",
       "heading": "Guns",
       "blocks": [
-        {"type": "table", "query": "weapons.guns", "columns": ["Weapon", "Type", "Damage", "Fire rate", "Capacity", "Ammo", "Ring", "How to get it"]},
+        {"type": "table", "query": "weapons.guns", "columns": ["Weapon", "Type", "Damage", "Fire rate", "Capacity", "Ammo", "How to get it"]},
         {"type": "list", "title": "Where the ammo comes from", "query": "weapons.ammo_sources", "item": "{ammo}: {how}"}
       ]
     },
@@ -32,7 +32,7 @@
       "id": "bows",
       "heading": "Bows",
       "blocks": [
-        {"type": "table", "query": "weapons.bows", "columns": ["Weapon", "Arrow Damage", "Speed", "Durability", "Ring", "How to get it"]}
+        {"type": "table", "query": "weapons.bows", "columns": ["Weapon", "Arrow Damage", "Speed", "Durability", "How to get it"]}
       ]
     },
     {
@@ -46,7 +46,7 @@
       "id": "sources",
       "heading": "Where this comes from",
       "blocks": [
-        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Stats are the item values the game's own tooltip shows, before quality bonuses. Ring is the first ring where you can reliably get the weapon and everything needed to make it."}
+        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Stats are the item values the game's own tooltip shows, before quality bonuses. Every weapon here can be made or found from the starting ring; the progression guide shows what each later ring adds."}
       ]
     }
   ]

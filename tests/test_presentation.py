@@ -32,6 +32,18 @@ class PresentationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.registry = presentation.load(REGISTRY)
 
+    def test_glossary_gives_wiki_wording_for_internal_enums(self):
+        gun = record("combat-rule", {"_GunType": 4}, fact_labels={"/_GunType": "Single S Shotgun"})
+        stats = presentation.card(self.registry, "combat-rule", gun, {})["stats"]
+        self.assertEqual([(stat["label"], stat["display"]) for stat in stats], [("Type", "Pump-action shotgun")])
+        broken = copy.deepcopy(json.loads(REGISTRY.read_text(encoding="utf-8")))
+        broken["kinds"]["combat-rule"]["fields"]["/_GunType"]["glossary"] = "missing"
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "fields.json"
+            path.write_text(json.dumps(broken), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "unknown glossary"):
+                presentation.load(path)
+
     def test_language_keys_are_their_own_english_labels(self):
         food = record("item", {"_Tag": "Food", "_Tags": ["+20", "+5", "", ""]})
         result = presentation.card(self.registry, "item", food, {})

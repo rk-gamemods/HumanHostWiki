@@ -16,7 +16,7 @@ _FORMATS = {
 }
 _ENTRY_KEYS = {
     "tier", "label", "format", "unit", "omit", "order", "require", "note",
-    "positional", "cases", "evidence",
+    "positional", "cases", "evidence", "glossary",
 }
 
 
@@ -52,6 +52,8 @@ def _entry(entry: Any, key: str, *, position: bool = False) -> None:
                 or any(not isinstance(label.get(name), str) for name in ("game", "game_key") if name in label)
                 or set(label) - {"game", "game_key", "fallback"}):
             raise ValueError(f"{key}.label: invalid label")
+    if "glossary" in entry and not isinstance(entry["glossary"], str):
+        raise ValueError(f"{key}.glossary: expected a glossary name")
     if "unit" in entry and not isinstance(entry["unit"], str):
         raise ValueError(f"{key}.unit: expected text")
     if "order" in entry and (isinstance(entry["order"], bool) or not isinstance(entry["order"], (int, float))):
@@ -123,6 +125,9 @@ def load(path: str | Path) -> Registry:
             key = f"kinds.{kind}.fields.{pointer}"
             _pointer(pointer, key)
             _entry(entry, key)
+            for named in [entry, *entry.get("cases", [])]:
+                if "glossary" in named and named["glossary"] not in registry["glossaries"]:
+                    raise ValueError(f"{key}.glossary: unknown glossary {named['glossary']!r}")
     return registry
 
 
@@ -277,6 +282,9 @@ def _stat(pointer: str, value: Any, entry: dict, labels: dict, semantic: dict,
     display = _display(fmt, value, pointer, labels, semantic, game_text, links, missing)
     if display is _MISSING:
         return
+    if isinstance(display, str) and "glossary_map" in entry:
+        # Wiki wording for internal enums the game never shows, such as gun classes.
+        display = entry["glossary_map"].get(display, display)
     label = entry["label"]
     if "game" in label:
         text = _game_string(game_text, label["game"], label["fallback"], missing)
@@ -324,6 +332,8 @@ def card(registry: Registry, kind: str, semantic: dict, game_text: dict,
             if _matches(facts, labels, case["when"], use_labels=True):
                 entry.update({key: val for key, val in case.items() if key != "when"})
                 break
+        if "glossary" in entry:
+            entry["glossary_map"] = registry["glossaries"][entry["glossary"]]
         if "require" in entry and any(_lookup(facts, key) != wanted
                                       for key, wanted in entry["require"].items()):
             continue

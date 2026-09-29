@@ -95,7 +95,7 @@
         "/_FireDistance": {"tier": "player", "label": {"game": "_ShootRange_Title", "fallback": "Range"}, "format": "integer", "omit": ["zero"], "order": 40, "evidence": "Hand_Tools.decompiled.cs:8473; no unit in game text"},
         "/_BulletSpeed": {"tier": "player", "label": {"fallback": "Bullet speed"}, "format": "integer", "unit": "m/s", "omit": ["zero"], "order": 41, "evidence": "Hand_Tools.decompiled.cs:8478; the game labels projectile speed in m/s (UI.decompiled.cs:10105)"},
         "/_ArrowSpeed": {"tier": "player", "label": {"game": "_ArrowSpeed", "fallback": "Speed"}, "format": "integer", "unit": "m/s", "omit": ["zero"], "order": 42, "evidence": "Hand_Tools.decompiled.cs:6958; UI.decompiled.cs:10105"},
-        "/_GunType": {"tier": "player", "label": {"fallback": "Type"}, "format": "coded", "order": 5, "evidence": "Hand_Tools.decompiled.cs:8012-8023"},
+        "/_GunType": {"tier": "player", "label": {"fallback": "Type"}, "format": "coded", "glossary": "gun-type", "order": 5, "evidence": "Hand_Tools.decompiled.cs:8012-8023; the game shows no gun class, so the glossary gives wiki wording"},
         "/_DamageType": {"tier": "player", "label": {"fallback": "Damage type"}, "format": "coded", "order": 6, "evidence": "Hand_Tools.decompiled.cs:417-423 (Unarmed, Blunt, Sharp, Fire)"},
         "/_AmmoType": {"tier": "player", "label": {"game": "_GunAmmoType_Title", "fallback": "Ammo"}, "format": "coded", "order": 7, "evidence": "Hand_Tools.decompiled.cs:8031-8042"},
         "/_StaminaCost": {"tier": "player", "label": {"fallback": "Stamina per swing"}, "format": "positive_integer", "omit": ["zero"], "order": 50, "evidence": "Hand_Tools.decompiled.cs:4737 (negative = cost)"},
@@ -117,6 +117,9 @@
     }
   },
   "glossaries": {
+    "gun-type": {"about": "Wiki wording for GunType (Hand_Tools.decompiled.cs:8013), keyed by the coded label. The game shows no gun class.",
+      "Pistol": "Pistol", "Revolver": "Revolver", "Rifle Sub Machine": "Rifle or SMG", "Bolt Rifle": "Bolt-action rifle",
+      "Single S Shotgun": "Pump-action shotgun", "Burst Shotgun": "Automatic shotgun", "Rocket": "Rocket launcher", "Bow": "Bow", "Crossbow": "Crossbow"},
     "item-category": {
       "BuildMat": "Building material", "MeleeWeapon": "Melee weapon", "Gun": "Gun", "Bow": "Bow", "Arrow": "Arrows",
       "Head": "Head armor", "Chest": "Chest armor", "LegArmor": "Leg armor", "HandArmor": "Hand armor", "FootArmor": "Foot armor", "ArmArmor": "Arm armor",
@@ -131,6 +134,8 @@
       "Equip": "Worn", "Ammo": null, "GunAttach": "Gun attachment", "Gun Attach": "Gun attachment", "Merchant": null
     }
   },
+  "guides": {"about": "Records guides leave out. Their entry pages stay; they are placeholders or test content, not things a player can use.",
+    "exclude_names": ["WIP"], "exclude_patterns": ["G_Mode", "^Test[ _]", "^test[ _]"]},
   "names": {
     "about": "Distinct player names for records that share a display name (ADR-0002 §3). Rules apply in order; the first that makes names unique within the topic and kind wins. Implemented in phase 2, extended by phase 3 joins.",
     "rules": [
