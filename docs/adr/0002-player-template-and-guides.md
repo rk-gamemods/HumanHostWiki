@@ -195,8 +195,11 @@ The shell in `wikibuild/web/` takes study 11's design:
 - The home page has search first, a topic map, and scroll charts computed from counts. Two
   charts follow them. "What each biome adds" uses the progression guide's own counts.
   "How the game changed" shows the latest capture of each of the four newest game versions,
-  and what was new, changed or removed between them. A capture that recorded no game version
-  is left out.
+  and what was new, changed or removed between them. The counts compare the wiki's records, so
+  they include extraction improvements, and the chart says so. A record that only moved to a new
+  key with the same content counts as unchanged. A capture that recorded no game version is left
+  out. The biome chart counts each biome's main materials, where they are easiest to get, as the
+  guide does; it does not claim they first appear there.
 - Entry pages open with a player summary card. The game's record follows it, collapsed, as
   "Game file details". The topic of raw assets and configurations is "Game files", so no two
   player-facing things share the name "Technical reference".

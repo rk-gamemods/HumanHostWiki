@@ -620,9 +620,8 @@ async function guidePage(id) {
   const toc = el("ol");
   const sections = doc.sections.map(section => {
     const heading = runsText(section.heading), ring = /^ring-(\d+)$/.exec(section.id);
-    // The heading carries the game's 1-based biome number; section ids keep the 0-based index.
-    const named = /^(?:Ring|Biome) (\d+):\s*(.*)$/.exec(heading), number = named ? named[1] : ring ? String(Number(ring[1]) + 1) : "", place = named ? named[2] : heading;
-    toc.append(el("li", {}, el("a", {href: `#${section.id}`, "data-section": section.id}, heading)));
+    const {number, place} = biomeHeading(heading, section.id);
+    toc.append(el("li", {}, el("a", {href: `#${section.id}`, "data-section": section.id}, ring ? `Biome ${number}: ${place}` : heading)));
     return el("section", {class: "gsec", id: section.id, "data-ring": ring ? `Biome ${number}: ${place}` : null, "aria-labelledby": `${section.id}-h`},
       el("h2", {id: `${section.id}-h`}, ring ? [el("span", {class: "no", "aria-hidden": "true"}, number), place] : heading),
       section.blocks.map(block => guideBlock(block, links, `${doc.id}/${section.id}`)));
@@ -637,6 +636,15 @@ async function guidePage(id) {
       el("p", {class: "byline"}, `Written by the wiki from the game's files: version ${index.game_version || "unknown"}, Steam build ${index.steam.build_id}. It is rebuilt with every game update.`)),
     el("div", {class: "guide"}, el("div", {class: "guide-body"}, sections), aside)));
   trackSections(aside);
+}
+
+// A biome section's number and place name. The heading carries the game's 1-based biome number;
+// section ids keep the 0-based index. Guides built before the renumbering say "Ring 0" and
+// counted from 0, so those add one.
+function biomeHeading(heading, id) {
+  const named = /^(Ring|Biome) (\d+):\s*(.*)$/.exec(heading), ring = /^ring-(\d+)$/.exec(id);
+  const number = named ? String(Number(named[2]) + (named[1] === "Ring" ? 1 : 0)) : ring ? String(Number(ring[1]) + 1) : "";
+  return {number, place: named ? named[3] : heading};
 }
 
 function guideBlock(block, links, scope) {
@@ -797,13 +805,13 @@ function biomeChart(biomes, guides) {
   const rows = biomes.map(row => {
     const names = [].concat(row.biome || []).map(value => value.name || value.text).filter(Boolean).join(" and ");
     const body = [ringGlyph(biomes.length, row.index), el("span", {class: "bname"}, el("small", {}, `Biome ${row.number}`), names),
-      el("span", {class: "bbars"}, bar(row.new_materials || 0, "mat", (row.new_materials || 0) === 1 ? "new raw material" : "new raw materials"),
+      el("span", {class: "bbars"}, bar(row.new_materials || 0, "mat", (row.new_materials || 0) === 1 ? "raw material" : "raw materials"),
         bar(row.new_recipes || 0, "rec", (row.new_recipes || 0) === 1 ? "new recipe" : "new recipes"))];
     return el("li", {}, guide ? el("a", {class: "brow", href: `${guideURL(guide.id)}#ring-${row.index}`}, body) : el("div", {class: "brow"}, body));
   });
   return el("section", {class: "biomes", "aria-labelledby": "biomes-h"},
     el("p", {class: "kicker"}, "Out from the spawn point"), el("h2", {id: "biomes-h"}, "What each biome adds"),
-    el("p", {class: "dek"}, "Raw materials that first appear in each biome, and the recipes they make possible. Open a biome for its checklist."),
+    el("p", {class: "dek"}, "The raw materials each biome is the best place for, and the recipes that open up there. Open a biome for its checklist."),
     el("ol", {class: "blist"}, rows));
 }
 
@@ -840,7 +848,7 @@ function versionChart(history, topics) {
   });
   return el("section", {class: "versions", "aria-labelledby": "versions-h"},
     el("p", {class: "kicker"}, "Update by update"), el("h2", {id: "versions-h"}, "How the game changed"),
-    el("p", {class: "dek"}, "The latest capture of each game version, newest first. Each bar is every entry in that version, coloured by topic."),
+    el("p", {class: "dek"}, "The latest capture of each game version, newest first. Each bar is every entry in that version, coloured by topic. The counts compare the wiki's records, so they also include improvements to how the wiki reads the game files."),
     el("ol", {class: "vlist"}, rows));
 }
 

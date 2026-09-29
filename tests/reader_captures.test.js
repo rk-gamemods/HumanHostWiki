@@ -252,6 +252,10 @@ function fixture(count = 121) {
   assert.ok(reference);
   assert.doesNotMatch(flattened(header).join(" "), /Axe_Combo_2/);
   assert.match(flattened(reference).join(" "), /Game file name.*Axe_Combo_2/);
+  // Guides built before biomes were numbered from 1 still load with their old "Ring 0" headings.
+  assert.deepEqual({...subject.context.biomeHeading("Ring 0: Mountain Forest", "ring-0")}, {number: "1", place: "Mountain Forest"});
+  assert.deepEqual({...subject.context.biomeHeading("Biome 10: Winter Forest", "ring-9")}, {number: "10", place: "Winter Forest"});
+  assert.deepEqual({...subject.context.biomeHeading("How the world is laid out", "world")}, {number: "", place: "How the world is laid out"});
   console.log("Wiki-named entry header hides the game file name; technical reference retains it");
 
   const codedSemantic = {facts: {_AmmoType: 5, nested: [{_SlotType: 4}]},

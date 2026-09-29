@@ -179,6 +179,19 @@ class HubProjectionTests(unittest.TestCase):
             rows = reader.history_rows(self.root, runs, state, ("items",))
         self.assertEqual([row["snapshot_id"] for row in rows], ["new", "old"])
 
+    def test_history_does_not_count_a_record_that_only_moved_to_a_new_key(self):
+        receipts = {"new": {"game_version": "0.8.316", "steam": {"build_id": "300"}},
+                    "old": {"game_version": "0.8.315", "steam": {"build_id": "200"}}}
+        row = lambda revision: {"status": "present", "descriptor": {"topic": "items"}, "revision_id": revision}
+        states = {"old": {"e-" + "a" * 32: row("same"), "e-" + "b" * 32: row("gone")},
+                  "new": {"e-" + "c" * 32: row("same"), "e-" + "d" * 32: row("fresh")}}
+        runs = [{"snapshot_id": "new"}, {"snapshot_id": "old"}]
+        with patch.object(reader.snapshots, "read", side_effect=lambda root, key: receipts[key]),                 patch.object(reader.history, "load_state", side_effect=lambda root, run: states[run["snapshot_id"]]):
+            rows = reader.history_rows(self.root, runs, states["new"], ("items",))
+        # a -> c kept its content under a new key: neither new nor removed.
+        self.assertEqual(rows[0]["changes"], {"new": 1, "changed": 0, "removed": 1,
+                                              "topics": {"items": {"new": 1, "changed": 0, "removed": 1}}})
+
     def test_four_version_history_uses_latest_build_then_capture_order(self):
         keys = {letter: "e-" + letter * 32 for letter in "abcdef"}
         captures = [

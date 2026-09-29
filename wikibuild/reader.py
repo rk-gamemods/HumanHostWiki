@@ -359,12 +359,17 @@ def history_rows(root, runs, current_state, topic_ids):
         older = present_by_row[index + 1]
         changes = {kind: 0 for kind in ("new", "changed", "removed")}
         by_topic = {topic: {kind: 0 for kind in changes} for topic in sorted(topic_ids)}
-        for key in newer.keys() - older.keys():
-            changes["new"] += 1
-            by_topic[newer[key][0]]["new"] += 1
-        for key in older.keys() - newer.keys():
-            changes["removed"] += 1
-            by_topic[older[key][0]]["removed"] += 1
+        # A record that only moved to a new key (the game renumbered its object, identity kept
+        # them apart) has the same revision on both sides; pair those and count neither.
+        added = Counter((newer[key][0], newer[key][1]) for key in newer.keys() - older.keys())
+        dropped = Counter((older[key][0], older[key][1]) for key in older.keys() - newer.keys())
+        moved = added & dropped
+        for (topic, _), n in sorted((added - moved).items()):
+            changes["new"] += n
+            by_topic[topic]["new"] += n
+        for (topic, _), n in sorted((dropped - moved).items()):
+            changes["removed"] += n
+            by_topic[topic]["removed"] += n
         for key in newer.keys() & older.keys():
             if newer[key][1] != older[key][1]:
                 changes["changed"] += 1
