@@ -44,6 +44,29 @@ class PresentationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown glossary"):
                 presentation.load(path)
 
+    def test_every_player_tier_value_has_a_label_and_format(self):
+        """A31: a player sees no field without a label or with a raw value."""
+        registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        gaps, checked = [], 0
+
+        def walk(entry, key, inherited):
+            nonlocal checked
+            own = {name: value for name, value in entry.items() if name not in ("cases", "positional", "when")}
+            effective = {**inherited, **own}
+            if effective.get("tier") == "player" and "positional" not in entry:
+                checked += 1
+                gaps.extend(f"{key}: no {name}" for name in ("label", "format") if name not in effective)
+            for index, case in enumerate(entry.get("cases", [])):
+                walk(case, f"{key}.cases[{index}]", effective)
+            for index, value in enumerate(entry.get("positional", [])):
+                walk(value, f"{key}.positional[{index}]", {"tier": effective.get("tier")})
+
+        for kind, spec in registry["kinds"].items():
+            for field, entry in spec.get("fields", {}).items():
+                walk(entry, f"{kind}{field}", {})
+        self.assertGreater(checked, 30)
+        self.assertEqual(gaps, [])
+
     def test_language_keys_are_their_own_english_labels(self):
         food = record("item", {"_Tag": "Food", "_Tags": ["+20", "+5", "", ""]})
         result = presentation.card(self.registry, "item", food, {})
