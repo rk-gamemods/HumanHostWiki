@@ -305,6 +305,10 @@ def history_rows(root, runs, current_state, topic_ids):
         receipt = snapshots.read(root, run["snapshot_id"])
         build = int(receipt["steam"]["build_id"])
         version = receipt.get("game_version")
+        # A capture that recorded no game version cannot be placed among versions. The early
+        # captures of build 25548639 did this, and their older extractor would read as game changes.
+        if not version:
+            continue
         if version not in selected or (build, order) > selected[version][0]:
             selected[version] = ((build, order), run, receipt)
 

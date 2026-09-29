@@ -81,9 +81,8 @@ class HubProjectionTests(unittest.TestCase):
                 self.assertEqual(pack["document"]["snapshot"]["build_id"], run["snapshot_id"].split("-")[1])
         newest = self.index(site, self.fixture.new)
         self.assertEqual(newest["biomes"], [])
-        self.assertEqual(newest["history"], [{"snapshot_id": self.fixture.new["snapshot_id"],
-            "game_version": None, "build_id": "200", "captured": None, "total": 2,
-            "topics": {"hub": 0, "items": 1, "loot": 1}, "changes": None}])
+        # The fixture's captures record no game version, so none can be placed among versions.
+        self.assertEqual(newest["history"], [])
         self.assertEqual(newest["topic_counts"], {"hub": {"total": 0, "kinds": {}},
             "items": {"total": 1, "kinds": {"item": 1}}, "loot": {"total": 1, "kinds": {"loot-source": 1}}})
         markdown = (site / "hub/reference/guides/second.md").read_text()
@@ -112,6 +111,12 @@ class HubProjectionTests(unittest.TestCase):
             reader.load_maps(site / "hub", index["search"])
 
     def test_history_existing_packs_and_repeat_identity(self):
+        # History rows need a recorded game version; unversioned captures are left out.
+        for run, version in ((self.fixture.old, "0.8.315"), (self.fixture.new, "0.8.316")):
+            path = self.root / "snapshots" / (run["snapshot_id"] + ".json")
+            receipt = json.loads(path.read_bytes())
+            receipt["game_version"] = version
+            path.write_bytes(json_bytes(receipt))
         self.fixture.runs = [self.fixture.old]
         old_site, _ = self.build()
         old_index = self.index(old_site, self.fixture.old)
@@ -163,6 +168,16 @@ class HubProjectionTests(unittest.TestCase):
         self.assertTrue(second["reused"])
         self.assertEqual(first["candidate_id"], second["candidate_id"])
         self.assertEqual(before, {path.relative_to(repeated): path.read_bytes() for path in repeated.rglob("*") if path.is_file()})
+
+    def test_history_skips_captures_without_a_game_version(self):
+        receipts = {"new": {"game_version": "0.8.316", "steam": {"build_id": "300"}},
+                    "unknown": {"game_version": None, "steam": {"build_id": "200"}},
+                    "old": {"game_version": "0.8.315", "steam": {"build_id": "200"}}}
+        runs = [{"snapshot_id": name} for name in ("new", "unknown", "old")]
+        state = {"e-" + "a" * 32: {"status": "present", "descriptor": {"topic": "items"}, "revision_id": "r"}}
+        with patch.object(reader.snapshots, "read", side_effect=lambda root, key: receipts[key]),                 patch.object(reader.history, "load_state", side_effect=lambda root, run: state):
+            rows = reader.history_rows(self.root, runs, state, ("items",))
+        self.assertEqual([row["snapshot_id"] for row in rows], ["new", "old"])
 
     def test_four_version_history_uses_latest_build_then_capture_order(self):
         keys = {letter: "e-" + letter * 32 for letter in "abcdef"}
