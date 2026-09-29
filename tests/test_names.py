@@ -156,6 +156,80 @@ class PlayerNamesTests(unittest.TestCase):
         self.assertEqual({key: value["name"] for key, value in names.items()}, expected)
         self.assertTrue(all(value["source"] == "wiki" for value in names.values()))
 
+    def test_terrain_biomes_keep_plain_names_and_scene_records_are_labelled(self):
+        rows = []
+        expected = {}
+        for record, name in (("Mountain", "Mountain Forest"), ("Base", "Spawn area")):
+            # Both records can have empty facts: provenance identifies their roles.
+            rows.extend([
+                row(record, "biome", record,
+                    source=f"bundles/terrain_{record.lower()}_assets_all.bundle::0#1"),
+                row(record + "-scene", "biome", record,
+                    source="bundles/icons_common_scenes_all.bundle::0#2")])
+            expected[record] = name
+            expected[record + "-scene"] = name + " (scene)"
+        before = copy.deepcopy(rows)
+        for seed in range(4):
+            random.Random(seed).shuffle(rows)
+            names = player_names(rows, REGISTRY, {}, {})
+            self.assertEqual({key: value["name"] for key, value in names.items()}, expected)
+            self.assertTrue(all(value["source"] == "wiki" for value in names.values()))
+        self.assertEqual(sorted(rows, key=lambda r: r["entity_key"]),
+                         sorted(before, key=lambda r: r["entity_key"]))
+
+    def test_english_model_names_preserve_capitals(self):
+        rows = [row(name, "item", name) for name in ("M1A", "M4A1", "AK74M")]
+        for record in rows:
+            record["semantic"]["name_status"] = "english"
+        names = player_names(rows, REGISTRY, {}, {})
+        for name in ("M1A", "M4A1", "AK74M"):
+            self.assertEqual(names[name], {"name": name, "source": "game", "rule": None})
+
+    def test_shapes_across_material_families_and_plain_glass_ingredient(self):
+        specs = [
+            ("glass-quarter", "Glass", "6_1_Block_1.4_Glass", 1, "Block 1/4"),
+            ("glass-small", "Glass", "6_1_Block_Small_1.2_Glass", 1, "Block small 1/2"),
+            ("copper-triangle", "Copper Alloy", "5_1_Triangle_Copper_Alloy", 1100, "Triangle"),
+            ("copper-pyramid", "Copper Alloy", "5_1_Pyramid_Tall_Copper_Alloy", 1477, "Pyramid tall"),
+            ("scrap-corner", "Scrap Metal", "4_1_Triangle_Corner_Rust_Iron", 20, "Triangle corner"),
+            ("scrap-small", "Scrap Metal", "4_1_Triangle_CornerS_Rust_Iron", 20, "Triangle corner s"),
+            ("plank-block", "Poplar Wood", "1_3_Block_Plank_Poplar", 20, "Block"),
+            ("plank-steps", "Poplar Wood", "1_3_Steps_Curved_Plank_Poplar", 20, "Steps curved"),
+        ]
+        rows = [row("glass", "item", "Glass", facts={"MaxStack": 200, "_Tag": ""})]
+        for key, name, title, durability, shape in specs:
+            rows.extend([
+                row(key, "item", name, facts={"_Tag": "BuildMat", "_blockDurability": durability},
+                    evidence=[key + "-tip"]),
+                row(key + "-tip", "configuration", title + "_Tooltip",
+                    component={"assembly": "Language", "class": "Tooltip_Text"})])
+        graph = {"items": {record["entity_key"]: {"sources": [{"type": "crafted"}]}
+                           for record in rows if record["semantic"]["kind"] == "item"}}
+        expected = player_names(rows, REGISTRY, {}, graph)
+        for key, name, title, durability, shape in specs:
+            self.assertEqual(expected[key]["name"], f"{name} ({shape})")
+            self.assertEqual(expected[key]["rule"], "building-shape")
+        self.assertEqual(expected["glass"], {"name": "Glass", "source": "game", "rule": None})
+        for seed in range(4):
+            random.Random(seed).shuffle(rows)
+            self.assertEqual(player_names(rows, REGISTRY, {}, graph), expected)
+
+    def test_building_dimensions_preserve_decimals_and_unknown_shapes_fall_through(self):
+        rows = []
+        for key, title in (("short", "Plank_Pillar_1m"), ("medium", "Plank_Pillar_1.5m"),
+                           ("tall", "Plank_Pillar_3m")):
+            rows.extend([row(key, "item", "Wood pillar", facts={"_Tag": "BuildMat"},
+                             links=[link("tooltip-text", key + "-tip")]),
+                         row(key + "-tip", "configuration", title + "_Tooltip",
+                             component={"assembly": "Language", "class": "Tooltip_Text"})])
+        rows.extend([row("unknown-a", "item", "Unknown", facts={"_Tag": "BuildMat"}),
+                     row("unknown-b", "item", "Unknown", facts={"_Tag": "BuildMat"})])
+        names = player_names(rows, REGISTRY, {}, {})
+        for key, dimension in (("short", "1"), ("medium", "1.5"), ("tall", "3")):
+            self.assertEqual(names[key]["name"], f"Wood pillar ({dimension} m)")
+        self.assertEqual(names["unknown-a"]["name"], "Unknown (variant 1)")
+        self.assertEqual(names["unknown-b"]["name"], "Unknown (variant 2)")
+
     def test_container_families_biomes_ordinals_and_numeric_table(self):
         rows = [row(key, "biome", name) for key, name in
                 (("forest", "Forest"), ("desert", "Desert"), ("base", "Base"),

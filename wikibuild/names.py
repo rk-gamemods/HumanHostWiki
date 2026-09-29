@@ -60,10 +60,17 @@ def _shape(row, by_key, by_source):
     if target is None:
         return None
     title = target["semantic"]["name"]
-    material = re.sub(r"\W+", "_", row["semantic"]["name"]).strip("_")
-    match = re.fullmatch(r"7_5_(.+)_" + re.escape(material) + r"_Tooltip", title)
+    # The two numeric fields identify the material family, not the shape.
+    # Internal material names can differ from English (Rust_Iron is Scrap Metal).
+    match = re.fullmatch(
+        r"\d+_\d+_(Block(?:_Small)?(?:_1\.\d+)?|"
+        r"Triangle(?:_CornerS?|_Small(?:_1\.\d+)?|_1\.\d+)?|"
+        r"Half_Cylinder_[SML]|Pyramid_(?:Squat|Tall)|Steps(?:_Curved)?|Cuboid)"
+        r"_.+_Tooltip", title)
     if not match:
-        return None
+        # Timber pieces carry lengths, whose decimal point is not a fraction.
+        dimension = re.fullmatch(r"Plank_(?:Pillar|Wall)_(\d+(?:\.\d+)?)m_Tooltip", title)
+        return f"{dimension[1]} m" if dimension else None
     shape = _humanize(match[1])
     return re.sub(r"(?<=\d)\.(?=\d)", "/", shape)
 
@@ -71,6 +78,12 @@ def _shape(row, by_key, by_source):
 def _biome_name(row, sources):
     original = row["semantic"]["name"]
     return sources["biome"]["names"].get(original, _humanize(original))
+
+
+def _bundle_name(row):
+    source_id = row.get("provenance", {}).get("source_id", "")
+    match = re.search(r"(?:^|/)bundles/([^/]+)\.bundle(?:::|$)", source_id)
+    return match[1] if match else ""
 
 
 def _loot_family_names(by_key, sources, graph):
@@ -91,12 +104,11 @@ def _loot_family_names(by_key, sources, graph):
     for key, row in sorted(by_key.items()):
         if row["semantic"]["kind"] != "loot-source":
             continue
-        source_id = row.get("provenance", {}).get("source_id", "")
-        bundle = re.search(r"(?:^|/)bundles/([^/]+)\.bundle(?:::|$)", source_id)
-        if bundle is None:
+        bundle = _bundle_name(row)
+        if not bundle:
             continue
         family = next((rule for rule in spec["families"]
-                       if re.search(rule["match"], bundle[1])), None)
+                       if re.search(rule["match"], bundle)), None)
         if family is None:
             continue
         biome = " and ".join(sorted(places[key]))
@@ -222,7 +234,11 @@ def _compute(rows, registry, game_text, graph, audit=None):
             else:
                 put(key, sources["workbench"]["fallback"].get(original, _humanize(original)), "wiki", "workbench-fallback")
         elif kind == "biome":
-            put(key, _biome_name(row, sources), "wiki", "biome")
+            name = _biome_name(row, sources)
+            if _bundle_name(row) == "icons_common_scenes_all":
+                put(key, name + " (scene)", "wiki", "biome-scene")
+            else:
+                put(key, name, "wiki", "biome")
         elif kind == "creature":
             put(key, _creature(original), "wiki", "creature")
         elif kind == "loot-source":
