@@ -61,7 +61,7 @@ def survey(rows):
 
 def audit(rows):
     from wikibuild.lint import jargon
-    from wikibuild.names import _compute
+    from wikibuild.names import _compute, _shape, _tooltip
 
     acquisition = graph(rows)
     details = {}
@@ -70,7 +70,8 @@ def audit(rows):
     print("by rule", dict(sorted(Counter(v["rule"] for v in result.values()).items(), key=lambda p: str(p[0]))))
     print("by source", dict(Counter(v["source"] for v in result.values())))
     print("humanized by kind", details["humanized_by_kind"])
-    for label, needle in (("M1891", "M1891"), ("helmets", "Military Helmet")):
+    for label, needle in (("M1891", "M1891"), ("helmets", "Military Helmet"),
+                          ("M1A", "M1A"), ("Glass", "Glass"), ("Copper Alloy", "Copper Alloy")):
         print(label, [(key, value["name"]) for key, value in result.items()
                       if by_key[key]["semantic"]["name"] == needle and
                       by_key[key]["semantic"]["kind"] == "item"])
@@ -82,6 +83,32 @@ def audit(rows):
             groups[(sem["topic"], sem["kind"], stem)].append(key)
     ordered = sorted(((len(keys), *group) for group, keys in groups.items()), reverse=True)
     print("variant groups", len(ordered), "largest 5", ordered[:5])
+    item_groups = [group for group in ordered if group[2] == "item"]
+    print("item variant groups", len(item_groups), "largest 10", item_groups[:10])
+    print("biomes", sorted((row["semantic"]["name"], result[row["entity_key"]]["name"])
+                           for row in rows if row["semantic"]["kind"] == "biome"))
+    by_source = defaultdict(list)
+    for row in rows:
+        by_source[row["provenance"]["source_id"]].append(row)
+    block_shapes = Counter()
+    for row in rows:
+        if row["semantic"]["kind"] != "item" or row["semantic"]["facts"].get("_Tag") != "BuildMat":
+            continue
+        tooltip = _tooltip(row, by_key, by_source)
+        shape = _shape(row, by_key, by_source)
+        title = tooltip["semantic"]["name"] if tooltip else ""
+        numbered = title.split("_", 1)[0].isdecimal()
+        block_shapes["numbered block" if numbered else "other construction"] += 1
+        if numbered and not shape:
+            print("MISSING BLOCK SHAPE", row["entity_key"], row["semantic"]["name"], title)
+    print("building shape coverage", dict(block_shapes))
+    for key, recipe in acquisition["recipes"].items():
+        output = by_key.get(recipe["output"], {}).get("semantic", {})
+        if output.get("name") == "Biochemical Workbench":
+            print("biochemical workbench glass", key,
+                  [(entry["item"], result[entry["item"]]["name"], entry["count"])
+                   for entry in recipe["ingredients"]
+                   if by_key[entry["item"]]["semantic"]["name"] == "Glass"])
     if "--all-variants" in sys.argv:
         for group in ordered:
             print("VARIANT", group)
