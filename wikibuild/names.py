@@ -72,6 +72,8 @@ def _shape(row, by_key, by_source):
         dimension = re.fullmatch(r"Plank_(?:Pillar|Wall)_(\d+(?:\.\d+)?)m_Tooltip", title)
         return f"{dimension[1]} m" if dimension else None
     shape = _humanize(match[1])
+    sizes = {"l": "large", "m": "medium", "s": "small"}
+    shape = re.sub(r"(?<= )[lms]$", lambda letter: sizes[letter[0]], shape)
     return re.sub(r"(?<=\d)\.(?=\d)", "/", shape)
 
 

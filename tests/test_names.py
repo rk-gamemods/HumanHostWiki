@@ -192,7 +192,7 @@ class PlayerNamesTests(unittest.TestCase):
             ("copper-triangle", "Copper Alloy", "5_1_Triangle_Copper_Alloy", 1100, "Triangle"),
             ("copper-pyramid", "Copper Alloy", "5_1_Pyramid_Tall_Copper_Alloy", 1477, "Pyramid tall"),
             ("scrap-corner", "Scrap Metal", "4_1_Triangle_Corner_Rust_Iron", 20, "Triangle corner"),
-            ("scrap-small", "Scrap Metal", "4_1_Triangle_CornerS_Rust_Iron", 20, "Triangle corner s"),
+            ("scrap-small", "Scrap Metal", "4_1_Triangle_CornerS_Rust_Iron", 20, "Triangle corner small"),
             ("plank-block", "Poplar Wood", "1_3_Block_Plank_Poplar", 20, "Block"),
             ("plank-steps", "Poplar Wood", "1_3_Steps_Curved_Plank_Poplar", 20, "Steps curved"),
         ]
@@ -213,6 +213,24 @@ class PlayerNamesTests(unittest.TestCase):
         for seed in range(4):
             random.Random(seed).shuffle(rows)
             self.assertEqual(player_names(rows, REGISTRY, {}, graph), expected)
+
+    def test_shape_size_letters_expand_only_in_shape_suffixes(self):
+        rows = [row("plain", "item", "Model l")]
+        expected = {"large": "Half cylinder large", "medium": "Half cylinder medium",
+                    "small": "Half cylinder small", "corner": "Triangle corner small",
+                    "steps": "Steps", "cuboid": "Cuboid"}
+        for key, shape in (("large", "Half_Cylinder_L"), ("medium", "Half_Cylinder_M"),
+                           ("small", "Half_Cylinder_S"), ("corner", "Triangle_CornerS"),
+                           ("steps", "Steps"), ("cuboid", "Cuboid")):
+            rows.extend([
+                row(key, "item", "Cement", facts={"_Tag": "BuildMat"}, evidence=[key + "-tip"]),
+                row(key + "-tip", "configuration", f"3_1_{shape}_Cement_Tooltip",
+                    component={"assembly": "Language", "class": "Tooltip_Text"})])
+        names = player_names(rows, REGISTRY, {}, {})
+        for key, shape in expected.items():
+            self.assertEqual(names[key]["name"], f"Cement ({shape})")
+            self.assertEqual(names[key]["rule"], "building-shape")
+        self.assertEqual(names["plain"], {"name": "Model l", "source": "game", "rule": None})
 
     def test_building_dimensions_preserve_decimals_and_unknown_shapes_fall_through(self):
         rows = []
