@@ -106,7 +106,7 @@ function fixture() {
     assert.ok(index.cards.every(ref => !subject.calls.includes(new URL(ref.path, input.base).href)),
       "Entry lookup fetched unused cards");
     const card = await subject.context.keyed(index.cards, record.card_id);
-    assert.equal(card.stats[0].display, "3");
+    assert.equal(card.stats[0].display, input.display || "3");
     const player = await subject.context.keyed(index.player, record.player_id);
     assert.ok(player.name);
     assert.ok(player.how.every(Array.isArray));

@@ -201,7 +201,12 @@ class CapacityProjectionTests(unittest.TestCase):
         # Scale the index with the larger file budget required by real fonts.
         keys = ["e-" + f"{number:032x}" for number in range(800)]
         # Internal names also force nontrivial, distinct player packs to page.
-        run = self.fixture.make_run("300", [self.fixture.observation(key, "Item_Internal " + key) for key in keys])
+        observations = [self.fixture.observation(key, "Item_Internal " + key) for key in keys]
+        for number, observation in enumerate(observations):
+            # Cards are content-addressed, so each item needs its own player stat for cards to page too.
+            observation["semantic"]["facts"]["weight"] = number + 1
+            observation["revision_id"] = digest(json_bytes(observation["semantic"]))
+        run = self.fixture.make_run("300", observations)
         candidate = reader.build(self.fixture.root, self.project, [run, *self.fixture.runs],
                                  bases=self.bases, max_pack_bytes=1024)
         self.path = Path(candidate["path"])
@@ -228,7 +233,8 @@ class CapacityProjectionTests(unittest.TestCase):
             control = self.fixture.root / "directory-reader.json"
             control.write_text(json.dumps({"root": str(output), "base": self.bases["items"],
                                            "configuration": result.configurations["items"],
-                                           "snapshot": run["snapshot_id"], "key": keys[37], "count": len(keys)}))
+                                           "snapshot": run["snapshot_id"], "key": keys[37], "count": len(keys),
+                                           "display": "38"}))
             checked = subprocess.run([node, str(Path(__file__).with_name("reader_shards.test.js")), str(control)],
                                      capture_output=True, text=True)
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
