@@ -23,8 +23,8 @@ def shell(title, base, project_name="Unofficial game reference", fonts_base=None
             '<input id="search" type="search" placeholder="Search" autocomplete="off"><kbd aria-hidden="true">/</kbd></form>'
             '<nav id="topics" aria-label="Sections"></nav></div>'
             '<p class="aff">An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.</p></header>'
-            '<div class="edition"><span id="status" role="status">Loading the selected game version...</span>'
-            '<label>Game version <select id="version"></select></label></div>'
+            '<section class="edition" aria-label="Game version"><span id="status" role="status">Loading the selected game version...</span>'
+            '<label>Game version <select id="version"></select></label></section>'
             '<main id="content" tabindex="-1"></main>'
             '<footer class="hh-footer"><p>Human Host is created by Virtual Matrix Studio. This community reference is free and ad-free.</p>'
             "<p>Values come from the game's files. The game's code or settings can change them in play.</p>"

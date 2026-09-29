@@ -589,7 +589,7 @@ async function hubSearch() {
   show(el("div", {class: "index"},
     el("p", {class: "kicker"}, "Search"),
     el("h1", {class: "hed"}, query ? `“${query}”` : "Search the wiki"),
-    el("form", {role: "search", "aria-label": "Search the wiki", onsubmit: event => {event.preventDefault(); location.assign(searchURL(input.value.trim(), only));}}, input, el("button", {}, "Search")),
+    el("form", {role: "search", "aria-label": "Search again", onsubmit: event => {event.preventDefault(); location.assign(searchURL(input.value.trim(), only));}}, input, el("button", {}, "Search")),
     el("ul", {class: "kinds", "aria-label": "Topics"}, el("li", {}, el("a", {href: searchURL(query), "aria-current": only ? null : "true"}, "All topics ", el("small", {}, count(Object.values(facets).reduce((a, b) => a + b, 0))))),
       Object.entries(facets).sort((a, b) => b[1] - a[1]).map(([id, total]) => el("li", {}, el("a", {href: searchURL(query, id), "aria-current": id === only ? "true" : null}, swatch(id), ` ${topicShort(id)} `, el("small", {}, count(total)))))),
     el("p", {class: "note", role: "status"}, `${count(found.length)} ${found.length === 1 ? "match" : "matches"}.`),
@@ -629,8 +629,10 @@ function guideBlock(block, links, scope) {
   if (block.type === "sources") return el("p", {class: "gsources"}, runsNode(block.runs, links));
   const groups = block.groups || [{items: block.items, rows: block.rows}];
   return [title, groups.map(group => [
-    group.label ? el("h4", {}, runsNode(group.label, links)) : null,
-    block.type === "table" ? guideTable(block.columns, group.rows || [], links) : guideItems(block.type, group.items || [], links, scope),
+    group.label ? el(title ? "h4" : "h3", {}, runsNode(group.label, links)) : null,
+    block.type === "table"
+      ? guideTable(block.columns, group.rows || [], links, [block.title, group.label && runsText(group.label)].filter(Boolean).join(": ") || block.columns.join(", "))
+      : guideItems(block.type, group.items || [], links, scope),
     group.more?.length ? el("p", {class: "gmore"}, runsNode(group.more, links)) : null])];
 }
 
@@ -652,9 +654,9 @@ function guideItems(type, items, links, scope) {
   return el(type === "steps" ? "ol" : "ul", {class: type === "steps" ? "gsteps" : "glist"}, items.map(runs => el("li", {}, runsNode(runs, links))));
 }
 
-function guideTable(columns, rows, links) {
+function guideTable(columns, rows, links, label) {
   const numeric = columns.map(column => rows.length > 0 && rows.every(row => /^[\d.,%×+\- ]*$/.test(runsText(row[column]))));
-  return el("div", {class: "tbl-wrap", tabindex: "0", role: "region", "aria-label": "Table"},
+  return el("div", {class: "tbl-wrap", tabindex: "0", role: "region", "aria-label": label || "Table"},
     el("table", {class: "tbl"}, el("thead", {}, el("tr", {}, columns.map((column, i) => el("th", {scope: "col", class: numeric[i] ? "num" : null}, column)))),
       el("tbody", {}, rows.map(row => el("tr", {}, columns.map((column, i) => el(i ? "td" : "th", {scope: i ? null : "row", class: numeric[i] ? "num" : null}, runsNode(row[column], links))))))));
 }
@@ -712,7 +714,7 @@ function quickSearch(rowsPromise) {
     else if (event.key === "ArrowUp" && at >= 0) {event.preventDefault(); (at ? anchors[at - 1] : input).focus();}
   });
   box.addEventListener("focusout", event => {if (!box.contains(event.relatedTarget)) close();});
-  box.append(el("form", {role: "search", "aria-label": "Search the wiki", onsubmit: event => {event.preventDefault(); location.assign(searchURL(input.value.trim()));}},
+  box.append(el("form", {role: "search", "aria-label": "Quick search", onsubmit: event => {event.preventDefault(); location.assign(searchURL(input.value.trim()));}},
     el("label", {class: "sr-only", for: "hq"}, "Search the wiki"), input, el("button", {}, "Search")), list, live);
   return box;
 }
