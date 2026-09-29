@@ -24,7 +24,7 @@ function reader(configuration, fetchBytes, selected = configuration.default_snap
     humanHostReader: {config: configuration, base: site},
     location: {origin: new URL(site).origin, pathname: new URL(site).pathname, href: site,
       search: "?" + new URLSearchParams({snapshot: selected, release: configuration.release_id})},
-    document: {getElementById: id => nodes[id], createElement: tag => new Node(tag), createTextNode: text => new Node(text)},
+    document: {getElementById: id => nodes[id], createElement: tag => new Node(tag), createTextNode: text => Object.assign(new Node("#text"), {textContent: String(text)})},
     fetch: async url => {
       calls.push(url); const data = await fetchBytes(url);
       return {ok: !!data, status: data ? 200 : 404,
@@ -125,7 +125,7 @@ function fixture(count = 121) {
   assert.equal(subject.nodes.version.children.length, data.records.length);
   console.log("Capture selection, bounded paging, retry and legacy checks passed");
 
-  assert.match(subject.nodes.status.textContent, /Application version unknown/);
+  assert.match(subject.nodes.status.textContent, /Game version unknown/);
   assert.match(subject.nodes.version.children[0].textContent, /Version unknown/);
   const latest = data.records.at(-1);
   latest.version.game_version = "0.8.315";
@@ -134,26 +134,26 @@ function fixture(count = 121) {
       object_id: "globalgamemanagers#1", field: "/bundleVersion", source_sha256: "e".repeat(64)}], counts: {}});
   flat.snapshots[latest.version.snapshot_id] = versionData;
   subject = reader(flat, url => data.files[url]); await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /Application version 0.8.315/);
+  assert.match(subject.nodes.status.textContent, /Game version 0.8.315/);
   assert.match(subject.nodes.status.title, /globalgamemanagers#1\/bundleVersion/);
   assert.match(subject.nodes.version.children[0].textContent, /0.8.315/);
   subject = reader(flat, url => data.files[url], data.records[0].version.snapshot_id); await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /Application version unknown/);
+  assert.match(subject.nodes.status.textContent, /Game version unknown/);
   console.log("Captured application version, provenance and historical unknown passed");
 
   const availability = {status: "observed", checked_at: "2026-09-27T09:00:00+00:00",
     observation: {app_id: "2393970", branch: "public", build_id: data.records.at(-1).version.build_id}};
   subject = reader({...flat, availability}, url => data.files[url]); await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /Selected build matches that observation/);
-  assert.match(subject.nodes.status.textContent, /Gameplay verification not performed/);
-  assert.match(subject.nodes.status.textContent, /2026-09-27T09:00:00/);
+  assert.match(subject.nodes.status.textContent, /This is the newest public build/);
+  assert.match(subject.nodes.status.textContent, /Values not yet checked in play/);
+  assert.match(subject.nodes.status.textContent, /checked 2026-09-27/);
   subject = reader({...flat, availability}, url => data.files[url], data.records[0].version.snapshot_id);
   await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /Selected build differs/);
+  assert.match(subject.nodes.status.textContent, /Newest public build is 1120/);
   subject = reader({...flat, availability: {...availability, status: "unavailable"}}, url => data.files[url]);
   await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /Latest available build unknown/);
-  assert.doesNotMatch(subject.nodes.status.textContent, /Selected build matches/);
+  assert.match(subject.nodes.status.textContent, /Newest public build unknown \(Steam check failed 2026-09-27\)/);
+  assert.doesNotMatch(subject.nodes.status.textContent, /This is the newest/);
   console.log("Availability evidence, historical comparison and unavailable state passed");
 
   const checked = {status: "passed", title: "Configured limit", text: "<script>literal</script>",
@@ -188,7 +188,7 @@ function fixture(count = 121) {
   assert.ok(tags(articles).includes("a"));
   assert.ok(!tags(articles).includes("script"));
   assert.match(flattened(articles).join(" "), /<script>literal<\/script>/);
-  assert.match(flattened(articles).join(" "), /game-build compatibility is not verified/);
+  assert.match(flattened(articles).join(" "), /does not check them against this one/);
   articles = await subject.context.articleLinks();
   assert.equal(tags(articles).filter(tag => tag === "a").length, 1, "Empty article emitted a link");
   articles = await subject.context.articleLinks({entity_key: "e-" + "c".repeat(32), kind: "item", status: "present"});
@@ -223,7 +223,7 @@ function fixture(count = 121) {
     const loaded = subject.context.start();
     await requestStarted;
     try {
-      assert.match(flattened(subject.nodes.content).join(" "), route === "entry" ? /Extracted facts.*Max Stack.*1/ : /item \(1\)/,
+      assert.match(flattened(subject.nodes.content).join(" "), route === "entry" ? /Game fields.*MaxStack.*1/ : /Everything.*Item.*1/,
         "Core " + route + " content waited for optional article metadata");
       if (route === "overview") subject.nodes.content.replaceChildren(new Node("new-search-view"));
     } finally {finish(data.files[base + articleControl.path]);}
@@ -240,7 +240,8 @@ function fixture(count = 121) {
       {predicate: "coded-value", field: "/nested/0/_SlotType", targets: ["slot"]}]};
   const codedRecord = {links: {caliber: {topic: "items", name: "Ammo type: 7.62x54mm"}, slot: {topic: "items", name: "Ammo"}}};
   const readableFacts = subject.context.factsTable(codedSemantic.facts, {semantic: codedSemantic, record: codedRecord});
-  assert.ok(flattened(readableFacts).includes("Ammo Type"));
+  // ADR-0002: the technical reference keeps raw field names verbatim; coded values still read as labels.
+  assert.ok(flattened(readableFacts).includes("_AmmoType"));
   assert.ok(flattened(readableFacts).includes("7.62x54mm"));
   assert.ok(!flattened(readableFacts).includes("5"));
   const descendants = node => [node, ...node.children.flatMap(descendants)];

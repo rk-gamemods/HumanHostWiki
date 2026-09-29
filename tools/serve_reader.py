@@ -5,6 +5,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import re
 import sys
 from urllib.parse import unquote, urlsplit
 
@@ -16,7 +17,11 @@ from wikibuild.storage import within
 class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parts = unquote(urlsplit(self.path).path).strip("/").split("/")
-        if len(parts) == 3 and parts[1] == "entry" and reader.ENTITY.fullmatch(parts[2]):
+        # Like a static host, reader routes that are not files are served by the site's 404.html.
+        routed = (len(parts) == 3 and parts[1] == "entry" and reader.ENTITY.fullmatch(parts[2])
+                  or len(parts) == 3 and parts[1] == "guide" and re.fullmatch(r"[a-z0-9-]+", parts[2])
+                  or len(parts) == 2 and parts[1] == "search")
+        if routed:
             fallback = within(Path(self.directory), f"{parts[0]}/404.html")
             if fallback.is_file():
                 data = fallback.read_bytes()

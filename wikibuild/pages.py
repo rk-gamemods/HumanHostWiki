@@ -8,23 +8,28 @@ def entry(base, entity, snapshot, candidate):
     return f"{base}entry/{quote(entity, safe='')}/?{urlencode({'snapshot': snapshot, 'release': candidate})}"
 
 
-def shell(title, base, project_name="Unofficial game reference"):
+def shell(title, base, project_name="Unofficial game reference", fonts_base=None):
+    """Static page shell for every site. reader.js fills #content; the ids are its contract."""
     title, base, brand = escape(title), escape(base, quote=True), escape(project_name)
+    head, sep, tail = brand.rpartition(" for ")
+    mark = f"{head} <em>for {tail}</em>" if sep else brand
+    fonts = f'<link rel="stylesheet" href="{escape(fonts_base, quote=True)}fonts/fonts.css">' if fonts_base else ""
     return (f'<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} | {brand}</title>'
-            f'<link rel="stylesheet" href="{base}reader.css"><script defer src="{base}reader.js"></script></head>'
-            '<body><a class="skip" href="#content">Skip to content</a><header><div class="brand">'
-            f'<a id="home">{brand}</a></div>'
-            '<p>An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.</p>'
-            f'<h1>{title}</h1><p id="status" role="status">Loading the selected snapshot...</p>'
-            '<div class="controls"><label>Captured version <select id="version"></select></label>'
-            '<form id="search-form" role="search"><label>Search this topic <input id="search" type="search" '
-            'placeholder="Name, type or identifier"></label><button>Search</button></form></div></header>'
-            '<div class="layout"><nav id="topics" aria-label="Topics"></nav><main id="content" tabindex="-1"></main></div>'
-            '<footer><p>Human Host is created by Virtual Matrix Studio. This community reference is free and ad-free.</p>'
-            '<p>Serialized facts may be modified by game code or settings. Unresolved interpretations remain labeled.</p>'
-            '<p id="credits"></p></footer><noscript>This reader needs JavaScript. Generated Markdown reference pages '
-            'remain available in the topic repository.</noscript></body></html>\n').encode("utf-8")
+            f'{fonts}<link rel="stylesheet" href="{base}reader.css"><script defer src="{base}reader.js"></script></head>'
+            '<body><a class="skip" href="#content">Skip to content</a>'
+            f'<header class="mast"><a class="brand" id="home">{mark}</a><div class="mast-r">'
+            '<form id="search-form" role="search" aria-label="Search the wiki"><label class="sr-only" for="search">Search the wiki</label>'
+            '<input id="search" type="search" placeholder="Search" autocomplete="off"><kbd aria-hidden="true">/</kbd></form>'
+            '<nav id="topics" aria-label="Sections"></nav></div>'
+            '<p class="aff">An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.</p></header>'
+            '<div class="edition"><span id="status" role="status">Loading the selected game version...</span>'
+            '<label>Game version <select id="version"></select></label></div>'
+            '<main id="content" tabindex="-1"></main>'
+            '<footer class="hh-footer"><p>Human Host is created by Virtual Matrix Studio. This community reference is free and ad-free.</p>'
+            "<p>Values come from the game's files. The game's code or settings can change them in play.</p>"
+            '<p id="credits"></p></footer><noscript>This wiki needs JavaScript. Generated Markdown reference pages '
+            'remain available in each topic repository.</noscript></body></html>\n').encode("utf-8")
 
 
 def markdown(kind, entries, snapshot, candidate, base):

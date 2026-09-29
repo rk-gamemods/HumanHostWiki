@@ -27,8 +27,9 @@ def candidate_path(cache_root, candidate_id):
 def contract():
     folder = Path(__file__).parent
     paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py", "presentation.py", "game_text.py")]
-    paths += sorted((folder / "web").glob("*"))
-    return {path.relative_to(folder).as_posix(): digest(path.read_bytes().replace(b"\r\n", b"\n")) for path in paths}
+    paths += sorted(path for path in (folder / "web").rglob("*") if path.is_file())
+    return {path.relative_to(folder).as_posix(): digest(path.read_bytes() if path.suffix == ".woff2" else path.read_bytes().replace(b"\r\n", b"\n"))
+            for path in paths}
 
 
 def versions(root):
@@ -403,10 +404,17 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
               for repo in project["repositories"]]
     for repo in project["repositories"]:
         topic = repo["id"]
-        for file in web.iterdir():
-            output(f"{topic}/{file.name}", file.read_bytes().replace(b"\r\n", b"\n"))
+        for file in sorted(web.iterdir()):
+            if file.is_file():
+                output(f"{topic}/{file.name}", file.read_bytes().replace(b"\r\n", b"\n"))
+        if topic == "hub":
+            # Fonts ship once, in the hub; topic sites load them from the same origin.
+            for file in sorted((web / "fonts").iterdir()):
+                data = file.read_bytes()
+                output(f"{topic}/fonts/{file.name}", data if file.suffix == ".woff2" else data.replace(b"\r\n", b"\n"))
         output(f"{topic}/.nojekyll", b"")
-        content = pages.shell(repo["title"], bases[topic], project.get("project", "Unofficial game reference"))
+        content = pages.shell(repo["title"], bases[topic], project.get("project", "Unofficial game reference"),
+                              fonts_base=bases.get("hub"))
         output(f"{topic}/index.html", content)
         output(f"{topic}/404.html", content)
         output(f"{topic}/reader.json", packs.compact({"schema_version": 1, "candidate_id": candidate_id,
