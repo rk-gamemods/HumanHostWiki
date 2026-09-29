@@ -20,7 +20,8 @@ def _humanize(value, *, scenery=False):
     # Model and detail-level tokens name a file, not a thing; variant numbers stay.
     # They are dropped before the case split (odd casing such as "lOD0") and after it ("PrefabPine").
     if scenery:
-        parts = re.sub(r"[_/\\-]+", " ", str(value)).split()
+        # A trailing "$2" is Unity's suffix for a duplicate object name.
+        parts = re.sub(r"[_/\\-]+", " ", re.sub(r"\$\d+$", "", str(value))).split()
         parts = [part for part in parts if part.casefold() not in {"sm", "prefab"}]
         if parts and re.fullmatch(r"lod\d+", parts[-1], re.IGNORECASE):
             parts.pop()

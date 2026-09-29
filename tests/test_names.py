@@ -323,6 +323,7 @@ class PlayerNamesTests(unittest.TestCase):
                 row("prefab", "building-piece", "Prefab_pine_cone_03", topic="construction"),
                 row("empty", "building-piece", "sm_pReFaB_lOd123", topic="construction"),
                 row("tree", "building-piece", "Tree_lOd12_pReFaB", topic="construction"),
+                row("copy", "building-piece", "Table_02_Lod0$2", topic="construction"),
                 row("item", "item", "Prefab_pine_cone_03", topic="items")]
         for record in rows:
             if record["entity_key"] != "reserved":
@@ -334,6 +335,7 @@ class PlayerNamesTests(unittest.TestCase):
         self.assertEqual(names["prefab"]["name"], "Pine cone 03")
         self.assertEqual(names["empty"]["name"], "Unnamed record")
         self.assertEqual(names["tree"]["name"], "Tree")
+        self.assertEqual(names["copy"]["name"], "Table 02")
         self.assertEqual(names["item"]["name"], "Prefab pine cone 03")
         construction = [names[record["entity_key"]]["name"] for record in rows
                         if record["semantic"]["topic"] == "construction"]
