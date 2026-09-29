@@ -57,6 +57,8 @@ class HubProjectionTests(unittest.TestCase):
             self.assertEqual([ref["id"] for ref in index["guides"]], ["second", "first"])
             self.assertEqual(version["guides"]["count"], 2)
             self.assertEqual(version["guides"]["dropped_links"], 2)
+            # ADR-0002 §5: the normal build reports scenery no harvest rule names.
+            self.assertEqual(version["guides"]["other_scenery"], sorted(set(version["guides"]["other_scenery"])))
             self.assertEqual(len(version["guides"]["errors"]), 1)
             self.assertEqual(version["guides"]["errors"][0]["id"], "broken")
             self.assertIn("unknown query 'missing'", version["guides"]["errors"][0]["error"])

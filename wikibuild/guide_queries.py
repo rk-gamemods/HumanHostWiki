@@ -205,14 +205,16 @@ def _scenery_family(name):
 
 def _harvest_kind(context, item_key, source_key):
     family = _scenery_family(_name(context, source_key))
+    # Registry rules decide first; a mineral node is a mineral by rule, not by sharing the item's name.
+    for pattern, kind in context["harvest_patterns"]:
+        if pattern.search(family):
+            return kind, family
+    # A source named after the item itself (a torch on a wall) is that item lying in the world.
     item_name = context["rows"][item_key]["semantic"]["name"]
     item_name = re.sub(r"(?:[_ ]*Icon)$", "", item_name, flags=re.IGNORECASE)
     item_words = {word.casefold() for word in re.split(r"[_\s]+", item_name) if word}
     if set(family.casefold().split()) <= item_words:
-        return "mineral deposits", family
-    for pattern, kind in context["harvest_patterns"]:
-        if pattern.search(family):
-            return kind, family
+        return "ones found in the world", family
     return "other scenery", family
 
 

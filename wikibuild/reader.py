@@ -293,7 +293,9 @@ def project_guides(root, identities, context, output):
         output("hub/" + path, data)
         rows.append({"id": identity, "title": document["title"], "dek": document["dek"],
                      "path": path, "sha256": sha, "bytes": len(data)})
-    return rows, {"count": len(rows), "dropped_links": drops, "errors": errors}
+    # ADR-0002 §5: scenery no harvest rule names is reported after every update.
+    unmatched = sorted(set(guide_queries.other_scenery_sources(context).values()))
+    return rows, {"count": len(rows), "dropped_links": drops, "errors": errors, "other_scenery": unmatched}
 
 
 def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, site):
@@ -332,7 +334,7 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                                 {"assembly": "UI", "class": "DynamicToolTipSet"},
                                 {"assembly": "Language", "class": "Language_Text"}))
     receipt = snapshots.read(root, snapshot)
-    guide_rows, guide_receipt = [], {"count": 0, "dropped_links": 0, "errors": []}
+    guide_rows, guide_receipt = [], {"count": 0, "dropped_links": 0, "errors": [], "other_scenery": []}
     def consume_context(context):
         nonlocal guide_rows, guide_receipt
         guide_rows, guide_receipt = project_guides(root, site.get("guides", []), context, output)

@@ -17,6 +17,7 @@ from wikibuild.game_text import labels
 from wikibuild.guides import GuideError, load_spec, render, render_markdown, text_runs
 from wikibuild.lint import jargon
 from wikibuild.presentation import load
+from wikibuild import reader
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -437,21 +438,29 @@ class GuideQueryTests(unittest.TestCase):
         for identity, _, expected in examples:
             self.assertEqual(queries._harvest_kind(ctx, key("wood"), key(identity))[0], expected)
 
-    def test_item_record_words_make_surface_deposits_before_family_rules(self):
+    def test_minerals_come_from_rules_and_a_same_named_source_is_the_item_itself(self):
         rows = fixture() + [
             row("copper", "item", "Ore_Copper"),
             row("wax", "item", "Chrismatite_Icon"),
             row("marble", "item", "Marble"),
             row("wrong", "item", "Wood"),
+            row("torch-item", "item", "Torch"),
+            row("cactus-item", "item", "Cactus"),
             harvest_source("copper-source", "Ore_Copper", "copper"),
             harvest_source("wax-source", "Chrismatite", "wax"),
             harvest_source("marble-source", "Marble", "marble"),
             harvest_source("wrong-source", "Wood_Trash_03", "wrong"),
+            harvest_source("torch-source", "Torch", "torch-item"),
+            harvest_source("cactus-source", "Cactus_02", "cactus-item"),
         ]
         ctx = context(rows)
         for item in ("copper", "wax", "marble"):
             self.assertEqual(words(queries.how_runs(ctx, key(item))), "gathered from mineral deposits")
         self.assertEqual(words(queries.how_runs(ctx, key("wrong"))), "gathered from debris")
+        # Review finding: a torch or a cactus is not a mineral because the source shares its name.
+        self.assertEqual(words(queries.how_runs(ctx, key("torch-item"))), "gathered from ones found in the world")
+        self.assertEqual(words(queries.how_runs(ctx, key("cactus-item"))), "gathered from plants")
+        self.assertNotIn(key("torch-source"), queries.other_scenery_sources(ctx))
 
     def test_other_scenery_stays_last_and_remainder_counts_kinds(self):
         rows = fixture() + [harvest_source("duct-1", "Terra_Block_01", "wood"),
@@ -819,6 +828,12 @@ class RenderGuidesToolTests(unittest.TestCase):
             self.assertEqual(render_guides.main(["--out", directory, "--guides", "getting-started"]), 0)
         self.assertIn("Other scenery sources: 2\n", output.getvalue())
         self.assertIn('Other scenery families: ["terra block"]\n', output.getvalue())
+
+    def test_reader_guide_receipt_reports_unmatched_scenery(self):
+        ctx = context(fixture() + [harvest_source("terra-1", "Terra_Block_01", "wood"),
+                                   harvest_source("terra-2", "Terra_Block_02", "wood")])
+        _, receipt = reader.project_guides(Path("."), [], ctx, lambda path, data: None)
+        self.assertEqual(receipt["other_scenery"], ["terra block"])
 
     def test_default_selection_files_repeat_bytes_and_explicit_selection(self):
         with tempfile.TemporaryDirectory() as directory:
