@@ -118,7 +118,8 @@ def fixture():
 def weapon_fixture():
     rows = fixture() + [
         row("bow", "item", "Wooden Bow", {"_Tag": "Bow", "_baseDamage": 1.25,
-            "_fireRate": "80", "_BaseMaxDurability": 75}),
+            "_fireRate": "999", "_BaseMaxDurability": 75}, [link("combat-record", "bow-combat")]),
+        row("bow-combat", "combat-rule", "Bow combat", {"_ArrowSpeed": 80.4}),
         recipe("bow-recipe", "bow", [("wood", 3)]),
         row("loot-gun", "item", "Rifle", {"_Tag": "Gun", "_baseDamage": 60}, [link("model", "gun-model")]),
     ]
@@ -287,7 +288,7 @@ class GuideQueryTests(unittest.TestCase):
             payloads(ctx)
         self.assertEqual(graph_spy.call_count, 1)
         self.assertEqual(names_spy.call_count, 1)
-        self.assertEqual(card_spy.call_count, len(ctx["graph"]["items"]) + 1)
+        self.assertEqual(card_spy.call_count, len(ctx["graph"]["items"]) + 2)
 
     def test_crafting_closure_rejects_loot_and_checks_building_bench(self):
         rows = [r for r in fixture() if r["entity_key"] != key("planks-wood")]
@@ -372,6 +373,7 @@ class GuideQueryTests(unittest.TestCase):
         rows.append(row("crate1", "loot-source", "Crate", links=[link("uses-loot-table", "table")],
                         source_id="bundles/shc_crates_desert_assets_all.bundle::serialized#1"))
         self.assertEqual(words(queries.how_runs(context(rows), key("part"), limit=1)), "found in crates, almost everywhere")
+        self.assertEqual(words(queries.how_short(context(rows), key("part"))), "Loot, almost everywhere · Salvage")
 
     def test_harvest_names_limit_and_source_priority(self):
         rows = fixture()
@@ -423,6 +425,47 @@ class GuideQueryTests(unittest.TestCase):
             self.assertEqual(queries._scenery_family(source), family)
         # Unlocated scenery must not leak into a ring's harvesting phrase.
         self.assertEqual(words(queries.how_runs(ctx, key("wood"), ring=0)), "gathered from oak")
+        self.assertEqual(queries._scenery_family("Prefab mountain branch 03 lod0"), "mountain branch")
+
+    def test_short_how_preserves_links_order_and_three_part_limit(self):
+        ctx = context(fixture() + [recipe("make-part", "part", [("wood", 1)])])
+        expected = {
+            "ore": ["Mined in ", entity("desert", "Desert")], "axe": ["By hand"],
+            "plank": [entity("bench1", "Workbench")], "stock": ["Merchants"],
+            "part": ["By hand", " · ", "Loot in ", entity("forest", "Mossy Forest"), " · ", "Salvage"],
+        }
+        for identity, parts in expected.items():
+            self.assertEqual(queries.how_short(ctx, key(identity)), rich(*parts)["runs"])
+        # Full list text keeps the source details and lowercase phrases.
+        self.assertEqual(words(queries.how_runs(ctx, key("part"))), "crafted by hand; found in crates in Mossy Forest")
+        rows = fixture() + [recipe("make-part", "part", [("wood", 1)]), mining("part-block", [("part", 0.1)])]
+        next(r for r in rows if r["entity_key"] == key("top0"))["semantic"]["relationships"].append(link("terrain-block-set", "part-block"))
+        self.assertEqual(words(queries.how_short(context(rows), key("part"))),
+                         "Mined in Mossy Forest · By hand · Loot in Mossy Forest")
+
+    def test_source_less_weapon_is_absent_from_tables_and_variants(self):
+        rows = fixture() + [row("ghost", "item", "Rifle", {"_Tag": "Gun", "_baseDamage": 1000})]
+        ctx = context(rows)
+        self.assertEqual([r["Weapon"]["entity"] for r in query(ctx, "weapons.guns")], [key("gun")])
+        self.assertEqual(query(ctx, "weapons.variants"), [])
+
+    def test_bow_speed_uses_combat_card_direct_model_or_shared_object_join(self):
+        for join in ("direct", "model", "shared"):
+            rows = weapon_fixture()
+            bow = next(r for r in rows if r["entity_key"] == key("bow"))
+            combat = next(r for r in rows if r["entity_key"] == key("bow-combat"))
+            if join == "model":
+                bow["semantic"]["relationships"] = [link("model", "bow-model")]
+                rows.append(row("bow-model", "asset", "Bow model", links=[link("cataloged-component", "bow-combat")]))
+            elif join == "shared":
+                bow["semantic"]["relationships"] = []
+                bow["provenance"]["game_objects"] = ["bow-instance"]
+                combat["provenance"]["game_objects"] = ["bow-instance"]
+            ctx = context(rows)
+            self.assertEqual(ctx["names"][key("bow-combat")]["rule"], "combat-user")
+            self.assertEqual(query(ctx, "weapons.bows")[0]["Speed"], "80 m/s", join)
+            rows.remove(combat)
+            self.assertEqual(query(context(rows), "weapons.bows")[0]["Speed"], "", join)
 
     def test_scoped_sources_and_rich_phrase_links_survive_rendering(self):
         rows = fixture() + [recipe("make-part", "part", [("ore", 1)])]
@@ -438,21 +481,19 @@ class GuideQueryTests(unittest.TestCase):
 
     def test_weapon_golden_rows(self):
         ctx = context(weapon_fixture())
-        forest = rich("Ring 0", " (", entity("forest", "Mossy Forest"), ")")
-        desert = rich("Ring 1", " (", entity("desert", "Desert"), ")")
         self.assertEqual(query(ctx, "weapons.melee"), [{
             "Weapon": entity("axe", "Stone Axe"), "Damage": "12.35", "Execute": "2.5%", "Knockdown": "5%",
-            "Durability": "200", "Ring": forest, "How to get it": rich("crafted by hand")}])
+            "Durability": "200", "How to get it": rich("By hand")}])
         self.assertEqual(query(ctx, "weapons.guns"), [
-            {"Weapon": entity("loot-gun", "Rifle (loot)"), "Type": "Bolt Rifle", "Damage": "60", "Fire rate": "",
-             "Capacity": "", "Ammo": entity("ammo", "Cartridges"), "Ring": forest,
-             "How to get it": rich("found in ", "crates", " in ", entity("forest", "Mossy Forest"))},
-            {"Weapon": entity("gun", "Rifle (crafted)"), "Type": "Bolt Rifle", "Damage": "40", "Fire rate": "240",
-             "Capacity": "5", "Ammo": entity("ammo", "Cartridges"), "Ring": desert,
-             "How to get it": rich("crafted at the ", entity("bench2", "Forge"))}])
+            {"Weapon": entity("loot-gun", "Rifle (loot)"), "Type": "Bolt-action rifle", "Damage": "60", "Fire rate": "",
+             "Capacity": "", "Ammo": entity("ammo", "Cartridges"),
+             "How to get it": rich("Loot in ", entity("forest", "Mossy Forest"))},
+            {"Weapon": entity("gun", "Rifle (crafted)"), "Type": "Bolt-action rifle", "Damage": "40", "Fire rate": "240",
+             "Capacity": "5", "Ammo": entity("ammo", "Cartridges"),
+             "How to get it": rich(entity("bench2", "Forge"))}])
         self.assertEqual(query(ctx, "weapons.bows"), [{
             "Weapon": entity("bow", "Wooden Bow"), "Arrow Damage": "125%", "Speed": "80 m/s",
-            "Durability": "75", "Ring": forest, "How to get it": rich("crafted by hand")}])
+            "Durability": "75", "How to get it": rich("By hand")}])
         self.assertEqual(query(ctx, "weapons.ammo_sources"), [
             {"ammo": entity("ammo", "Cartridges"), "how": rich("crafted at the ", entity("bench2", "Forge"))}])
         self.assertEqual(query(ctx, "weapons.variants"), [{
@@ -478,7 +519,7 @@ class GuideQueryTests(unittest.TestCase):
         note = "A sharp hit can deal an additional 100 damage."
         next(r for r in rows if r["entity_key"] == key("gun"))["semantic"]["facts"]["_fireRate"] = "00"
         ctx = queries.build_context(rows, REGISTRY, {"_Damage_Title": "Impact: ",
-                    "_BladeHit_Title": "Sharp hit: ", "_BladeHit_Instruct": note}, SNAPSHOT)
+                    "_BladeHit_Title": "Sharp hit: ", "_BladeHit_Instruct": "Sharp hit: " + note}, SNAPSHOT)
         definitions = query(ctx, "weapons.stat_labels")
         self.assertIn({"label": "Sharp hit", "meaning": note}, definitions)
         self.assertIn({"label": "Single Shot", "meaning": "Fires one shot at a time."}, definitions)
@@ -487,7 +528,7 @@ class GuideQueryTests(unittest.TestCase):
         self.assertEqual(query(ctx, "weapons.melee")[0]["Execute"], "2.5%")
         self.assertEqual(queries.weapon_column_labels(ctx)["Damage"], ["Impact"])
 
-    def test_weapon_sort_ring_damage_name_and_unknown_last(self):
+    def test_weapon_sort_ring_damage_name_and_omit_source_less(self):
         rows = weapon_fixture()
         for identity, name, damage, ingredient in [("alpha", "Alpha", 70, "wood"), ("zulu", "Zulu", 70, "wood"),
                                                   ("late", "Late", 900, "ore"), ("lost", "Lost", 1000, None)]:
@@ -496,11 +537,11 @@ class GuideQueryTests(unittest.TestCase):
                 rows.append(recipe(identity + "-recipe", identity, [(ingredient, 1)]))
         ctx = context(rows)
         self.assertEqual([r["Weapon"]["text"] for r in query(ctx, "weapons.guns")],
-                         ["Alpha", "Zulu", "Rifle (loot)", "Late", "Rifle (crafted)", "Lost"])
-        self.assertEqual(query(ctx, "weapons.guns")[-1]["Ring"], "")
+                         ["Alpha", "Zulu", "Rifle (loot)", "Late", "Rifle (crafted)"])
+        self.assertTrue(all("Ring" not in entry for entry in query(ctx, "weapons.guns")))
         # The graph's main ring wins even when a rarer source is earlier.
         ctx["graph"]["items"][key("late")]["earliest_ring"] = 0
-        self.assertIn(entity("desert", "Desert"), query(ctx, "weapons.guns")[3]["Ring"]["runs"])
+        self.assertEqual(query(ctx, "weapons.guns")[3]["Weapon"], entity("late", "Late"))
 
     def test_ammo_joins_are_explicit_deduplicated_and_do_not_match_names(self):
         rows = weapon_fixture() + [row("ammo2", "item", "Handmade Cartridges", {"_Tag": "9x19"}),
@@ -509,9 +550,8 @@ class GuideQueryTests(unittest.TestCase):
         next(r for r in rows if r["entity_key"] == key("ammo-type"))["semantic"]["relationships"] += [
             link("ammunition-item", "ammo2"), link("ammunition-item", "ammo")]
         ctx = context(rows)
-        expected = [entity("ammo", "Cartridges"), entity("ammo2", "Handmade Cartridges")]
-        self.assertEqual(query(ctx, "weapons.guns")[0]["Ammo"], expected)
-        self.assertEqual([r["ammo"] for r in query(ctx, "weapons.ammo_sources")], expected)
+        self.assertEqual(query(ctx, "weapons.guns")[0]["Ammo"], entity("ammo", "Cartridges"))
+        self.assertEqual([r["ammo"] for r in query(ctx, "weapons.ammo_sources")], [entity("ammo", "Cartridges")])
         rows = [r for r in rows if r["entity_key"] != key("ammo-type")]
         ctx = context(rows)
         self.assertEqual(query(ctx, "weapons.guns")[0]["Ammo"], "")
@@ -524,13 +564,90 @@ class GuideQueryTests(unittest.TestCase):
         self.assertEqual(len(variants), 1)
         self.assertEqual(words(variants[0]["difference"]["runs"]), "one has Damage 12.35; the other has Damage 20")
 
+    def test_base_ammo_prefers_uncrafted_and_groups_material_links_in_game_order(self):
+        for materials in [("Copper", "Steel", "Titanium", "Chrome", "Tungsten"), ("Steel", "Chrome")]:
+            rows = [r for r in weapon_fixture() if r["entity_key"] != key("ammo-recipe")]
+            by = {r["entity_key"]: r["semantic"] for r in rows}
+            by[key("ammo")]["name"] = "Standard Cartridges"
+            by[key("tag")]["relationships"].append(link("eligible-item", "ammo"))
+            for material in reversed(materials):
+                identity = "ammo-" + material
+                rows += [row(identity, "item", f"Cartridges ({material})", {"_Tag": "9x19"}),
+                         recipe(identity + "-recipe", identity, [("ore", 1)], "bench2")]
+                by[key("ammo-type")]["relationships"].append(link("ammunition-item", identity))
+            # A linked but source-less ammo record must not become the base.
+            rows.append(row("empty-ammo", "item", "A cartridge", {"_Tag": "9x19"}))
+            by[key("ammo-type")]["relationships"].append(link("ammunition-item", "empty-ammo"))
+            ctx = context(rows)
+            self.assertEqual([r["Ammo"] for r in query(ctx, "weapons.guns")], [entity("ammo", "Standard Cartridges")] * 2)
+            result = query(ctx, "weapons.ammo_sources")
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0]["ammo"], entity("ammo", "Standard Cartridges"))
+            material_text = ", ".join(materials[:-1]) + " and " + materials[-1]
+            self.assertEqual(words(result[0]["how"]["runs"]),
+                             "found in crates in Mossy Forest; handmade " + material_text + " rounds at the Forge")
+            self.assertEqual([run for run in result[0]["how"]["runs"] if run.get("entity", "") in {key("ammo-" + m) for m in materials}],
+                             [entity("ammo-" + m, m) for m in materials])
+            random.Random(14).shuffle(rows)
+            self.assertEqual(query(context(rows), "weapons.ammo_sources"), result)
+
+    def test_exclusions_apply_to_all_guide_lists_and_nested_links(self):
+        rows = weapon_fixture()
+        for identity, name in [("wip", "WIP"), ("test-weapon", "Test Rifle"),
+                               ("god-weapon", "G_Mode"), ("preview-weapon", "PreviewContent")]:
+            rows += [row(identity, "item", name, {"_Tag": "Gun"}),
+                     recipe(identity + "-recipe", identity, [("wood", 1)], "bench1")]
+        by = {r["entity_key"]: r["semantic"] for r in rows}
+        by[key("preview-weapon")]["name_status"] = "internal"
+        # Test exact player-name exclusions on a bench with a different original name.
+        by[key("bench2")]["name"] = "WB_Gunsmith"
+        registry = copy.deepcopy(REGISTRY)
+        registry["guides"]["exclude_names"] += ["Gunsmith Workbench", "Flux"]
+        registry["guides"]["exclude_patterns"].append("^Preview content$")
+        ctx = queries.build_context(rows, registry, labels(rows), SNAPSHOT)
+        forbidden = {key(k) for k in ("wip", "test-weapon", "god-weapon", "preview-weapon", "bench2", "stock")}
+
+        def entities(value):
+            if isinstance(value, dict):
+                if "entity" in value:
+                    yield value["entity"]
+                for child in value.values():
+                    yield from entities(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from entities(child)
+
+        for name, function in queries.QUERIES.items():
+            scopes = query(ctx, "rings") if name.startswith("ring.") else query(ctx, "benches") if name.startswith("bench.") else [{}]
+            for scope in scopes:
+                self.assertFalse(forbidden & set(entities(function(ctx, scope))), name)
+        self.assertEqual(query(ctx, "ring.merchant_summary", 0), None)
+        self.assertEqual(query(ctx, "benches"), [{"bench": entity("bench1", "Workbench")}])
+        self.assertEqual(query(ctx, "benches.overview")[0]["Recipes"], "2")
+        self.assertEqual(query(ctx, "start.benches")[0]["unlock_count"], "2")
+        self.assertNotIn(key("wip-recipe"), {r["entity"] for r in queries.used_in(ctx, key("wood"))})
+        for guide in GUIDES:
+            document = render(load_spec(ROOT / "guides" / (guide + ".json")), queries.QUERIES, ctx)
+            self.assertFalse(forbidden & set(entities(document)), guide)
+            self.assertEqual([hit for _, text in text_runs(document) for hit in jargon(text)], [])
+
+    def test_excluded_ingredients_do_not_create_partial_build_costs(self):
+        registry = copy.deepcopy(REGISTRY)
+        registry["guides"]["exclude_names"].append("Planks")
+        rows = fixture()
+        ctx = queries.build_context(rows, registry, labels(rows), SNAPSHOT)
+        self.assertEqual(query(ctx, "benches"), [{"bench": entity("bench1", "Workbench")}])
+        self.assertEqual(queries.QUERIES["bench.cost"](ctx, {"bench": entity("bench2", "Forge")}), [])
+        self.assertEqual(query(ctx, "ring.new_recipes", 0), [
+            {"output": entity("axe-recipe", "Stone Axe"), "made": rich("by hand"), "category": "Melee weapon"},
+            {"output": entity("torch-recipe", "Torch"), "made": rich("by hand"), "category": "Tool"}])
+
     def test_bench_golden_rows(self):
         benches = [{"bench": entity("bench1", "Workbench")}, {"bench": entity("bench2", "Forge")}]
         self.assertEqual(query(self.ctx, "benches"), benches)
-        forest = rich("Ring 0", " (", entity("forest", "Mossy Forest"), ")")
         self.assertEqual(query(self.ctx, "benches.overview"), [
-            {"Bench": entity("bench1", "Workbench"), "Ring": forest, "Recipes": "2", "Build cost": [entity("wood", "2 × Wood")]},
-            {"Bench": entity("bench2", "Forge"), "Ring": forest, "Recipes": "3", "Build cost": [entity("plank", "3 × Planks")]}])
+            {"Bench": entity("bench1", "Workbench"), "Recipes": "2", "Build cost": [entity("wood", "2 × Wood")]},
+            {"Bench": entity("bench2", "Forge"), "Recipes": "3", "Build cost": [entity("plank", "3 × Planks")]}])
         for bench in benches:
             self.assertEqual(queries.QUERIES["bench.summary"](self.ctx, bench), {"ring": "0", "built_at": rich("by hand")})
         self.assertEqual(queries.QUERIES["bench.cost"](self.ctx, benches[0]), [

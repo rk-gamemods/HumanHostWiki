@@ -1,6 +1,6 @@
 """Deterministic player guide queries over one snapshot's gameplay graph.
 
-The context caches the graph, names, and item cards. Query functions are pure:
+The context caches the graph, names, and item/combat cards. Query functions are pure:
 they do not read files or mutate the supplied graph. All rings below are main
 rings, the reliable acquisition ring rather than a chance near spawn.
 """
@@ -27,8 +27,9 @@ _WEAPON_FIELDS = {
                     "Knockdown": "/_baseHitDownProb", "Durability": "/_BaseMaxDurability"},
     "Gun": {"Type": "/_GunType", "Damage": "/_baseDamage", "Fire rate": "/_fireRate",
             "Capacity": "/_maxMagCount", "Ammo": "/_ammoType"},
-    "Bow": {"Arrow Damage": "/_baseDamage", "Speed": "/_fireRate", "Durability": "/_BaseMaxDurability"},
+    "Bow": {"Arrow Damage": "/_baseDamage", "Speed": "/_ArrowSpeed", "Durability": "/_BaseMaxDurability"},
 }
+_AMMO_MATERIALS = ("Copper", "Steel", "Titanium", "Chrome", "Tungsten")
 # Used only when the card has no registry/game note for that field.
 _STAT_MEANINGS = {
     "Damage": "Base damage before quality bonuses.",
@@ -73,6 +74,12 @@ def build_context(rows, registry, game_text, snapshot) -> dict:
     context = {"rows": by_key, "graph": gameplay, "names": names, "cards": cards,
                "registry": registry, "game_text": game_text,
                "snapshot": {key: str(value) for key, value in snapshot.items()}}
+    guide_rules = registry.get("guides", {})
+    patterns = [re.compile(pattern) for pattern in guide_rules.get("exclude_patterns", [])]
+    context["excluded"] = {key for key, row in by_key.items()
+                           if names[key]["name"] in guide_rules.get("exclude_names", [])
+                           or any(pattern.search(name) for pattern in patterns
+                                  for name in (names[key]["name"], row["semantic"].get("name") or ""))}
     context["bench_items"] = {bench["construction_item"] for bench in gameplay["benches"].values()
                               if bench.get("construction_item")}
     context["grass_fibers"] = {target for row in rows
@@ -99,6 +106,37 @@ def _link(context, key, text=None):
     return {"text": _name(context, key) if text is None else text, "entity": key}
 
 
+def _visible(context, key):
+    """Filter guide records without changing the underlying gameplay graph."""
+    if key not in context["rows"] or key in context["excluded"]:
+        return False
+    item = context["graph"]["items"].get(key)
+    return item is None or bool(item["sources"])
+
+
+def _recipe_visible(context, key):
+    """Omit a recipe as a whole rather than present an incomplete ingredient cost."""
+    recipe = context["graph"]["recipes"][key]
+    return (_visible(context, key) and _visible(context, recipe["output"])
+            and (recipe["bench"] is None or _visible(context, recipe["bench"]))
+            and all(_visible(context, entry["item"]) for entry in recipe["ingredients"]))
+
+
+def _bench_visible(context, key):
+    item = context["graph"]["benches"][key].get("construction_item")
+    return _visible(context, key) and _visible(context, item) and _construction_recipe(context, key) is not None
+
+
+def _sources(context, item_key):
+    if not _visible(context, item_key):
+        return []
+    return [source for source in context["graph"]["items"][item_key]["sources"]
+            if _visible(context, source["via"])
+            and (not source["biome"] or _visible(context, source["biome"]))
+            and (not source["bench"] or _bench_visible(context, source["bench"]))
+            and (source["type"] != "crafted" or _recipe_visible(context, source["via"]))]
+
+
 def ring_label(context, index) -> str:
     """Return the table label for a reliable acquisition ring."""
     ring = next(r for r in context["graph"]["rings"] if r["index"] == index)
@@ -107,8 +145,8 @@ def ring_label(context, index) -> str:
 
 
 def used_in(context, item_key) -> list:
-    """Return distinct links to recipes consuming an item, sorted by player name."""
-    recipes = context["graph"]["items"][item_key]["used_in"]
+    """Return distinct visible consuming recipes, sorted by player name."""
+    recipes = [key for key in context["graph"]["items"][item_key]["used_in"] if _recipe_visible(context, key)]
     return [_link(context, key) for key in sorted(recipes, key=lambda k: (_name(context, k).casefold(), k))]
 
 
@@ -130,7 +168,7 @@ def _join_runs(groups, separator=", ", last=" and "):
 
 
 def _named_runs(context, keys, limit=3):
-    keys = sorted(set(keys), key=lambda key: (_name(context, key).casefold(), key))
+    keys = sorted({key for key in keys if _visible(context, key)}, key=lambda key: (_name(context, key).casefold(), key))
     return _join_runs([[_link(context, key)] for key in keys[:limit]])
 
 
@@ -146,6 +184,8 @@ def _limited_runs(groups, more="more", limit=3):
 
 def _scenery_family(name):
     tokens = name.lower().split()
+    if tokens and tokens[0] == "prefab":
+        tokens.pop(0)
     while tokens:
         # Numbered duct turns are model variants, just like var/lod suffixes.
         if len(tokens) >= 2 and tokens[-1] == "turn" and tokens[-2].isdigit():
@@ -209,8 +249,7 @@ def how_runs(context, item_key, ring=None, limit=2) -> list:
     if not limit:
         return []
     gameplay = context["graph"]
-    item = gameplay["items"][item_key]
-    sources = item["sources"]
+    sources = _sources(context, item_key)
     if ring is not None:
         biomes = _ring_biomes(context, ring)
         sources = [source for source in sources if (
@@ -224,13 +263,10 @@ def how_runs(context, item_key, ring=None, limit=2) -> list:
             continue
         result = []
         if kind == "mined":
-            entries = [(entry["chance_per_hit"], biome, entry["block_set"])
-                       for biome, data in gameplay["biomes"].items()
-                       for entry in data["mined"] if entry["item"] == item_key
-                       and (ring is None or biome in _ring_biomes(context, ring))]
-            if not entries:
+            entry = _mining_entry(context, item_key, ring)
+            if entry is None:
                 continue
-            chance, biome, _ = min(entries, key=lambda e: (-e[0], _name(context, e[1]).casefold(), e[2]))
+            chance, biome, _ = entry
             result = [_text("mined in "), _link(context, biome), _text(f" ({format_percent(chance)} of dig hits)")]
         elif kind == "harvested":
             if item_key in context["grass_fibers"]:
@@ -238,14 +274,12 @@ def how_runs(context, item_key, ring=None, limit=2) -> list:
             else:
                 result = _harvest_runs(context, group)
         elif kind == "crafted":
-            recipe_key = min((source["via"] for source in group), key=lambda key: (
-                gameplay["recipes"][key]["main_ring"] is None, gameplay["recipes"][key]["main_ring"] or 0,
-                _depth_order(context, gameplay["recipes"][key]["bench"]), _name(context, key).casefold(), key))
-            bench = gameplay["recipes"][recipe_key]["bench"]
+            recipe = _crafted_recipe(context, group)
+            bench = recipe["bench"]
             # A null bench on an incomplete recipe is not proof of hand crafting.
             if bench:
                 result = [_text("crafted at the "), _link(context, bench)]
-            elif gameplay["recipes"][recipe_key]["main_ring"] is not None:
+            elif recipe["main_ring"] is not None:
                 result = [_text("crafted by hand")]
         elif kind == "looted":
             result = _loot_runs(context, group, ring)
@@ -266,6 +300,71 @@ def how_runs(context, item_key, ring=None, limit=2) -> list:
     if not phrases and ring is not None:
         return how_runs(context, item_key, limit=limit)
     return _join_runs(phrases, separator="; ", last="; ")
+
+
+def _mining_entry(context, item_key, ring=None):
+    entries = [(entry["chance_per_hit"], biome, entry["block_set"])
+               for biome, data in context["graph"]["biomes"].items() if _visible(context, biome)
+               for entry in data["mined"] if entry["item"] == item_key and _visible(context, entry["block_set"])
+               and (ring is None or biome in _ring_biomes(context, ring))]
+    return min(entries, key=lambda e: (-e[0], _name(context, e[1]).casefold(), e[2])) if entries else None
+
+
+def _crafted_recipe(context, sources):
+    recipes = context["graph"]["recipes"]
+    keys = [source["via"] for source in sources if source["type"] == "crafted"]
+    if not keys:
+        return None
+    key = min(keys, key=lambda key: (recipes[key]["main_ring"] is None, recipes[key]["main_ring"] or 0,
+                                    _depth_order(context, recipes[key]["bench"]), _name(context, key).casefold(), key))
+    return recipes[key]
+
+
+def how_short(context, item_key) -> list:
+    """Return up to three compact acquisition parts as linked runs for tables.
+
+    Parts follow the usual source order and use `` · `` separators. Lists use
+    :func:`how_runs` for full source details; the compact vocabulary covers
+    mining, crafting, loot, merchants and salvage.
+    """
+    sources = _sources(context, item_key)
+    parts = []
+    for kind in _ORDER:
+        group = [source for source in sources if source["type"] == kind]
+        if not group:
+            continue
+        part = []
+        if kind == "mined":
+            entry = _mining_entry(context, item_key)
+            if entry:
+                part = [_text("Mined in "), _link(context, entry[1])]
+        elif kind == "crafted":
+            recipe = _crafted_recipe(context, group)
+            if recipe["bench"]:
+                part = [_link(context, recipe["bench"])]
+            elif recipe["main_ring"] is not None:
+                part = [_text("By hand")]
+        elif kind == "looted":
+            places = defaultdict(set)
+            for source in group:
+                if source["biome"]:
+                    places[source["biome"]].add(source["via"])
+            if sum(context["graph"]["biomes"][key]["ring"] is not None for key in places) >= 8:
+                part = [_text("Loot, almost everywhere")]
+            elif places:
+                biomes = sorted(places, key=lambda key: (-len(places[key]), _name(context, key).casefold(), key))
+                part = [_text("Loot in ")] + _join_runs([[_link(context, key)] for key in biomes[:2]])
+            else:
+                part = [_text("Loot")]
+        elif kind == "merchant":
+            part = [_text("Merchants")]
+        elif kind == "dismantled":
+            part = [_text("Salvage")]
+        if part:
+            parts.append(part)
+        if len(parts) == 3:
+            break
+    return _join_runs(parts, separator=" · ", last=" · ")
 
 
 def _how(context, item_key, ring=None):
@@ -302,7 +401,8 @@ def _tag(context, key):
 
 def _ingredients(context, recipe):
     return [_link(context, entry["item"], f"{_number(entry['count'])} × {_name(context, entry['item'])}")
-            for entry in sorted(recipe["ingredients"], key=lambda e: (_name(context, e["item"]).casefold(), e["item"]))]
+            for entry in sorted(recipe["ingredients"], key=lambda e: (_name(context, e["item"]).casefold(), e["item"]))
+            if _visible(context, entry["item"])]
 
 
 def _depths(context):
@@ -374,6 +474,7 @@ def _construction_recipe(context, bench_key):
     """Choose a build recipe by main ring, then bench depth and player name."""
     graph = context["graph"]
     keys = context["recipes_by_output"].get(graph["benches"][bench_key].get("construction_item"), [])
+    keys = [key for key in keys if _recipe_visible(context, key)]
     if not keys:
         return None
     return min(keys, key=lambda key: (graph["recipes"][key]["main_ring"] is None,
@@ -394,7 +495,7 @@ def _start_first_biome(context, scope):
 
 def _start_materials(context, scope):
     graph = context["graph"]
-    keys = [key for key, item in graph["items"].items() if item["main_ring"] == 0 and _raw(context, key)]
+    keys = [key for key, item in graph["items"].items() if item["main_ring"] == 0 and _raw(context, key) and _visible(context, key)]
     keys.sort(key=lambda key: (list(_METHODS.values()).index(method(context, key)),
                                -len(used_in(context, key)), _name(context, key).casefold(), key))
     return [{"item": _link(context, key), "how": _how(context, key, 0), "method": method(context, key)} for key in keys]
@@ -404,6 +505,7 @@ def _start_hand_recipes(context, scope):
     graph = context["graph"]
     recipes = [(key, recipe) for key, recipe in graph["recipes"].items()
                if recipe["bench"] is None and recipe["main_ring"] is not None
+               and _recipe_visible(context, key)
                and recipe["output"] not in context["bench_items"]
                and all(graph["items"][entry["item"]]["main_ring"] == 0 for entry in recipe["ingredients"])]
     recipes.sort(key=lambda pair: (_name(context, pair[1]["output"]).casefold(), _name(context, pair[0]).casefold(), pair[0]))
@@ -419,12 +521,13 @@ def _start_hand_intro(context, scope):
 def _start_benches(context, scope):
     graph = context["graph"]
     benches = [(key, bench) for key, bench in graph["benches"].items()
-               if bench["main_ring"] == 0 and bench.get("built_by_recipe")]
+               if bench["main_ring"] == 0 and bench.get("built_by_recipe") and _bench_visible(context, key)]
     benches.sort(key=lambda pair: (_depth_order(context, pair[0]),
                                    _name(context, pair[0]).casefold(), pair[0]))
     return [{"bench": _link(context, key),
              "ingredients": _ingredients(context, graph["recipes"][_construction_recipe(context, key)]),
-             "unlock_count": str(sum(recipe["bench"] == key for recipe in graph["recipes"].values()))}
+             "unlock_count": str(sum(recipe["bench"] == key and _recipe_visible(context, recipe_key)
+                                     for recipe_key, recipe in graph["recipes"].items()))}
             for key, bench in benches]
 
 
@@ -438,13 +541,13 @@ def _start_tools(context, scope):
     for key, item in graph["items"].items():
         semantic = context["rows"][key]["semantic"]
         tag = (semantic.get("fact_labels") or {}).get("/_Tag", semantic.get("facts", {}).get("_Tag"))
-        if tag not in _START_TAGS:
+        if tag not in _START_TAGS or not _visible(context, key):
             continue
         recipes = [(recipe_key, graph["recipes"][recipe_key]) for recipe_key in
                    sorted(source["via"] for source in item["sources"] if source["type"] == "crafted")]
         recipes.sort(key=lambda pair: (_depth_order(context, pair[1]["bench"]), _name(context, pair[0]).casefold(), pair[0]))
         for recipe_key, recipe in recipes:
-            if recipe_key not in context["starting_recipes"]:
+            if recipe_key not in context["starting_recipes"] or not _recipe_visible(context, recipe_key):
                 continue
             bench = recipe["bench"]
             result.append((_depth_order(context, bench), _name(context, key).casefold(), recipe_key,
@@ -510,7 +613,8 @@ def _world_loot_scaling(context, scope):
 
 
 def _biome_value(context, ring):
-    links = [_link(context, key) for key in sorted(ring["biome_keys"], key=lambda key: (_name(context, key).casefold(), key))]
+    links = [_link(context, key) for key in sorted(ring["biome_keys"], key=lambda key: (_name(context, key).casefold(), key))
+             if _visible(context, key)]
     return (links[0] if len(links) == 1 else links) if links else "Unknown biome"
 
 
@@ -518,7 +622,7 @@ def _rings(context, scope):
     return [{"index": str(ring["index"]), "biome": _biome_value(context, ring),
              "start_distance": format_distance(ring["start_distance"]),
              "end_distance": format_distance(ring["end_distance"])}
-            for ring in context["graph"]["rings"]]
+            for ring in context["graph"]["rings"] if not ring["biome_keys"] or any(_visible(context, key) for key in ring["biome_keys"])]
 
 
 def _ring_span(context, scope):
@@ -528,7 +632,7 @@ def _ring_span(context, scope):
 def _ring_materials(context, scope):
     index = int(scope["index"])
     keys = [key for key, item in context["graph"]["items"].items()
-            if item["main_ring"] == index and _raw(context, key)]
+            if item["main_ring"] == index and _raw(context, key) and _visible(context, key)]
     keys.sort(key=lambda key: (list(_METHODS.values()).index(method(context, key)),
                                -len(used_in(context, key)), _name(context, key).casefold(), key))
     return [{"item": _link(context, key), "how": _how(context, key, index), "method": method(context, key)} for key in keys]
@@ -537,7 +641,7 @@ def _ring_materials(context, scope):
 def _ring_recipes(context, scope):
     index = int(scope["index"])
     recipes = [(key, recipe) for key, recipe in context["graph"]["recipes"].items()
-               if recipe["main_ring"] == index and recipe["output"]
+               if recipe["main_ring"] == index and recipe["output"] and _recipe_visible(context, key)
                and recipe["output"] not in context["bench_items"]]
     recipes.sort(key=lambda pair: (_category(context, pair[1]["output"]).casefold(),
                                    _name(context, pair[0]).casefold(), pair[0]))
@@ -554,7 +658,7 @@ def _made(context, recipe):
 def _ring_benches(context, scope):
     index = int(scope["index"])
     keys = [key for key, bench in context["graph"]["benches"].items()
-            if bench["main_ring"] == index and bench.get("built_by_recipe")]
+            if bench["main_ring"] == index and bench.get("built_by_recipe") and _bench_visible(context, key)]
     keys.sort(key=lambda key: (_depth_order(context, key),
                                _name(context, key).casefold(), key))
     return [{"bench": _link(context, key)} for key in keys]
@@ -567,7 +671,7 @@ def _ring_exclusive_loot(context, scope):
     keys = []
     for key, item in graph["items"].items():
         located = {biome for biome in item["loot_biomes"] if graph["biomes"][biome]["ring"] is not None}
-        if located and located <= biomes and not item["has_unmapped_loot"]:
+        if located and located <= biomes and not item["has_unmapped_loot"] and _visible(context, key):
             keys.append(key)
     keys.sort(key=lambda key: (_name(context, key).casefold(), key))
     return [{"item": _link(context, key), "how": _how(context, key, index)} for key in keys]
@@ -575,31 +679,41 @@ def _ring_exclusive_loot(context, scope):
 
 def _ring_merchants(context, scope):
     biomes = _ring_biomes(context, int(scope["index"]))
-    count = len({entry["item"] for biome in biomes for entry in context["graph"]["biomes"][biome]["merchant"]})
+    count = len({entry["item"] for biome in biomes for entry in context["graph"]["biomes"][biome]["merchant"]
+                 if _visible(context, entry["item"])})
     return {"merchant_count": str(count)} if count else None
 
 
 def _targets(context, key, predicate, field=None):
     return {target for link in context["rows"][key]["semantic"].get("relationships", [])
-            if link["predicate"] == predicate and (field is None or link.get("field") == field)
+            if (predicate is None or link["predicate"] == predicate) and (field is None or link.get("field") == field)
             for target in link.get("targets", []) if target in context["rows"]}
 
 
 def _weapon_joins(context):
     """Follow item model -> combat component -> ammo enum -> ammunition items.
 
-    These are the captured model/cataloged-component and coded-value joins.
+    Match names' combat-user association through direct relationships, a model
+    asset's components, or a shared provenance game object. Bow Speed uses the
+    joined combat card's /_ArrowSpeed; no item-stat or name-match fallback.
     The ammo enum's ammunition-item links implement Item_Slot_Mgr's address
     rule (adapters/coded_values.py:235-257), including handmade ammo variants.
     Never infer an ammo item or gun type by matching a weapon's display name.
     """
     combats, ammunition = {}, {}
+    by_object = defaultdict(set)
+    for key, row in context["rows"].items():
+        if row["semantic"]["kind"] == "combat-rule":
+            for identity in row.get("provenance", {}).get("game_objects", []):
+                by_object[identity].add(key)
     for key in context["graph"]["items"]:
         if _tag(context, key) not in _WEAPON_FIELDS:
             continue
-        models = _targets(context, key, "model")
-        candidates = models | {component for model in models
-                               for component in _targets(context, model, "cataloged-component")}
+        direct = _targets(context, key, None)
+        models = {target for target in direct if context["rows"][target]["semantic"]["kind"] == "asset"}
+        candidates = direct | {component for model in models for component in _targets(context, model, None)}
+        for identity in context["rows"][key].get("provenance", {}).get("game_objects", []):
+            candidates.update(by_object[identity])
         combats[key] = sorted(candidate for candidate in candidates
                               if context["rows"][candidate]["semantic"]["kind"] == "combat-rule")
         ammo_types = {target for combat in combats[key]
@@ -612,7 +726,7 @@ def _weapon_joins(context):
 
 
 def _weapon_stats(context, key, pointer):
-    owners = context["weapon_combat"][key] if pointer == "/_GunType" else [key]
+    owners = context["weapon_combat"][key] if pointer in {"/_GunType", "/_ArrowSpeed"} else [key]
     return [(owner, stat) for owner in owners for stat in (context["cards"].get(owner) or {}).get("stats", [])
             if stat["field"] == pointer]
 
@@ -625,7 +739,7 @@ def _weapon_stat(context, key, pointer):
 
 
 def _weapon_keys(context, tag):
-    keys = [key for key in context["graph"]["items"] if _tag(context, key) == tag]
+    keys = [key for key in context["graph"]["items"] if _tag(context, key) == tag and _visible(context, key)]
 
     def order(key):
         ring = context["graph"]["items"][key]["main_ring"]
@@ -637,29 +751,17 @@ def _weapon_keys(context, tag):
     return sorted(keys, key=order)
 
 
-def _ring_value(context, index):
-    """Table ring label with each named biome kept as an entity link."""
-    if index is None:
-        return ""
-    biomes = sorted(_ring_biomes(context, index), key=lambda key: (_name(context, key).casefold(), key))
-    runs = [_text(f"Ring {index}")]
-    if biomes:
-        runs += [_text(" (")] + _join_runs([[_link(context, key)] for key in biomes]) + [_text(")")]
-    return {"runs": runs}
-
-
 def _weapons(context, tag):
     result = []
     for key in _weapon_keys(context, tag):
         row = {"Weapon": _link(context, key)}
         for column, pointer in _WEAPON_FIELDS[tag].items():
             if column == "Ammo":
-                links = [_link(context, ammo) for ammo in context["weapon_ammo"][key]]
-                row[column] = links[0] if len(links) == 1 else links if links else ""
+                base = _base_ammo(context, key)
+                row[column] = _link(context, base) if base else ""
             else:
                 row[column] = _weapon_stat(context, key, pointer)
-        row["Ring"] = _ring_value(context, context["graph"]["items"][key]["main_ring"])
-        row["How to get it"] = _how(context, key)
+        row["How to get it"] = {"runs": how_short(context, key)}
         result.append(row)
     return result
 
@@ -702,14 +804,51 @@ def _weapons_stat_labels(context, scope):
             for label, notes in sorted(meanings.items()):
                 if label not in seen:
                     seen.add(label)
-                    result.append({"label": label, "meaning": " ".join(sorted(notes)) if notes else fallbacks[label]})
+                    meaning = " ".join(sorted(notes)) if notes else fallbacks[label]
+                    if meaning.startswith(label + ":"):
+                        meaning = meaning[len(label) + 1:].lstrip()
+                    result.append({"label": label, "meaning": meaning})
     return result
 
 
+def _base_ammo(context, gun_key):
+    keys = [key for key in context["weapon_ammo"][gun_key] if _visible(context, key)]
+    return min(keys, key=lambda key: (any(source["type"] == "crafted" for source in context["graph"]["items"][key]["sources"]),
+                                      _name(context, key).casefold(), key)) if keys else None
+
+
+def _handmade_ammo_runs(context, keys):
+    """Group crafted ammo variants by bench, using their named materials."""
+    by_bench = defaultdict(list)
+    for key in sorted(keys, key=lambda key: (_name(context, key).casefold(), key)):
+        recipe = _crafted_recipe(context, _sources(context, key))
+        names = (_name(context, key), context["rows"][key]["semantic"].get("name") or "")
+        material = next((material for material in _AMMO_MATERIALS
+                         if any(f"({material})" in name for name in names)), None)
+        if recipe and material:
+            by_bench[recipe["bench"]].append((_AMMO_MATERIALS.index(material), material, key))
+    parts = []
+    for bench, variants in sorted(by_bench.items(), key=lambda pair: (min(pair[1]), pair[0] or "")):
+        material_runs = _join_runs([[_link(context, key, material)] for _, material, key in sorted(variants)])
+        ending = [_text(" rounds at the "), _link(context, bench)] if bench else [_text(" rounds by hand")]
+        parts.append([_text("handmade ")] + material_runs + ending)
+    return _join_runs(parts, separator="; ", last="; ")
+
+
 def _weapons_ammo(context, scope):
-    keys = {ammo for key in _weapon_keys(context, "Gun") for ammo in context["weapon_ammo"][key]}
-    return [{"ammo": _link(context, key), "how": _how(context, key)}
-            for key in sorted(keys, key=lambda key: (_name(context, key).casefold(), key))]
+    groups = defaultdict(set)
+    for gun in _weapon_keys(context, "Gun"):
+        base = _base_ammo(context, gun)
+        if base:
+            groups[base].update(key for key in context["weapon_ammo"][gun] if key != base and _visible(context, key))
+    result = []
+    for base, variants in sorted(groups.items(), key=lambda pair: (_name(context, pair[0]).casefold(), pair[0])):
+        runs = how_runs(context, base)
+        handmade = _handmade_ammo_runs(context, variants)
+        if handmade:
+            runs = runs + ([_text("; ")] if runs else []) + handmade
+        result.append({"ammo": _link(context, base), "how": {"runs": runs}})
+    return result
 
 
 def _weapons_variants(context, scope):
@@ -750,7 +889,8 @@ def _weapons_variants(context, scope):
 
 
 def _benches(context, scope):
-    keys = [key for key, bench in context["graph"]["benches"].items() if bench.get("evidence") != "hand-crafting"]
+    keys = [key for key, bench in context["graph"]["benches"].items()
+            if bench.get("evidence") != "hand-crafting" and _bench_visible(context, key)]
     keys.sort(key=lambda key: (context["graph"]["benches"][key]["main_ring"] is None,
                                context["graph"]["benches"][key]["main_ring"] or 0,
                                _depth_order(context, key), _name(context, key).casefold(), key))
@@ -760,7 +900,8 @@ def _benches(context, scope):
 def _bench_recipes(context, scope):
     key = scope["bench"]["entity"]
     recipes = [(recipe_key, recipe) for recipe_key, recipe in context["graph"]["recipes"].items()
-               if recipe["bench"] == key and recipe["output"] and recipe["output"] not in context["bench_items"]]
+               if recipe["bench"] == key and recipe["output"] and recipe["output"] not in context["bench_items"]
+               and _recipe_visible(context, recipe_key)]
     recipes.sort(key=lambda pair: (_category(context, pair[1]["output"]).casefold(),
                                    _name(context, pair[0]).casefold(), pair[0]))
     return [{"output": _link(context, recipe_key), "category": _category(context, recipe["output"])}
@@ -791,7 +932,7 @@ def _benches_overview(context, scope):
         key = bench["bench"]["entity"]
         recipe_key = _construction_recipe(context, key)
         ingredients = _ingredients(context, context["graph"]["recipes"][recipe_key]) if recipe_key else []
-        result.append({"Bench": bench["bench"], "Ring": _ring_value(context, context["graph"]["benches"][key]["main_ring"]),
+        result.append({"Bench": bench["bench"],
                        "Recipes": str(len(_bench_recipes(context, bench))), "Build cost": ingredients})
     return result
 
