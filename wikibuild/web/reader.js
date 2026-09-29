@@ -460,6 +460,11 @@ async function showEntry(key) {
     return;
   }
   if (record.decision.status === "ambiguous") body.push(notice("This may be the same thing as another entry from an older version. The wiki keeps them apart until that is settled."));
+  // A feature the game ships switched off (merchants in 0.8.316) is in the files but not in play.
+  if (player?.unreleased) {
+    const feature = String(player.unreleased).replace(/-/g, " ");
+    body.push(notice(`Not in the game yet. ${feature[0].toUpperCase()}${feature.slice(1)} are in the game's files but switched off in this version, so you cannot get this in play.`));
+  }
   body.push(playerCard(card, player, record));
   const reference = await technicalReference(record, semantic, card), view = el("article", {class: "entry"}, body, reference, reportLine(name));
   show(view);
@@ -775,9 +780,68 @@ function home() {
       map.node),
     el("div", {class: "cue"}, el("p", {class: "kicker"}, "The catalogue, explained"), el("h2", {}, "The shape of the data"), "Scroll on. Each square is about a hundred entries."),
     waffle(topics, counts, total),
+    biomeChart(index.biomes || [], guides),
+    versionChart(index.history || [], topics),
     guides.length ? el("section", {class: "reads", id: "guides", "aria-labelledby": "guides-h"}, el("h2", {id: "guides-h"}, "Guides"),
       el("ol", {}, guides.map((guide, i) => el("li", {}, el("span", {class: "no"}, String(i + 1)), el("div", {}, el("a", {href: guideURL(guide.id)}, guide.title), el("p", {}, guide.dek)))))) : null);
   map.start();
+}
+
+// Home chart: what each biome adds, from the hub index `biomes` (the same counts as the progression guide).
+function biomeChart(biomes, guides) {
+  if (!biomes.length) return null;
+  const guide = guides.find(item => item.id === "progression-by-biome");
+  const most = Math.max(1, ...biomes.map(row => Math.max(row.new_materials || 0, row.new_recipes || 0)));
+  const bar = (n, kind, words) => el("span", {class: `bbar ${kind}`},
+    el("i", {style: `width:${(100 * n / most).toFixed(2)}%`}), el("small", {}, `${count(n)} ${words}`));
+  const rows = biomes.map(row => {
+    const names = [].concat(row.biome || []).map(value => value.name || value.text).filter(Boolean).join(" and ");
+    const body = [ringGlyph(biomes.length, row.index), el("span", {class: "bname"}, el("small", {}, `Biome ${row.number}`), names),
+      el("span", {class: "bbars"}, bar(row.new_materials || 0, "mat", (row.new_materials || 0) === 1 ? "new raw material" : "new raw materials"),
+        bar(row.new_recipes || 0, "rec", (row.new_recipes || 0) === 1 ? "new recipe" : "new recipes"))];
+    return el("li", {}, guide ? el("a", {class: "brow", href: `${guideURL(guide.id)}#ring-${row.index}`}, body) : el("div", {class: "brow"}, body));
+  });
+  return el("section", {class: "biomes", "aria-labelledby": "biomes-h"},
+    el("p", {class: "kicker"}, "Out from the spawn point"), el("h2", {id: "biomes-h"}, "What each biome adds"),
+    el("p", {class: "dek"}, "Raw materials that first appear in each biome, and the recipes they make possible. Open a biome for its checklist."),
+    el("ol", {class: "blist"}, rows));
+}
+
+// A small copy of the guide's ring map with one band lit.
+function ringGlyph(total, lit) {
+  const size = 34, center = size / 2, step = (center - 3) / total, drawing = svg("svg", {viewBox: `0 0 ${size} ${size}`, "aria-hidden": "true", class: "glyph"});
+  for (let i = 0; i < total; i++) drawing.append(svg("circle", {cx: center, cy: center, r: (3 + step * (i + .5)).toFixed(2), "stroke-width": (step - .6).toFixed(2), class: i === lit ? "ring-band on" : "ring-band"}));
+  return drawing;
+}
+
+// Home chart: the latest capture of each game version, newest first, at most four (hub index `history`).
+function versionChart(history, topics) {
+  if (!history.length) return null;
+  const order = topics.map(topic => topic.id), widest = Math.max(1, ...history.map(row => row.total || 0));
+  const rows = history.map((row, i) => {
+    const bar = el("div", {class: "vbar", style: `width:${(100 * (row.total || 0) / widest).toFixed(2)}%`});
+    for (const id of order) {
+      const n = row.topics?.[id] || 0;
+      if (n) bar.append(el("span", {style: `flex:${n} 0 0;background:${topicColor(id)}`, title: `${topicShort(id)}: ${count(n)}`}));
+    }
+    const change = row.changes, older = history[i + 1];
+    let delta = el("p", {class: "vdelta"}, el("small", {}, "Oldest version shown."));
+    if (change && older) {
+      // The topics that moved most, so a reader sees where an update landed.
+      const moved = Object.entries(change.topics || {}).map(([id, c]) => [id, (c.new || 0) + (c.changed || 0) + (c.removed || 0)])
+        .filter(([, n]) => n).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 2);
+      delta = el("p", {class: "vdelta"}, el("b", {}, `${count(change.new || 0)} new`), ", ", el("b", {}, `${count(change.changed || 0)} changed`), " and ",
+        el("b", {}, `${count(change.removed || 0)} removed`), ` since ${older.game_version || "the version below"}`,
+        moved.length ? el("small", {}, `Mostly ${moved.map(([id, n]) => `${topicShort(id)} (${count(n)})`).join(" and ")}.`) : null);
+    }
+    return el("li", {}, el("div", {class: "vlabel"}, el("b", {}, row.game_version || "Unknown version"),
+      el("small", {}, `Steam build ${row.build_id}${row.captured ? ` · captured ${row.captured}` : ""}`)),
+      el("div", {class: "vchart"}, bar, el("p", {class: "vtotal"}, `${count(row.total || 0)} entries`), delta));
+  });
+  return el("section", {class: "versions", "aria-labelledby": "versions-h"},
+    el("p", {class: "kicker"}, "Update by update"), el("h2", {id: "versions-h"}, "How the game changed"),
+    el("p", {class: "dek"}, "The latest capture of each game version, newest first. Each bar is every entry in that version, coloured by topic."),
+    el("ol", {class: "vlist"}, rows));
 }
 
 function waffle(topics, counts, total) {
