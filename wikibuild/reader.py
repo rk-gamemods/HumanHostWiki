@@ -8,7 +8,7 @@ import re
 import uuid
 from urllib.parse import urlsplit
 
-from . import availability, curation, external_links, extraction, game_text, guide_queries, history, model, packs, pages, presentation, snapshots
+from . import availability, curation, external_links, extraction, game_text, guide_queries, guides, history, model, packs, pages, presentation, snapshots
 from .exceptions import Exceptions
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
@@ -27,6 +27,7 @@ def candidate_path(cache_root, candidate_id):
 def contract():
     folder = Path(__file__).parent
     paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py", "presentation.py", "game_text.py", "gameplay.py", "names.py", "guide_queries.py", "lint.py")]
+    paths.append(folder / "guides.py")
     paths += sorted(path for path in (folder / "web").rglob("*") if path.is_file())
     return {path.relative_to(folder).as_posix(): digest(path.read_bytes() if path.suffix == ".woff2" else path.read_bytes().replace(b"\r\n", b"\n"))
             for path in paths}
@@ -84,6 +85,7 @@ def load_maps(site, shards):
 def validate_snapshot(stage, snapshot, topics):
     """Validate cross-topic entity membership without loading all facts at once."""
     membership, targets = {}, []
+    present, totals, hub_index, hub_search = {}, {}, None, None
     count = 0
     for topic in topics:
         site = within(stage, topic)
@@ -113,8 +115,11 @@ def validate_snapshot(stage, snapshot, topics):
             if linked != player["links"].keys():
                 raise ContractError("Reader player links differ from its runs")
             targets.extend((key, link["topic"]) for key, link in player["links"].items())
-        if set(entries) != set(searches):
+        if topic == "hub" and "topic_counts" in index:
+            hub_index, hub_search = index, searches
+        elif set(entries) != set(searches):
             raise ContractError("Search coverage differs from snapshot entries")
+        kinds = Counter()
         for key, record in entries.items():
             if key in membership or record["topic"] != topic or not ENTITY.fullmatch(key):
                 raise ContractError("Reader has duplicate or invalid canonical ownership")
@@ -130,6 +135,10 @@ def validate_snapshot(stage, snapshot, topics):
                     raise ContractError("Failed explanation lacks its reason")
             if record["status"] != "present":
                 continue
+            name = players.get(record.get("player_id"), {}).get("name", record["name"])
+            present[key] = {"entity_key": key, "name": name, "kind": record["kind"], "topic": topic,
+                            **({"source_name": record["name"]} if name != record["name"] else {})}
+            kinds[record["kind"]] += 1
             semantic = semantics[record["revision_id"]]
             if digest(json_bytes(semantic)) != record["revision_id"]:
                 raise ContractError("Reader semantic revision hash differs")
@@ -141,16 +150,33 @@ def validate_snapshot(stage, snapshot, topics):
                         raise ContractError("Reader relationship lacks a route")
                     targets.append((target, record["links"][target]["topic"]))
             count += 1
+        totals[topic] = {"total": sum(kinds.values()), "kinds": dict(sorted(kinds.items()))}
         for key, link in backlinks.items():
             if key.split("/", 1)[0] not in entries:
                 raise ContractError("Reader backlink has no owning entry")
             targets.append((link["entity"], link["topic"]))
     if any(membership.get(key) != topic for key, topic in targets):
         raise ContractError("Reader relationship leaves its selected snapshot")
+    if hub_index is not None:
+        if hub_search != present or hub_index["topic_counts"] != totals:
+            raise ContractError("Hub search or topic counts differ from present entries")
+        identities = set()
+        for ref in hub_index["guides"]:
+            data = within(stage / "hub", ref["path"]).read_bytes()
+            if digest(data) != ref["sha256"] or len(data) != ref["bytes"] or ref["path"] != f"data/{ref['sha256']}.json":
+                raise ContractError("Guide pack hash differs")
+            pack = json.loads(data)
+            if ref["id"] in identities or any(ref[field] != pack["document"][field] for field in ("id", "title", "dek")):
+                raise ContractError("Guide metadata differs")
+            identities.add(ref["id"])
+            linked = {run["entity"] for run in document_runs(pack["document"]) if "entity" in run}
+            if linked != pack["links"].keys() or any(key not in present or link != {
+                    "name": present[key]["name"], "topic": present[key]["topic"]} for key, link in pack["links"].items()):
+                raise ContractError("Guide links leave their present snapshot entries")
     return count
 
 
-def player_projection(models, registry, text, snapshot):
+def player_projection(models, registry, text, snapshot, *, snapshot_metadata=None, consume_context=None):
     """Hold one snapshot's N stripped rows, never rows from multiple snapshots.
 
     Kind filtering is unsafe: names uses every kind and graph traverses generic
@@ -166,7 +192,9 @@ def player_projection(models, registry, text, snapshot):
                                      if key in provenance},
                                   "evidence": [{"object": entry["object"]} for entry in provenance.get("evidence", [])
                                                if "object" in entry]}}
-    context = guide_queries.build_context(rows(), registry, text, {"snapshot_id": snapshot})
+    context = guide_queries.build_context(rows(), registry, text, {"snapshot_id": snapshot, **(snapshot_metadata or {})})
+    if consume_context:
+        consume_context(context)
     players = {}
     rings = {ring["index"] for ring in context["graph"]["rings"]}
     for key, row in context["rows"].items():
@@ -206,7 +234,65 @@ def player_projection(models, registry, text, snapshot):
     return context["names"], players
 
 
-def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, registry_digest):
+def hub_inputs(root):
+    """Pin design and selected specs, including missing specs that become errors."""
+    path = root / "presentation/site.json"
+    data = path.read_bytes()
+    site = json.loads(data)
+    identities = site.get("guides", [])
+    if (not isinstance(identities, list) or any(not isinstance(key, str) or
+            not re.fullmatch(r"[a-z][a-z0-9-]*", key) for key in identities) or len(set(identities)) != len(identities)):
+        raise ContractError("Site guide IDs must be unique path-safe names")
+    return site, {"site": digest(data), "guides": {
+        key: digest((root / "guides" / (key + ".json")).read_bytes())
+        if (root / "guides" / (key + ".json")).is_file() else None for key in identities}}
+
+
+def document_runs(value):
+    """Walk rendered run objects, including headings, groups and table cells."""
+    if isinstance(value, dict):
+        if isinstance(value.get("text"), str):
+            yield value
+        else:
+            for child in value.values():
+                yield from document_runs(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from document_runs(child)
+
+
+def project_guides(root, identities, context, output):
+    rows, errors, drops = [], [], 0
+    for identity in identities:
+        try:
+            spec = guides.load_spec(root / "guides" / (identity + ".json"))
+            if spec["id"] != identity:
+                raise guides.GuideError(f"guide {identity}: spec ID differs")
+            document = guides.render(spec, guide_queries.QUERIES, context)
+        except guides.GuideError as exc:
+            errors.append({"id": identity, "error": str(exc)})
+            continue
+        links = {}
+        for run in document_runs(document):
+            if "entity" not in run:
+                continue
+            key = run["entity"]
+            if key not in context["rows"]:
+                del run["entity"]
+                drops += 1
+            else:
+                links[key] = {"name": context["names"][key]["name"],
+                              "topic": context["rows"][key]["semantic"]["topic"]}
+        data = packs.compact({"document": document, "links": links})
+        sha = digest(data)
+        path = f"data/{sha}.json"
+        output("hub/" + path, data)
+        rows.append({"id": identity, "title": document["title"], "dek": document["dek"],
+                     "path": path, "sha256": sha, "bytes": len(data)})
+    return rows, {"count": len(rows), "dropped_links": drops, "errors": errors}
+
+
+def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, registry_digest, site):
     snapshot = run["snapshot_id"]
     state = history.load_state(root, run)
     models = extraction.artifact(root, run["models"])
@@ -242,7 +328,15 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                                 {"assembly": "UI", "class": "DynamicToolTipSet"},
                                 {"assembly": "Language", "class": "Language_Text"}))
     text_digest = digest(json_bytes(text))
-    player_names, players = player_projection(models, registry, text, snapshot)
+    receipt = snapshots.read(root, snapshot)
+    guide_rows, guide_receipt = [], {"count": 0, "dropped_links": 0, "errors": []}
+    def consume_context(context):
+        nonlocal guide_rows, guide_receipt
+        guide_rows, guide_receipt = project_guides(root, site.get("guides", []), context, output)
+    player_names, players = player_projection(models, registry, text, snapshot,
+        snapshot_metadata={"game_version": receipt.get("game_version") or "unknown", "build_id": receipt["steam"]["build_id"]},
+        consume_context=consume_context)
+    hub_search = {}
     maps = {topic: {kind: {} for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player")} for topic in topics}
     counts = {topic: Counter() for topic in topics}
     groups = {topic: defaultdict(list) for topic in topics}
@@ -283,6 +377,8 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
         if player_names[key]["name"] != brief["name"]:
             brief.update(source_name=brief["name"], name=player_names[key]["name"])
         data["search"][key] = packs.compact(brief)
+        hub_search[key] = packs.compact({field: brief[field] for field in
+                                        ("entity_key", "name", "source_name", "kind", "topic") if field in brief})
         counts[topic][semantic["kind"]] += 1
     for key, ledger in state.items():
         if ledger["status"] == "present":
@@ -296,7 +392,9 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
             record["explanations"] = notes[key]
         maps[topic]["entries"][key] = packs.compact(record)
         maps[topic]["search"][key] = packs.compact({name: value for name, value in record.items() if name != "explanations"})
-    receipt = snapshots.read(root, snapshot)
+    maps["hub"]["search"] = hub_search
+    topic_counts = {topic: {"total": sum(kinds.values()), "kinds": dict(sorted(kinds.items()))}
+                    for topic, kinds in counts.items()}
     for topic, data in maps.items():
         writer = lambda name, value, topic=topic: output(f"{topic}/{name}", value)
         # Reuse whole single-card shards: a removed entry must not leave its card
@@ -313,15 +411,16 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                  "latest_available_build": receipt["latest_available_game_build"], "change_origin": run["change_origin"],
                  "cards": card_shards,
                  "player": player_shards,
+                 **({"guides": guide_rows, "topic_counts": topic_counts} if topic == "hub" else {}),
                  **{kind: packs.reuse(values, known[topic][kind], limit, writer) if kind in {"semantics", "provenance"}
                     else packs.write(values, limit, writer) for kind, values in data.items()}}
         writer(f"snapshots/{snapshot}.json", packs.compact(index))
     # Validation streams one topic at a time. Release construction buffers first
     # so parsed validation data does not coexist with the full projection.
-    del data, maps, state, routes, backlinks, players, player_names
+    del data, maps, state, routes, backlinks, players, player_names, hub_search
     verified = validate_snapshot(stage, snapshot, topics)
     return {"snapshot_id": snapshot, "build_id": receipt["steam"]["build_id"], "game_version": receipt["game_version"], "identity_run": run["run_id"],
-            "observations": verified}, groups
+            "observations": verified, "guides": guide_receipt}, groups
 
 
 def external_views(stage, project, observation, runs, limit, output):
@@ -365,8 +464,10 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     registry_path = root / "presentation/fields.json"
     registry_digest = digest(registry_path.read_bytes())
     registry = presentation.load(registry_path)
+    site, hub_digests = hub_inputs(root)
     inputs = {"project": project, "runs": [digest(json_bytes(run)) for run in runs], "renderer": contract(),
               "presentation": registry_digest,
+              **hub_digests,
               "receipts": [digest(json_bytes(snapshots.read(root, run["snapshot_id"]))) for run in runs],
               "bases": bases, "pack_bytes": max_pack_bytes, "availability": availability.latest(root, project),
               "external_articles": external_links.configured(root, project),
@@ -429,8 +530,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
             if article_packs and "/snapshots/" in name:
                 topic = name.split("/", 1)[0]
                 saved_index = json.loads(within(prior_path, name).read_bytes())
-                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards"):
-                    article_packs.difference_update(f"{topic}/{ref['path']}" for ref in saved_index[kind])
+                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player", "guides"):
+                    article_packs.difference_update(f"{topic}/{ref['path']}" for ref in saved_index.get(kind, []))
         for name, record in prior["files"].items():
             source = within(prior_path, name)
             if name.endswith("/reader.json") or name in article_packs:
@@ -454,6 +555,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         verify(stage, candidate_id)
         if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
                 or digest(registry_path.read_bytes()) != inputs["presentation"]
+                or hub_inputs(root)[1] != hub_digests
                 or external_links.configured(root, project) != inputs["external_articles"]):
             raise ContractError("Reader inputs changed during observation projection")
         curation.ensure_definitions(root, project, checked)
@@ -471,7 +573,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         extraction.artifact(root, run["models"])
         version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known,
                                            checked["snapshots"].get(run["snapshot_id"]) if checked else None,
-                                           registry=registry, registry_digest=registry_digest)
+                                           registry=registry, registry_digest=registry_digest, site=site)
         projected[run["snapshot_id"]] = version
         for topic, kinds in groups.items():
             all_groups[topic].update(kinds)
@@ -505,6 +607,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                "features": ["shard-directories-v1", "paged-captures-v1", "entrypoint-rollover-v1"],
                "availability": inputs["availability"],
                "fonts": fonts,
+               **({"site": site, "relationships": project.get("relationships", [])} if topic == "hub" else {}),
                "external_articles": views.get(topic),
                "topic": topic, "topics": topics, "versions": projected, "default_snapshot": projected[0]["snapshot_id"],
                "official_links": project["official_links"], "publication": "local-candidate"}))
@@ -515,6 +618,13 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
             for offset in range(0, len(ordered), 100):
                 output(f"{topic}/reference/{kind}/{offset // 100 + 1:04d}.md",
                        pages.markdown(kind, ordered[offset:offset + 100], projected[0]["snapshot_id"], candidate_id, bases[topic]))
+    current = projected[0]["snapshot_id"]
+    hub_index = json.loads((stage / "hub/snapshots" / (current + ".json")).read_bytes())
+    for ref in hub_index["guides"]:
+        pack = json.loads((stage / "hub" / ref["path"]).read_bytes())
+        markdown = guides.render_markdown(pack["document"], lambda key: pages.entry(
+            bases[pack["links"][key]["topic"]], key, current, candidate_id))
+        output(f"hub/reference/guides/{ref['id']}.md", markdown.encode("utf-8"))
     manifest = {"schema_version": 1, "candidate_id": candidate_id, "inputs": inputs,
                 "versions": projected, "files": files, "total_bytes": sum(record["bytes"] for record in files.values()),
                 "status": "validated-reader-candidate", "wiki_release": "not-created"}
@@ -522,6 +632,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     verify(stage, candidate_id)
     if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
             or digest(registry_path.read_bytes()) != inputs["presentation"]
+            or hub_inputs(root)[1] != hub_digests
             or external_links.configured(root, project) != inputs["external_articles"]):
         raise ContractError("Reader inputs changed during generation")
     curation.ensure_definitions(root, project, checked)

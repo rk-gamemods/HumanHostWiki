@@ -18,6 +18,7 @@ class ReleaseTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_reader.ReaderTests()
         self.fixture.setUp()
+        test_reader.install_guide(self.fixture)
         self.root = self.fixture.root
         self.project = copy.deepcopy(self.fixture.project)
         self.project['github_owner'] = 'wiki-fixture'
@@ -78,7 +79,9 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((self.root / 'repositories/items/notes.md').read_text(), 'Authored explanation')
         candidate_index = json.loads((Path(self.candidate['path']) / 'items/snapshots' /
                                       (self.fixture.new['snapshot_id'] + '.json')).read_bytes())
-        for kind, topic in (('cards', 'items'), ('player', 'loot')):
+        self.assertIn('guides/capture.md', (self.root / 'repositories/hub/reference/index.md').read_text())
+        self.assertTrue((self.root / 'repositories/hub/reference/guides/capture.md').is_file())
+        for kind, topic in (('cards', 'items'), ('player', 'loot'), ('guides', 'hub')):
             with self.subTest(kind=kind):
                 candidate_index = json.loads((Path(self.candidate['path']) / topic / 'snapshots' /
                                               (self.fixture.new['snapshot_id'] + '.json')).read_bytes())
