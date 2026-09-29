@@ -184,7 +184,7 @@ def _limited_runs(groups, more="more", limit=3):
 
 def _scenery_family(name):
     tokens = name.lower().split()
-    if tokens and tokens[0] == "prefab":
+    if tokens and tokens[0] in {"sm", "prefab"}:
         tokens.pop(0)
     while tokens:
         # Numbered duct turns are model variants, just like var/lod suffixes.
@@ -194,6 +194,7 @@ def _scenery_family(name):
             tokens.pop()
         else:
             break
+    tokens = [token for token in tokens if not re.fullmatch(r"(?:\d+|var\d+|lod\d+)", token)]
     return " ".join(tokens) or name.lower()
 
 
@@ -241,8 +242,9 @@ def how_runs(context, item_key, ring=None, limit=2) -> list:
 
     Join the runs without additional punctuation. Phrases already contain their
     semicolon separator. ``ring`` is a main-ring index and scopes mining and
-    source locations. Sources from other rings are omitted; if none remain,
-    use the unscoped phrase. Generic scenery/loot families and grass are prose;
+    source locations. Harvested scenery with no known biome counts in every
+    ring. Sources from other rings are omitted; if none remain, use the
+    unscoped phrase. Generic scenery/loot families and grass are prose;
     named items, containers, benches and biomes retain their entity links.
     """
     limit = min(2, max(0, limit))
@@ -255,7 +257,7 @@ def how_runs(context, item_key, ring=None, limit=2) -> list:
         sources = [source for source in sources if (
             gameplay["recipes"][source["via"]]["main_ring"] == ring if source["type"] == "crafted"
             else gameplay["items"][source["via"]]["main_ring"] == ring if source["type"] == "dismantled"
-            else source["biome"] in biomes)]
+            else (source["type"] == "harvested" and source["biome"] is None) or source["biome"] in biomes)]
     phrases = []
     for kind in _ORDER:
         group = [source for source in sources if source["type"] == kind]
