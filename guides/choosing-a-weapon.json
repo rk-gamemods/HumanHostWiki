@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "choosing-a-weapon",
+  "title": "Choosing a weapon",
+  "dek": "Every melee weapon, gun and bow side by side: how hard it hits, what it needs, and how early you can get it.",
+  "audience": "A player comparing weapons.",
+  "rule": "No weapon is called best. Tables sort by the earliest ring you can get each weapon, then by damage.",
+  "sections": [
+    {
+      "id": "reading-the-stats",
+      "heading": "Reading the stats",
+      "blocks": [
+        {"type": "definitions", "query": "weapons.stat_labels", "item": "{label}: {meaning}"}
+      ]
+    },
+    {
+      "id": "melee",
+      "heading": "Melee weapons",
+      "blocks": [
+        {"type": "table", "query": "weapons.melee", "columns": ["Weapon", "Damage", "Execute", "Knockdown", "Durability", "Earliest ring", "How to get it"]}
+      ]
+    },
+    {
+      "id": "guns",
+      "heading": "Guns",
+      "blocks": [
+        {"type": "table", "query": "weapons.guns", "columns": ["Weapon", "Type", "Damage", "Fire rate", "Capacity", "Ammo", "Earliest ring", "How to get it"]},
+        {"type": "list", "title": "Where the ammo comes from", "query": "weapons.ammo_sources", "item": "{ammo}: {how}"}
+      ]
+    },
+    {
+      "id": "bows",
+      "heading": "Bows",
+      "blocks": [
+        {"type": "table", "query": "weapons.bows", "columns": ["Weapon", "Arrow Damage", "Speed", "Durability", "Earliest ring", "How to get it"]}
+      ]
+    },
+    {
+      "id": "same-name",
+      "heading": "Weapons that share a name",
+      "blocks": [
+        {"type": "list", "query": "weapons.variants", "item": "{name}: {difference}", "optional": true}
+      ]
+    },
+    {
+      "id": "sources",
+      "heading": "Where this comes from",
+      "blocks": [
+        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Stats are the item values the game's own tooltip shows, before quality bonuses."}
+      ]
+    }
+  ]
+}

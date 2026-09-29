@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "getting-started",
+  "title": "Getting started",
+  "dek": "Your first hours: what to gather, which bench to build first, and the tools and weapons you can make from the starting area.",
+  "audience": "A new player in the first ring.",
+  "sections": [
+    {
+      "id": "first-materials",
+      "heading": "Gather these first",
+      "blocks": [
+        {"type": "sentence", "template": "Everything below comes from the starting ring, {first_biome}.", "query": "start.first_biome"},
+        {"type": "list", "title": "Raw materials", "query": "start.materials", "item": "{item}: {how}"}
+      ]
+    },
+    {
+      "id": "by-hand",
+      "heading": "What you can make by hand",
+      "blocks": [
+        {"type": "sentence", "template": "Hand crafting needs no bench. These recipes use only starting-ring materials.", "query": "start.hand_recipes"},
+        {"type": "checklist", "query": "start.hand_recipes", "item": "{output}: {ingredients}"}
+      ]
+    },
+    {
+      "id": "first-benches",
+      "heading": "Your first benches",
+      "blocks": [
+        {"type": "sentence", "template": "Each bench unlocks its own recipes. These can be built from starting-ring materials, in the order their ingredients allow.", "query": "start.benches"},
+        {"type": "steps", "query": "start.benches", "item": "Build the {bench}: {ingredients}. It unlocks {unlock_count} recipes."}
+      ]
+    },
+    {
+      "id": "first-tools-and-weapons",
+      "heading": "First tools and weapons",
+      "blocks": [
+        {"type": "table", "query": "start.tools_and_weapons", "columns": ["Item", "Damage", "Durability", "Made at", "Ingredients"]}
+      ]
+    },
+    {
+      "id": "sources",
+      "heading": "Where this comes from",
+      "blocks": [
+        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). \"Starting ring\" means the first biome ring around the spawn point."}
+      ]
+    }
+  ]
+}

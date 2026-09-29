@@ -100,6 +100,13 @@ Judgement text, such as advice or recommendations, is optional. It uses the chec
 of [CURATED.md](../CURATED.md), attached to a guide section. When a claim fails its check,
 only that claim is withdrawn. A guide is complete without any claims.
 
+Guide specs live in `guides/*.json`. A spec names queries over the gameplay graph and gives
+sentence and table templates, so its text regenerates on each update.
+
+Guides give distances in metres and kilometres. The game's own tooltip shows projectile
+speed in m/s (`UI.decompiled.cs:10105`), so it treats one world unit as one metre. Raw
+game units mean nothing to a player.
+
 The first guides are:
 
 - Getting started
