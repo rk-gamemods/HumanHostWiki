@@ -9,7 +9,7 @@
       "id": "first-materials",
       "heading": "Gather these first",
       "blocks": [
-        {"type": "sentence", "template": "Everything below comes from the starting ring, {first_biome}.", "query": "start.first_biome"},
+        {"type": "sentence", "template": "Everything below can be had in the starting ring, {first_biome}. Most things in Human Host can also turn up in crates and on bodies anywhere, so this list is what you can count on, not all you might find.", "query": "start.first_biome"},
         {"type": "list", "title": "Raw materials", "query": "start.materials", "item": "{item}: {how}", "group_by": "method", "limit_per_group": 12, "more": "{remaining} more in the index"}
       ]
     },
@@ -33,6 +33,7 @@
       "id": "first-tools-and-weapons",
       "heading": "First tools and weapons",
       "blocks": [
+        {"type": "sentence", "template": "Everything here is made from things you can mine or gather in {first_biome}. None of it needs a part you have to find in a crate or on a body.", "query": "start.first_biome"},
         {"type": "table", "query": "start.tools_and_weapons", "columns": ["Item", "Damage", "Durability", "Made at", "Ingredients"]}
       ]
     },
