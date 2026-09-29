@@ -115,6 +115,22 @@ text says "There are 10 biomes in total" and "Biome 10 = max loot quality", and 
 0-based index (checked 2026-09-29). The graph keeps the 0-based index internally. Each guide's
 sources line says what the biome number means.
 
+Standing scenery in a biome terrain bundle (`terrain_war_zone_assets_all`) is placed in that
+biome, inferred from the bundle name the same way as loot containers. Debris that falls when
+a building collapses (`ground_debris_assets_all`) is not placed. Each biome's guide section
+lists what becomes easier to gather there. The user reported on 2026-09-29 that War Zone rubble
+is the easy source of rebar. Gathering needs a melee weapon or bare hands; a gun or bow in hand
+drops nothing (`Build_System.decompiled.cs:23685`).
+
+Some game systems ship switched off. Merchants are complete in 0.8.316, but the scene saves
+the `Merchant_Mgr` object inactive, and `My_Start` runs only while it is active
+(`Merchant.decompiled.cs:714-742`), so no merchant spawns. The registry's `features` block
+names each such system and its manager object. The build reads the object's `m_IsActive` from
+each capture. While the feature is off, its sources leave player text, items that only it
+provides no longer count as obtainable, and their entries say "Not in the game yet". The code
+has no general unreleased flag, so each system is added when it is found. The user reported
+merchants on 2026-09-29.
+
 Rates stay labelled as rates. ADR-0001 §4 forbids presenting them as probabilities without a
 verified selection rule. A rate that the game itself shows as a percentage, and whose roll is
 visible in the code, counts as verified for that display. Execute and knockdown are the
@@ -176,9 +192,20 @@ enum integers and unformatted floats.
 
 The shell in `wikibuild/web/` takes study 11's design:
 
-- The home page has search first, a topic map, and scroll charts computed from counts.
-- Entry pages open with a player summary card. The technical record follows it, collapsed.
-- Guide pages are the long reads.
+- The home page has search first, a topic map, and scroll charts computed from counts. Two
+  charts follow them. "What each biome adds" uses the progression guide's own counts.
+  "How the game changed" shows the latest capture of each of the four newest game versions,
+  and what was new, changed or removed between them. A capture that recorded no game version
+  is left out.
+- Entry pages open with a player summary card. The game's record follows it, collapsed, as
+  "Game file details". The topic of raw assets and configurations is "Game files", so no two
+  player-facing things share the name "Technical reference".
+- Guide pages are the long reads. A scroll tracker keeps the ring map on the section being
+  read.
+- "Report a problem" in the top bar, and a line on every entry, lead to GitHub issue forms in
+  the hub repository (`presentation/issue-templates/`). The wiki runs no form of its own.
+  The form labels (`accuracy`, `site`) must exist in the repository; they are created when
+  publishing.
 
 Pack loading, hash checks, version selection, the release bootstrap and route shapes are
 unchanged. The new reader must render the packs of every captured snapshot. The stack
