@@ -151,6 +151,17 @@ class GuideTests(unittest.TestCase):
         with self.assertRaisesRegex(GuideError, "field-guide section start block 0.*missing variable 'absent'"):
             render(spec, queries, context)
 
+    def test_runs_values_keep_mixed_text_and_links(self):
+        spec, queries, context = fixture()
+        queries["welcome"] = lambda context, scope: {"items": {"runs": [
+            {"text": "mined in "}, {"text": "Desert", "entity": ENTITY}, {"text": " (20% of dig hits)"}]}}
+        runs = render(spec, queries, context)["sections"][0]["blocks"][0]["runs"]
+        self.assertEqual(runs, [{"text": "Bring mined in "}, {"text": "Desert", "entity": ENTITY},
+                                {"text": " (20% of dig hits)."}])
+        queries["welcome"] = lambda context, scope: {"items": {"runs": [{"text": "x", "topic": "y"}]}}
+        with self.assertRaisesRegex(GuideError, "invalid run"):
+            render(spec, queries, context)
+
     def test_sentence_empty_and_optional(self):
         spec, queries, context = fixture()
         spec["sections"][0]["blocks"][0]["empty"] = "No supplies."

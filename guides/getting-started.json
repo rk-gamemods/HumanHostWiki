@@ -18,7 +18,7 @@
       "heading": "What you can make by hand",
       "blocks": [
         {"type": "sentence", "template": "Hand crafting needs no bench. These recipes use only starting-ring materials.", "query": "start.hand_intro"},
-        {"type": "checklist", "query": "start.hand_recipes", "item": "{output}: {ingredients}"}
+        {"type": "checklist", "query": "start.hand_recipes", "item": "{output}: {ingredients}", "group_by": "category", "limit_per_group": 6, "more": "{remaining} more in the crafting index"}
       ]
     },
     {

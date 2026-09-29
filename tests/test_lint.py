@@ -24,7 +24,8 @@ class JargonTests(unittest.TestCase):
                 self.assertEqual([row["rule"] for row in jargon(value)], [rule])
         clean = ("Execute: 8%", "7.62 x 54mm", "M1891 (crafted)",
                  "Male zombie (type 15)", "HP", "AKM", "M1891", "WB",
-                 ".45 ACP", "12 x 70mm", "3.1415", "5", "_")
+                 ".45 ACP", "12 x 70mm", "3.1415", "5", "_", "M1A", "M4A1", "AK74M",
+                 "Steam build 25587699")
         for value in clean:
             with self.subTest(value=value):
                 self.assertEqual(jargon(value), [])

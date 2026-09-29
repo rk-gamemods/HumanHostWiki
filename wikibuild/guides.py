@@ -7,6 +7,9 @@ Grouped row blocks have ``groups`` instead of ``items`` or ``rows``. Each group
 has ``label`` runs, ``items`` or ``rows``, and optional ``more`` runs. An empty
 fallback uses ``runs`` on any block type. A run is ``{"text": str}`` or
 ``{"text": str, "entity": "e-<32 hex>"}``.
+
+A template variable is a string or number, a link, a list of links joined with
+", ", or ``{"runs": [...]}``, which is inserted as it is.
 """
 
 from __future__ import annotations
@@ -154,6 +157,16 @@ def _pieces(value, where):
             if index:
                 result.append({"text": ", "})
             result.extend(_pieces(part, where))
+        return result
+    if isinstance(value, dict) and set(value) == {"runs"}:
+        # Ready-made runs, such as a "how to get it" phrase mixing text and links, are kept as they are.
+        if not isinstance(value["runs"], list):
+            _error(where, "invalid runs value")
+        result = []
+        for run in value["runs"]:
+            if not isinstance(run, dict) or not isinstance(run.get("text"), str) or set(run) - {"text", "entity"}:
+                _error(where, "invalid run")
+            result.extend(_pieces(run, where) if "entity" in run else [{"text": run["text"]}])
         return result
     if isinstance(value, dict):
         if set(value) != {"text", "entity"} or not isinstance(value["text"], str) or not isinstance(value["entity"], str) or not _ENTITY.fullmatch(value["entity"]):

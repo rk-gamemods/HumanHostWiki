@@ -5,8 +5,10 @@ import re
 
 _TOKEN = re.compile(r"[A-Za-z0-9_]+")
 _CODE_UNDERSCORE = re.compile(r"^_+[A-Za-z0-9]|[A-Za-z0-9]_[A-Za-z0-9]")
-_CODE_CAPITALS = re.compile(r"[a-z0-9][A-Z]|[A-Z][a-z0-9]+[A-Z]")
-_HEX = re.compile(r"(?<![A-Za-z0-9])(?:e-)?[0-9a-f]{8,}(?![A-Za-z0-9])|(?<![A-Za-z0-9])e-[0-9a-f]+(?![A-Za-z0-9])", re.I)
+# A lowercase-to-capital hump is code (BuildMat, MeleeWeapon). Digits between capitals are model names (M1A, M4A1, AK74M).
+_CODE_CAPITALS = re.compile(r"[a-z][A-Z]|[A-Z][a-z]+[A-Z]")
+# A hex run needs at least one letter a-f; plain numbers such as Steam build 25587699 are not keys.
+_HEX = re.compile(r"(?<![A-Za-z0-9])(?:e-)?(?=[0-9a-f]*[a-f])[0-9a-f]{8,}(?![A-Za-z0-9])|(?<![A-Za-z0-9])e-[0-9a-f]+(?![A-Za-z0-9])", re.I)
 _PATH = re.compile(
     r"(?<!\w)bundles/[^\s,;)}\]]+|::serialized|"
     r"(?<![\w.])(?:[\w.-]+[/\\])*[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,7}(?!\w)", re.I)
