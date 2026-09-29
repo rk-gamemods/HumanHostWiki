@@ -18,6 +18,9 @@ class PipelineTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.tearDown)
         self.root, self.source = self.fixture.wiki, self.fixture.source
+        registry = self.root / "presentation/fields.json"
+        registry.parent.mkdir()
+        registry.write_bytes((test_extraction.ROOT / "presentation/fields.json").read_bytes())
         self.article_patch = patch.object(pipeline.external_links.mediawiki, 'Client',
                                           side_effect=AssertionError('Unexpected live article provider in fixture'))
         self.article_patch.start()

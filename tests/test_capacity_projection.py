@@ -77,7 +77,7 @@ class CapacityProjectionTests(unittest.TestCase):
             for snapshot, ref in config["snapshots"].items():
                 index = fetch(ref)
                 before = json.loads((self.path / topic / "snapshots" / (snapshot + ".json")).read_bytes())
-                for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards"):
                     index[kind] = list(leaves(index[kind], fetch))
                     self.assertEqual(len(index[kind]), len(before[kind]))
                     for actual, expected in zip(index[kind], before[kind]):
@@ -276,14 +276,20 @@ class CapacityProjectionTests(unittest.TestCase):
         self.assertGreater(len(old_objects & set(later.reused)), 240)
 
     def test_independent_auditor_rejects_changed_snapshot_membership(self):
+        self.check_changed_snapshot_membership("entries")
+
+    def test_independent_auditor_rejects_changed_card_membership(self):
+        self.check_changed_snapshot_membership("cards")
+
+    def check_changed_snapshot_membership(self, kind):
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals))
         checked = audit(self.path, result, "wiki-fixture")
         self.assertGreater(checked["pack_references"], 0)
         key = next(key for key, payload in result.payloads.items()
-                   if "/site/objects/" in key and json.loads(payload.read())["entries"])
+                   if "/site/objects/" in key and json.loads(payload.read())[kind])
         old = result.payloads[key]
         value = json.loads(old.read())
-        value["entries"][0]["first"] = "corrupted-entry-boundary"
+        value[kind][0]["first"] = "corrupted-member-boundary"
         data = json_bytes(value)
         # Keep the forged payload internally self-consistent. The audit must
         # still reject disagreement with the candidate, even if hashes pass.
@@ -324,6 +330,24 @@ class ReferenceTransformTests(unittest.TestCase):
         pack["path"] = "../../private"
         with self.assertRaisesRegex(ContractError, "content-addressed"):
             release_content.snapshot(json_bytes(value), lambda path, *_: path)
+
+    def test_card_references_relocate_and_legacy_indexes_keep_exact_bytes(self):
+        sha = "b" * 64
+        pack = {"path": "data/" + sha + ".json", "sha256": sha, "bytes": 3}
+        value = {"schema_version": 1, **{kind: [] for kind in release_content.SHARD_KINDS}, "cards": [pack]}
+        result = release_content.snapshot(json_bytes(value), lambda path, *_: "https://example.invalid/" + path)
+        self.assertEqual(json.loads(result)["cards"], [{**pack, "path": "https://example.invalid/" + pack["path"]}])
+        del value["cards"]
+        value["entries"] = [pack]
+        before = json_bytes(value)
+        self.assertEqual(release_content.snapshot(before, lambda path, *_: path), before)
+        relocated = json.loads(release_content.snapshot(before, lambda path, *_: "https://example.invalid/" + path))
+        self.assertNotIn("cards", relocated)
+        self.assertEqual(relocated["entries"], [{**pack, "path": "https://example.invalid/" + pack["path"]}])
+        for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+            with self.subTest(missing=kind), self.assertRaises(KeyError):
+                release_content.snapshot(json_bytes({key: val for key, val in value.items() if key != kind}),
+                                         lambda path, *_: path)
 
     def test_configuration_requires_all_selected_snapshots_and_runtime(self):
         data = json_bytes({"schema_version": 1, "versions": [{"snapshot_id": "one"}]})

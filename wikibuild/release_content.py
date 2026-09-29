@@ -22,6 +22,8 @@ def indexed(data, resolve, fields):
         raise ContractError("Unsupported snapshot schema during release projection")
     changed = False
     for kind in fields:
+        if kind == "cards" and kind not in value:
+            continue
         for reference in value[kind]:
             path = reference["path"]
             if (re.fullmatch(r"data/[0-9a-f]{64}\.json", path) is None or

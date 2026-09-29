@@ -167,7 +167,9 @@ def check(root):
         if relative.startswith("snapshots/"):
             index = json.loads(public(topic, config["snapshots"][Path(relative).stem]))
             original = json.loads(data)
-            for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+            for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards"):
+                if kind == "cards" and kind not in original:
+                    continue
                 index[kind] = list(leaves(index[kind], lambda ref: json.loads(public(topic, ref))))
                 assert len(index[kind]) == len(original[kind])
                 for actual, before in zip(index[kind], original[kind]):
@@ -204,7 +206,9 @@ def check(root):
         for snapshot, index_ref in old["snapshots"].items():
             index = json.loads(public(topic, index_ref))
             assert index["snapshot_id"] == snapshot
-            for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+            for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards"):
+                if kind == "cards" and kind not in index:
+                    continue
                 for pack in leaves(index[kind], lambda ref: json.loads(public(topic, ref))):
                     public(topic, pack)
         counts["historical_configs"] += 1

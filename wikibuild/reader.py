@@ -8,7 +8,7 @@ import re
 import uuid
 from urllib.parse import urlsplit
 
-from . import availability, curation, external_links, extraction, history, model, packs, pages, snapshots
+from . import availability, curation, external_links, extraction, game_text, history, model, packs, pages, presentation, snapshots
 from .exceptions import Exceptions
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
@@ -26,7 +26,7 @@ def candidate_path(cache_root, candidate_id):
 
 def contract():
     folder = Path(__file__).parent
-    paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py")]
+    paths = [folder / name for name in ("reader.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py", "presentation.py", "game_text.py")]
     paths += sorted((folder / "web").glob("*"))
     return {path.relative_to(folder).as_posix(): digest(path.read_bytes().replace(b"\r\n", b"\n")) for path in paths}
 
@@ -92,6 +92,12 @@ def validate_snapshot(stage, snapshot, topics):
         provenance = load_maps(site, index["provenance"])
         searches = load_maps(site, index["search"])
         backlinks = load_maps(site, index["backlinks"])
+        cards = load_maps(site, index.get("cards", []))
+        owned_cards = {record["card_id"] for record in entries.values() if "card_id" in record}
+        if owned_cards - cards.keys():
+            raise ContractError("Reader entry card_id is missing from cards")
+        if cards.keys() - owned_cards:
+            raise ContractError("Reader card has no owning entry")
         if set(entries) != set(searches):
             raise ContractError("Search coverage differs from snapshot entries")
         for key, record in entries.items():
@@ -129,7 +135,7 @@ def validate_snapshot(stage, snapshot, topics):
     return count
 
 
-def project_snapshot(root, project, run, stage, output, limit, known, explanations=None):
+def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, registry_digest):
     snapshot = run["snapshot_id"]
     state = history.load_state(root, run)
     models = extraction.artifact(root, run["models"])
@@ -157,7 +163,14 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
     if seen != {key for key, row in state.items() if row["status"] == "present"}:
         raise ContractError("Model omitted a present identity observation")
 
-    maps = {topic: {kind: {} for kind in ("entries", "semantics", "provenance", "search", "backlinks")} for topic in topics}
+    # labels materializes its input; retain only the two components it joins,
+    # never the full collection of semantic records.
+    text = game_text.labels(row for row in model.rows(models)
+                            if row.get("provenance", {}).get("component") in (
+                                {"assembly": "UI", "class": "DynamicToolTipSet"},
+                                {"assembly": "Language", "class": "Language_Text"}))
+    text_digest = digest(json_bytes(text))
+    maps = {topic: {kind: {} for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards")} for topic in topics}
     counts = {topic: Counter() for topic in topics}
     groups = {topic: defaultdict(list) for topic in topics}
     for row in model.rows(models):
@@ -177,6 +190,11 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                   "first_seen": ledger["first_seen"], "last_changed": ledger["last_changed"],
                   "last_data_checked": ledger["last_data_checked"], "last_verified": ledger["last_verified"],
                   "decision": ledger["decision"], "links": links, "backlink_count": len(reverse)}
+        if semantic["kind"] in registry["kinds"]:
+            card_id = digest(json_bytes({"revision_id": row["revision_id"], "game_text": text_digest,
+                                         "presentation": registry_digest}))
+            data["cards"][card_id] = packs.compact(presentation.card(registry, semantic["kind"], semantic, text, links))
+            record["card_id"] = card_id
         if notes[key]:
             record["explanations"] = notes[key]
         data["entries"][key] = packs.compact(record)
@@ -203,12 +221,17 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
     receipt = snapshots.read(root, snapshot)
     for topic, data in maps.items():
         writer = lambda name, value, topic=topic: output(f"{topic}/{name}", value)
+        # Reuse whole single-card shards: a removed entry must not leave its card
+        # in a later snapshot merely because a surviving card shared its shard.
+        card_shards = [shard for key, value in sorted(data.pop("cards").items())
+                       for shard in packs.reuse({key: value}, known[topic]["cards"], limit, writer)]
         index = {"schema_version": 1, "snapshot_id": snapshot, "identity_run": run["run_id"],
                  "source_commit": run["source_commit"], "steam": receipt["steam"], "game_version": receipt["game_version"],
                  "game_version_status": receipt.get("game_version_status", "not-recorded-by-source-generator"),
                  "game_version_evidence": receipt.get("game_version_evidence", []),
                  "counts": dict(sorted(counts[topic].items())), "coverage": "partial", "verification": "not-performed",
                  "latest_available_build": receipt["latest_available_game_build"], "change_origin": run["change_origin"],
+                 "cards": card_shards,
                  **{kind: packs.reuse(values, known[topic][kind], limit, writer) if kind in {"semantics", "provenance"}
                     else packs.write(values, limit, writer) for kind, values in data.items()}}
         writer(f"snapshots/{snapshot}.json", packs.compact(index))
@@ -258,7 +281,11 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         if parsed.query or parsed.fragment or parsed.username or parsed.password or ".." in parsed.path.split("/") or not (
                 (parsed.scheme == "https" and parsed.netloc) or (not parsed.scheme and not parsed.netloc and base.startswith("/"))):
             raise ContractError("Reader base must be an HTTPS site or absolute local URL path")
+    registry_path = root / "presentation/fields.json"
+    registry_digest = digest(registry_path.read_bytes())
+    registry = presentation.load(registry_path)
     inputs = {"project": project, "runs": [digest(json_bytes(run)) for run in runs], "renderer": contract(),
+              "presentation": registry_digest,
               "receipts": [digest(json_bytes(snapshots.read(root, run["snapshot_id"]))) for run in runs],
               "bases": bases, "pack_bytes": max_pack_bytes, "availability": availability.latest(root, project),
               "external_articles": external_links.configured(root, project),
@@ -321,7 +348,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
             if article_packs and "/snapshots/" in name:
                 topic = name.split("/", 1)[0]
                 saved_index = json.loads(within(prior_path, name).read_bytes())
-                for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards"):
                     article_packs.difference_update(f"{topic}/{ref['path']}" for ref in saved_index[kind])
         for name, record in prior["files"].items():
             source = within(prior_path, name)
@@ -345,6 +372,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         write_changed(stage / "candidate.json", json_bytes(manifest))
         verify(stage, candidate_id)
         if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
+                or digest(registry_path.read_bytes()) != inputs["presentation"]
                 or external_links.configured(root, project) != inputs["external_articles"]):
             raise ContractError("Reader inputs changed during observation projection")
         curation.ensure_definitions(root, project, checked)
@@ -355,13 +383,14 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
 
     projected, current_groups = {}, None
     all_groups = {repo["id"]: set() for repo in project["repositories"]}
-    known = {repo["id"]: {"semantics": {}, "provenance": {}} for repo in project["repositories"]}
+    known = {repo["id"]: {"semantics": {}, "provenance": {}, "cards": {}} for repo in project["repositories"]}
     for run in reversed(runs):
         # Revalidate pinned artifacts, even if a caller supplied the run.
         extraction.artifact(root, run["state"])
         extraction.artifact(root, run["models"])
         version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known,
-                                           checked["snapshots"].get(run["snapshot_id"]) if checked else None)
+                                           checked["snapshots"].get(run["snapshot_id"]) if checked else None,
+                                           registry=registry, registry_digest=registry_digest)
         projected[run["snapshot_id"]] = version
         for topic, kinds in groups.items():
             all_groups[topic].update(kinds)
@@ -400,6 +429,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     write_changed(stage / "candidate.json", json_bytes(manifest))
     verify(stage, candidate_id)
     if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
+            or digest(registry_path.read_bytes()) != inputs["presentation"]
             or external_links.configured(root, project) != inputs["external_articles"]):
         raise ContractError("Reader inputs changed during generation")
     curation.ensure_definitions(root, project, checked)

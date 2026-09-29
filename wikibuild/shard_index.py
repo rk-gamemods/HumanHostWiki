@@ -10,7 +10,7 @@ import json
 from . import packs
 from .storage import ContractError
 
-FIELDS = ("entries", "semantics", "provenance", "search", "backlinks")
+FIELDS = ("entries", "semantics", "provenance", "search", "backlinks", "cards")
 KIND = "wiki-shard-directory"
 PAGE_BYTES = 64 * 1024
 
@@ -50,7 +50,7 @@ def compact(indexes, limit, emit, fields=FIELDS):
             fixed = {name: [] if name in fields else item for name, item in value.items()}
             if len(packs.compact(fixed)) > limit:
                 raise ContractError("Index metadata exceeds the file budget")
-            candidates = [kind for kind in fields if len(value[kind]) > 1]
+            candidates = [kind for kind in fields if len(value.get(kind, [])) > 1]
             if not candidates:
                 raise ContractError("Index metadata cannot fit the file budget")
             kind = max(candidates, key=lambda field: len(packs.compact(value[field])))
