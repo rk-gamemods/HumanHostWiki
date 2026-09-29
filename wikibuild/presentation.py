@@ -116,10 +116,11 @@ def load(path: str | Path) -> Registry:
         raise ValueError("kinds: expected an object")
     if not isinstance(registry.get("glossaries"), dict):
         raise ValueError("glossaries: expected an object")
-    guides = registry.get("guides")
-    if not isinstance(guides, dict) or not isinstance(guides.get("harvest_families"), list):
+    # Harvest rules are optional; without them every gathering source reads "other scenery".
+    guides = registry.get("guides", {})
+    if not isinstance(guides, dict) or not isinstance(guides.get("harvest_families", []), list):
         raise ValueError("guides.harvest_families: expected a list")
-    for index, rule in enumerate(guides["harvest_families"]):
+    for index, rule in enumerate(guides.get("harvest_families", [])):
         key = f"guides.harvest_families[{index}]"
         if not isinstance(rule, dict) or set(rule) != {"match", "family"} or any(
             not isinstance(rule[name], str) for name in ("match", "family")
