@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "about": "Site design data (ADR-0002 §7): topic short names, colours and home-map positions from study 11, and the guide order on the home page. Owned by design; the reader reads it through the hub configuration.",
+  "typography": "current",
+  "topics": {
+    "items-equipment": {"short": "Items", "color": "#b83a0b", "map": [0.16, 0.30]},
+    "loot-acquisition": {"short": "Loot", "color": "#e08e45", "map": [0.36, 0.14]},
+    "crafting-processing": {"short": "Crafting", "color": "#c9a227", "map": [0.28, 0.58]},
+    "combat": {"short": "Combat", "color": "#8e2c48", "map": [0.55, 0.30]},
+    "creatures-ai": {"short": "Creatures", "color": "#4f7a8a", "map": [0.76, 0.16]},
+    "spawning-populations": {"short": "Spawning", "color": "#b6668f", "map": [0.86, 0.44]},
+    "skills-survival": {"short": "Survival", "color": "#6c5b9e", "map": [0.64, 0.70]},
+    "biomes-resources": {"short": "Biomes", "color": "#5b8c5a", "map": [0.84, 0.80]},
+    "construction": {"short": "Construction", "color": "#8c6d46", "map": [0.14, 0.84]},
+    "vehicles": {"short": "Vehicles", "color": "#3a3a3a", "map": [0.44, 0.88]},
+    "world-systems": {"short": "World", "color": "#0b6f80", "map": [0.90, 0.08]},
+    "technical-reference": {"short": "Game files", "color": "#9aa0a6", "map": [0.48, 0.55]},
+    "hub": {"short": "Guides", "color": "#1a1a1a", "map": null}
+  },
+  "guides": ["getting-started", "progression-by-biome", "choosing-a-weapon", "crafting-stations"],
+  "home": {
+    "kicker": "The unofficial game data wiki",
+    "title": "Human Host, from the game's own files",
+    "lede": "{records} records read straight from the game: items, recipes, creatures and the rules behind them. Start with a guide, search for something, or open a topic.",
+    "try": ["Crude Axe", "M1891", "Iron Ingot"]
+  }
+}
