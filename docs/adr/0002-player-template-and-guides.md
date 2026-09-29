@@ -77,6 +77,10 @@ comes from that user, as in "Crude Axe combat". Otherwise the internal name is s
 words. Pages mark these as wiki names. Any player name that the jargon lint (§6) flags as an
 identifier falls back to the same rule, so no internal name reaches a player page.
 
+A building piece or construction rule takes the name of the item that places it, matched through the item's tooltip record. "7_5_Triangle_Small_1.4_Obsidian" reads "Obsidian (Triangle small 1/4)". Other scenery names drop model and detail-level tokens (`SM`, `Prefab`, a trailing `LodN`, Unity's `$N` duplicate suffix) and keep variant numbers.
+
+Search lists player entries before game-file records (the technical reference, assets and configurations). An exact match on a game file never outranks an item.
+
 Values that the game names from a code table use the game's names. Handmade ammo materials
 are Copper, Steel, Titanium, Chrome and Tungsten, by position in `_HandCraftBullet`
 (`Hand_Tools.decompiled.cs:11213`, `UI.decompiled.cs:3188`).
@@ -138,7 +142,7 @@ Guide wording follows fixed rules, so every update reads the same way:
 
 - A phrase inside a ring's section describes that ring only. The starting-ring list never sends a player to the Desert.
 - Loot is named by container family ("crates", "cars", "dead bodies", "the abandoned airport"), never by an individual container. It reads "almost everywhere" when an item is looted in 8 or more ring biomes.
-- Scenery is named by family ("ground rock", "beech tree"), with model variant and detail-level suffixes removed.
+- Scenery that a player gathers from is named by kind ("trees", "fallen branches", "rocks", "rubble", "wrecked cars"), from ordered rules in the registry's `guides.harvest_families`. A node of the gathered material itself, such as copper ore rock, is "surface deposits". Anything no rule matches counts as "other scenery", and the guide build reports it after each update. Model names never appear. The first draft named model families ("am165 v ray", "concrete debris big"). The final visual review on 2026-09-29 found that a player cannot use those.
 - Benches appear only in bench lists, never again among the recipes they make possible.
 - Lists use one "and" and a correct singular ("1 more").
 - Biomes have two records each. The terrain record, which carries the gameplay, gets the plain name. The scene record is "(scene)".
