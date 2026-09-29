@@ -21,7 +21,7 @@
       "heading": "Ring {index}: {biome}",
       "blocks": [
         {"type": "sentence", "template": "{biome} runs from {start_distance} to {end_distance} out from the spawn point.", "query": "ring.span"},
-        {"type": "list", "title": "New raw materials", "query": "ring.new_materials", "item": "{item}: {how}", "empty": "No raw material first appears here."},
+        {"type": "list", "title": "New raw materials", "query": "ring.new_materials", "item": "{item}: {how}", "group_by": "method", "limit_per_group": 10, "more": "{remaining} more in the index", "empty": "No raw material first appears here."},
         {"type": "checklist", "title": "Now craftable", "query": "ring.new_recipes", "item": "{output} {made}", "group_by": "category", "limit_per_group": 8, "more": "{remaining} more in the crafting index", "empty": "Nothing new becomes craftable here."},
         {"type": "checklist", "title": "Benches you can build now", "query": "ring.new_benches", "item": "{bench}", "optional": true},
         {"type": "list", "title": "Only found here", "query": "ring.exclusive_loot", "item": "{item}: {how}", "optional": true},

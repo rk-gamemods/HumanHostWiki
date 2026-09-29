@@ -10,7 +10,7 @@
       "heading": "Gather these first",
       "blocks": [
         {"type": "sentence", "template": "Everything below comes from the starting ring, {first_biome}.", "query": "start.first_biome"},
-        {"type": "list", "title": "Raw materials", "query": "start.materials", "item": "{item}: {how}"}
+        {"type": "list", "title": "Raw materials", "query": "start.materials", "item": "{item}: {how}", "group_by": "method", "limit_per_group": 12, "more": "{remaining} more in the index"}
       ]
     },
     {
