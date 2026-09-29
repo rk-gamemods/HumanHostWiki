@@ -114,23 +114,35 @@ class PresentationTests(unittest.TestCase):
 
     def test_handmade_ammo_effects(self):
         ammo = record("combat-rule", {"_HandCraftBullet": [
-            {"BulletMat": "Neutral_Bullet", "Damage_F": 1, "Range_F": 1,
+            {"BulletMat": "Cop_Bullet", "Damage_F": 1, "Range_F": 1,
              "Recoil_F": 1, "Dummy_Rate": 0, "Stuck_Rate": 0},
-            {"BulletMat": "Cop_Bullet", "Damage_F": 0.87345, "Range_F": 0.8,
+            {"BulletMat": "Steel_Bullet", "Damage_F": 0.87345, "Range_F": 0.8,
              "Recoil_F": 1.12555, "Dummy_Rate": 0.01234, "Stuck_Rate": 0.025},
+            {"BulletMat": "Ti_Bullet", "Damage_F": 1, "Range_F": 1,
+             "Recoil_F": 1, "Dummy_Rate": 0, "Stuck_Rate": 0},
+            {"BulletMat": "Chro_Bullet", "Damage_F": 1, "Range_F": 1,
+             "Recoil_F": 1, "Dummy_Rate": 0, "Stuck_Rate": 0},
+            {"BulletMat": "Tung_Bullet", "Damage_F": 1, "Range_F": 1,
+             "Recoil_F": 1, "Dummy_Rate": 0, "Stuck_Rate": 0},
+            {"BulletMat": "Extra_Bullet", "Damage_F": 1, "Range_F": 1,
+             "Recoil_F": 1, "Dummy_Rate": 0, "Stuck_Rate": 0},
         ]})
         text = {**GAME_TEXT, "_ShootRange_Title": "Range: ",
                 "_Recoil_Title": "Recoil: ", "_DummyRound_Title": "Dud chance: "}
         result = presentation.card(self.registry, "combat-rule", ammo, text)
         self.assertEqual(result["stats"][0]["display"], [
-            {"material": "Neutral_Bullet", "effects": []},
-            {"material": "Cop_Bullet", "effects": [
+            {"material": "Copper", "effects": []},
+            {"material": "Steel", "effects": [
                 {"label": "Damage", "value": "-12.66%"},
                 {"label": "Range", "value": "-20%"},
                 {"label": "Recoil", "value": "+12.56%"},
                 {"label": "Dud chance", "value": "1.23%"},
                 {"label": "Jam rate", "value": "2.5%"},
             ]},
+            {"material": "Titanium", "effects": []},
+            {"material": "Chrome", "effects": []},
+            {"material": "Tungsten", "effects": []},
+            {"material": "Material 6", "effects": []},
         ])
         self.assertEqual(result["missing_game_text"], ["_Jam_Title"])
         self.assertNotIn("pending", result)

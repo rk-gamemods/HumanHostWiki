@@ -206,8 +206,11 @@ def _handmade_ammo(value: list, game_text: dict, missing: set) -> list:
         ("Dummy_Rate", "_DummyRound_Title", "Dud rate", 0, 1, ""),
         ("Stuck_Rate", "_Jam_Title", "Jam rate", 0, 1, ""),
     )
+    # _HandCraftBullet[i] is bullet material i + 1 (Hand_Tools.decompiled.cs:11213), and the game
+    # names material n by _BulletMat_AddressNames[n] (UI.decompiled.cs:3188).
+    materials = ("Copper", "Steel", "Titanium", "Chrome", "Tungsten")
     rows = []
-    for item in value:
+    for index, item in enumerate(value):
         effects = []
         for field, text_key, fallback, neutral, direction, prefix in specs:
             factor = Decimal(str(item[field]))
@@ -215,7 +218,8 @@ def _handmade_ammo(value: list, game_text: dict, missing: set) -> list:
                 continue
             label = _game_string(game_text, text_key, fallback, missing).strip(": ")
             effects.append({"label": label, "value": prefix + _round2((factor - neutral) * direction * 100) + "%"})
-        rows.append({"material": item["BulletMat"], "effects": effects})
+        material = materials[index] if index < len(materials) else f"Material {index + 1}"
+        rows.append({"material": material, "effects": effects})
     return rows
 
 
