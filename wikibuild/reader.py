@@ -612,7 +612,9 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                "features": ["shard-directories-v1", "paged-captures-v1", "entrypoint-rollover-v1"],
                "availability": inputs["availability"],
                "fonts": fonts,
-               **({"site": site, "relationships": project.get("relationships", [])} if topic == "hub" else {}),
+               # Every site needs the design data (colours, the report link); only the hub draws relationships.
+               "site": site,
+               **({"relationships": project.get("relationships", [])} if topic == "hub" else {}),
                "external_articles": views.get(topic),
                "topic": topic, "topics": topics, "versions": projected, "default_snapshot": projected[0]["snapshot_id"],
                "official_links": project["official_links"], "publication": "local-candidate"}))

@@ -8,7 +8,7 @@ const resolveURL = globalThis.humanHostReader?.resolve || ((value, base) => new 
 const params = new URLSearchParams(location.search);
 const content = document.getElementById("content");
 const cache = new Map();
-let config, snapshot, index, searchGeneration = 0, observer = null, cleanup = null;
+let config, snapshot, index, searchGeneration = 0, cleanup = null;
 
 // ---------- DOM ----------
 function element(tag, text, className) {
@@ -461,17 +461,26 @@ async function showEntry(key) {
   }
   if (record.decision.status === "ambiguous") body.push(notice("This may be the same thing as another entry from an older version. The wiki keeps them apart until that is settled."));
   body.push(playerCard(card, player, record));
-  const reference = await technicalReference(record, semantic, card), view = el("article", {class: "entry"}, body, reference);
+  const reference = await technicalReference(record, semantic, card), view = el("article", {class: "entry"}, body, reference, reportLine(name));
   show(view);
   // Community article checks are optional: they never delay the page, and attach only while it is still shown.
   const external = await articleLinks(record);
   if (external && content.children[0] === view) reference.append(external);
 }
 
+// The accuracy form's fields (presentation/issue-templates/accuracy.yml) fill from the query string.
+function reportLine(name) {
+  const form = site().issues?.accuracy;
+  if (!form) return null;
+  const fields = new URLSearchParams({title: `Wrong on the wiki: ${name}`, page: location.href,
+    version: `${index.game_version || "unknown"} (Steam build ${index.steam?.build_id || "unknown"})`});
+  return el("p", {class: "report-line"}, "Something wrong or missing here? ", el("a", {href: `${form}&${fields}`, rel: "noopener"}, "Report it on GitHub"), " (needs a free GitHub account).");
+}
+
 async function technicalReference(record, semantic, card) {
   const key = record.entity_key, box = el("details", {class: "techref"});
   const facts = Object.keys(semantic.facts).length;
-  box.append(el("summary", {}, "Technical reference", el("small", {}, `${count(facts)} game fields, links and sources`)));
+  box.append(el("summary", {}, "Game file details", el("small", {}, `${count(facts)} game fields, links and sources`)));
   const stamps = el("dl", {class: "stamps"});
   for (const [label, value] of [["Wiki key", key], ["Game file name", record.name], ["Captured version", snapshot], ["Status", record.status], ["Last substantive change", record.last_changed], ["Last data check", record.last_data_checked], ["Checked in play", record.last_verified || "Not yet"], ["Evidence", semantic.evidence_level]]) {
     stamps.append(el("dt", {}, label), el("dd", {}, value || "Not recorded"));
@@ -652,7 +661,8 @@ function guideItems(type, items, links, scope) {
       return el("li", {}, box, el("label", {for: id}, runsNode(runs, links)));
     }));
   }
-  return el(type === "steps" ? "ol" : "ul", {class: type === "steps" ? "gsteps" : "glist"}, items.map(runs => el("li", {}, runsNode(runs, links))));
+  // One span per item: a step is a two-column grid (number, text), so loose runs would each take a cell.
+  return el(type === "steps" ? "ol" : "ul", {class: type === "steps" ? "gsteps" : "glist"}, items.map(runs => el("li", {}, el("span", {}, runsNode(runs, links)))));
 }
 
 function guideTable(columns, rows, links, label) {
@@ -675,19 +685,36 @@ function ringDiagram(rings) {
 }
 
 function trackSections(aside) {
-  if (typeof IntersectionObserver !== "function") return;
-  if (observer) observer.disconnect();
   const links = [...aside.querySelectorAll("a[data-section]")], bands = [...aside.querySelectorAll("circle[data-section]")], caption = aside.querySelector(".gcap");
-  observer = new IntersectionObserver(entries => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      const id = entry.target.id;
-      for (const a of links) a.setAttribute("aria-current", a.dataset.section === id ? "true" : "false");
-      for (const band of bands) band.classList.toggle("on", band.dataset.section === id);
-      if (caption && entry.target.dataset.ring) caption.textContent = entry.target.dataset.ring;
-    }
-  }, {rootMargin: "-20% 0px -70% 0px"});
-  for (const section of content.querySelectorAll(".gsec")) observer.observe(section);
+  const resting = caption ? caption.textContent : "";
+  scrollSpy([...content.querySelectorAll(".gsec")], section => {
+    const id = section.id;
+    for (const a of links) a.setAttribute("aria-current", a.dataset.section === id ? "true" : "false");
+    for (const band of bands) band.classList.toggle("on", band.dataset.section === id);
+    // Outside the ring sections the map rests, so it never names a ring the reader has left.
+    if (caption) caption.textContent = section.dataset.ring || resting;
+  }, .3);
+}
+
+// The active target is the last one whose top has passed the reading line. It is recomputed on
+// every scrolled frame, so a fast scroll cannot skip a section the way a threshold observer can.
+// Several can run at once (one per chart); each stops itself once its targets leave the page.
+function scrollSpy(targets, onActive, line) {
+  if (!targets.length || typeof addEventListener !== "function" || typeof requestAnimationFrame !== "function") return;
+  let frame = 0, current = null;
+  const stop = () => {removeEventListener("scroll", queue); removeEventListener("resize", queue); if (frame) cancelAnimationFrame(frame); frame = 0;};
+  const check = () => {
+    frame = 0;
+    if (!targets[0].isConnected) {stop(); return;}
+    const reading = innerHeight * line;
+    let active = targets[0];
+    for (const target of targets) {if (target.getBoundingClientRect().top <= reading) active = target; else break;}
+    if (active !== current) {current = active; onActive(active);}
+  };
+  const queue = () => {if (!frame) frame = requestAnimationFrame(check);};
+  addEventListener("scroll", queue, {passive: true});
+  addEventListener("resize", queue);
+  queue();
 }
 
 // ---------- Hub: home (study 11) ----------
@@ -777,7 +804,7 @@ function waffle(topics, counts, total) {
   const steps = [
     step(`${count(total)} entries`, el("p", {}, "That is how much of Human Host this wiki reads from the game's own files: items, recipes, creatures, rules and the files behind them.")),
     step(`${topics.length} topics`, el("p", {}, "Every entry belongs to exactly one topic. Other topics link to it rather than copying it.")),
-    step(`${topicShort(biggest.id)} is the biggest`, el("p", {}, `${topicOf(biggest.id).title} holds ${count(counts[biggest.id]?.total || 0)} entries. ${topics[1] ? `${topicOf(topics[1].id).title} is next with ${count(counts[topics[1].id]?.total || 0)}.` : ""}`),
+    step(`${topicShort(biggest.id)} is the biggest`, el("p", {}, `${topicOf(biggest.id).title} holds ${count(counts[biggest.id]?.total || 0)} entries. ${topics[1] ? `Next comes ${topicOf(topics[1].id).title}, with ${count(counts[topics[1].id]?.total || 0)}.` : ""}`),
       versions.length > 1 ? el("p", {}, `The wiki keeps every captured version: ${count(versions.length)} so far. Each page can switch to an older one.`) : null)
   ];
   return scrolly(steps, drawing, caption, i => states[i]());
@@ -789,12 +816,9 @@ function scrolly(steps, graphic, caption, onStep) {
   const box = el("section", {class: "scrolly"}, el("div", {class: "steps"}, steps), el("div", {class: "sticky", "aria-hidden": "true"}, graphic, caption));
   let current = -1;
   const activate = i => {if (i === current || i < 0) return; current = i; steps.forEach((node, k) => node.classList.toggle("is-active", k === i)); onStep(i);};
-  if (typeof IntersectionObserver === "function") {
-    if (observer) observer.disconnect();
-    observer = new IntersectionObserver(entries => {for (const entry of entries) if (entry.isIntersecting) activate(steps.indexOf(entry.target));}, {rootMargin: "-45% 0px -45% 0px"});
-    requestAnimationFrame(() => steps.forEach(node => observer.observe(node)));
-  }
   activate(0);
+  // Steps are attached after this returns; start tracking on the next frame.
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => scrollSpy(steps, node => activate(steps.indexOf(node)), .5));
   return box;
 }
 
@@ -1009,6 +1033,8 @@ async function start() {
   selector.addEventListener("change", () => {const target = new URL(location.href); target.searchParams.set("snapshot", selector.value); target.searchParams.set("release", config.release_id || config.candidate_id); location.assign(target);});
   const nav = document.getElementById("topics");
   for (const [text, target] of [["Guides", hubURL("") + "#guides"], ["Topics", hubURL("") + "#topics-list"]]) nav.append(link(text, target));
+  // Problems go to GitHub issue forms, so there is no form of our own to run.
+  if (site().issues?.choose) nav.append(el("a", {href: site().issues.choose, class: "report", rel: "noopener"}, "Report a problem"));
   for (const official of config.official_links) {document.getElementById("credits").append(link(official.title, official.url), document.createTextNode(" · "));}
   const find = document.getElementById("search-form");
   find.addEventListener("submit", event => {event.preventDefault(); location.assign(searchURL(document.getElementById("search").value.trim()));});

@@ -74,7 +74,7 @@
     {"id": "construction", "title": "Construction", "path": "repositories/construction", "github_name": "HumanHost-Wiki-Construction", "role": "topic", "owns": ["building-piece", "construction-rule"], "coverage": "Building pieces, materials, durability, destruction and structural relationships"},
     {"id": "vehicles", "title": "Vehicles", "path": "repositories/vehicles", "github_name": "HumanHost-Wiki-Vehicles", "role": "topic", "owns": ["vehicle", "vehicle-rule"], "coverage": "Vehicle families, parts, assembly, controls and operating mechanics"},
     {"id": "world-systems", "title": "World systems", "path": "repositories/world-systems", "github_name": "HumanHost-Wiki-World", "role": "topic", "owns": ["world-rule", "weather", "time-rule"], "coverage": "Weather, time, environmental conditions and world organization"},
-    {"id": "technical-reference", "title": "Technical reference", "path": "repositories/technical-reference", "github_name": "HumanHost-Wiki-Technical", "role": "topic", "owns": ["asset", "component", "configuration", "tag", "layer", "unclassified"], "coverage": "Every asset identity, component types, configuration fields, tags, layers and visible coverage gaps"}
+    {"id": "technical-reference", "title": "Game files", "path": "repositories/technical-reference", "github_name": "HumanHost-Wiki-Technical", "role": "topic", "owns": ["asset", "component", "configuration", "tag", "layer", "unclassified"], "coverage": "Every asset identity, component types, configuration fields, tags, layers and visible coverage gaps"}
   ],
   "relationships": [
     {"from": "items-equipment", "to": "loot-acquisition", "kind": "acquired-from"},

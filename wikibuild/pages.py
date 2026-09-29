@@ -20,7 +20,7 @@ def shell(title, base, project_name="Unofficial game reference", fonts_base=None
             '<body><a class="skip" href="#content">Skip to content</a>'
             f'<header class="mast"><a class="brand" id="home">{mark}</a><div class="mast-r">'
             '<form id="search-form" role="search" aria-label="Search the wiki"><label class="sr-only" for="search">Search the wiki</label>'
-            '<input id="search" type="search" placeholder="Search" autocomplete="off"><kbd aria-hidden="true">/</kbd></form>'
+            '<input id="search" type="search" placeholder="Search" autocomplete="off"></form>'
             '<nav id="topics" aria-label="Sections"></nav></div>'
             '<p class="aff">An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.</p></header>'
             '<section class="edition" aria-label="Game version"><span id="status" role="status">Loading the selected game version...</span>'

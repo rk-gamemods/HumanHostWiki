@@ -32,6 +32,9 @@ main:focus { outline: none; }
 .mast nav { display: flex; gap: 1.2rem; align-items: baseline; font-size: .85rem; }
 .mast nav a { color: var(--ink); text-decoration: none; }
 .mast nav a[aria-current="page"] { text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 2px; }
+.mast nav a.report { color: var(--accent); }
+.mast nav a:hover, .mast nav a:focus-visible { text-decoration: underline; }
+.report-line { font: .82rem var(--sans); color: var(--muted); margin: 1.6rem 0 0; padding-top: .8rem; border-top: 1px solid var(--rule); }
 #search-form { display: flex; align-items: center; gap: .4rem; }
 #search-form input { width: 13rem; border: 0; border-bottom: 1px solid var(--ink); background: transparent; font: .85rem var(--sans); padding: .2rem 0; }
 #search-form input:focus-visible { outline: none; border-bottom: 2px solid var(--accent-2); }

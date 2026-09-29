@@ -18,6 +18,11 @@
     "hub": {"short": "Guides", "color": "#1a1a1a", "map": null}
   },
   "guides": ["getting-started", "progression-by-biome", "choosing-a-weapon", "crafting-stations"],
+  "issues": {
+    "about": "Readers report problems through GitHub issue forms in the hub repository; the forms are presentation/issue-templates/*.yml.",
+    "choose": "https://github.com/rk-gamemods/HumanHost-Wiki/issues/new/choose",
+    "accuracy": "https://github.com/rk-gamemods/HumanHost-Wiki/issues/new?template=accuracy.yml"
+  },
   "home": {
     "kicker": "The unofficial game data wiki",
     "title": "Human Host, from the game's own files",
