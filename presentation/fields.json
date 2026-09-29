@@ -143,7 +143,7 @@
       {"match": "\\bbranch(es)?\\b", "family": "fallen branches"},
       {"match": "\\b(bush|shrub|plant|flower|fern|reed|cactus|biznaga|nopal|rabbit brush|oreopanax|corn)\\b", "family": "plants"},
       {"match": "\\b(skull|bone|bones|skeleton|carcass)\\b", "family": "bones"},
-      {"match": "\\b(ore|chrismatite|limestone|marble|epidote|sulfur|obsidian|lapis|graphite|clay)\\b", "family": "mineral deposits"},
+      {"match": "\\b(ore|chrismatite|limestone|marble|epidote|sulfur|obsidian|lapis|graphite|clay|sand)\\b", "family": "mineral deposits"},
       {"match": "\\b(bastion|facade|barbwire|fence|wall)\\b", "family": "ruined walls"},
       {"match": "\\b(brick|concrete|con)\\b", "family": "rubble"},
       {"match": "\\b(metal|duct|extractor|faucet|bedspring)\\b", "family": "scrap metal"},
