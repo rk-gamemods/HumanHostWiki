@@ -60,6 +60,22 @@ class PresentationTests(unittest.TestCase):
                 with self.subTest(rules=rules), self.assertRaisesRegex(ValueError, "guides.harvest_families"):
                     presentation.load(path)
 
+    def test_feature_registry_requires_manager_and_source_types(self):
+        base = json.loads(REGISTRY.read_text(encoding="utf-8"))
+        invalid = [None, [], {}, {"about": "text", "merchants": {"manager_object": "Merchant_Mgr"}},
+                   {"about": "text", "merchants": {"manager_object": "", "source_types": ["merchant"],
+                                               "label": "Merchants", "evidence": "code"}},
+                   {"about": "text", "merchants": {"manager_object": "Merchant_Mgr", "source_types": ["merchant", "merchant"],
+                                               "label": "Merchants", "evidence": "code"}}]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "fields.json"
+            for features in invalid:
+                registry = copy.deepcopy(base)
+                registry["features"] = features
+                path.write_text(json.dumps(registry), encoding="utf-8")
+                with self.subTest(features=features), self.assertRaisesRegex(ValueError, "features"):
+                    presentation.load(path)
+
     def test_every_player_tier_value_has_a_label_and_format(self):
         """A31: a player sees no field without a label or with a raw value."""
         registry = json.loads(REGISTRY.read_text(encoding="utf-8"))

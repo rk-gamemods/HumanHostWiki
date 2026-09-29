@@ -225,7 +225,7 @@ def player_projection(models, registry, text, snapshot, *, snapshot_metadata=Non
             label = (guide_queries.ring_label(context, main) if main in rings else
                      f"Biome {main + 1}" if main is not None else "Unknown")
             ring = {"earliest": progression["earliest_ring"], "main": main, "label": label}
-        if (not how and not recipes and ring is None and name["name"] == row["semantic"]["name"]
+        if (key not in context["unreleased"] and not how and not recipes and ring is None and name["name"] == row["semantic"]["name"]
                 and name["source"] == "game" and name["rule"] is None):
             continue
         selected = recipes[:12]
@@ -233,6 +233,7 @@ def player_projection(models, registry, text, snapshot, *, snapshot_metadata=Non
         links = {target: {"name": context["names"][target]["name"],
                           "topic": context["rows"][target]["semantic"]["topic"]} for target in sorted(targets)}
         players[key] = packs.compact({"name": name["name"], "name_source": name["source"], "name_rule": name["rule"],
+                                      **({"unreleased": context["unreleased"][key]} if key in context["unreleased"] else {}),
                                       "how": how, "ring": ring, "used_in": {"count": len(recipes), "items": selected},
                                       "links": links})
     return context["names"], players
@@ -322,7 +323,8 @@ def project_guides(root, identities, context, output):
                      "path": path, "sha256": sha, "bytes": len(data)})
     # ADR-0002 §5: scenery no harvest rule names is reported after every update.
     unmatched = sorted(set(guide_queries.other_scenery_sources(context).values()))
-    return rows, {"count": len(rows), "dropped_links": drops, "errors": errors, "other_scenery": unmatched}
+    return rows, {"count": len(rows), "dropped_links": drops, "errors": errors, "other_scenery": unmatched,
+                  "features": context["features"]}
 
 
 def history_rows(root, runs, current_state, topic_ids):

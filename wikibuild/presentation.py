@@ -116,6 +116,24 @@ def load(path: str | Path) -> Registry:
         raise ValueError("kinds: expected an object")
     if not isinstance(registry.get("glossaries"), dict):
         raise ValueError("glossaries: expected an object")
+    features = registry.get("features", {})
+    if not isinstance(features, dict) or ("features" in registry and
+            (not isinstance(features.get("about"), str) or not features["about"].strip())):
+        raise ValueError("features.about: expected text")
+    for name, feature in features.items():
+        if name == "about":
+            continue
+        key = f"features.{name}"
+        if (not isinstance(name, str) or not name or not isinstance(feature, dict)
+                or set(feature) != {"manager_object", "source_types", "label", "evidence"}):
+            raise ValueError(f"{key}: invalid feature definition")
+        if any(not isinstance(feature[field], str) or not feature[field].strip()
+               for field in ("manager_object", "label", "evidence")):
+            raise ValueError(f"{key}: manager_object, label and evidence must be nonempty text")
+        types = feature["source_types"]
+        if (not isinstance(types, list) or not types or any(not isinstance(kind, str) or not kind.strip() for kind in types)
+                or len(types) != len(set(types))):
+            raise ValueError(f"{key}.source_types: expected unique nonempty strings")
     # Harvest rules are optional; without them every gathering source reads "other scenery".
     guides = registry.get("guides", {})
     if not isinstance(guides, dict) or not isinstance(guides.get("harvest_families", []), list):

@@ -92,6 +92,8 @@ def fixture():
         row("table", "loot-table", "Parts", {"rates": [{"_spawnLootTag": "Parts", "_spawnRateRange": 1}]}),
         row("tag", "loot-tag", "Parts", {"tag": "Parts"}, [link("eligible-item", "part")]),
         row("merchant", "loot-table", "Merchant", {"BiomeName": "Forest"}, [link("merchant-stock-item", "stock")]),
+        row("merchant-manager", "loot-source", "Merchant_Mgr",
+            {"manager_object": "Merchant_Mgr", "manager_active": True}),
         row("hand", "workbench", "Hand crafting", {"_workbenchType": 0}),
         row("bench1", "workbench", "Workbench", {"_workbenchType": 1}),
         row("bench2", "workbench", "Forge", {"_workbenchType": 2}),
@@ -257,8 +259,39 @@ class GuideQueryTests(unittest.TestCase):
         self.assertEqual(query(self.ctx, "ring.exclusive_loot", 0), [{"item": entity("part", "Spare Part"),
                          "how": rich("found in ", "crates", " in ", entity("forest", "Mossy Forest"))}])
         self.assertEqual(query(self.ctx, "ring.exclusive_loot", 1), [])
-        self.assertEqual(query(self.ctx, "ring.merchant_summary", 0), {"merchant_count": "1"})
+        self.assertEqual(query(self.ctx, "ring.merchant_summary", 0),
+                         {"merchant_count": "1", "merchant_plural": "kind of item"})
         self.assertIsNone(query(self.ctx, "ring.merchant_summary", 1))
+
+    def test_inactive_and_missing_manager_hide_merchant_acquisition(self):
+        rows = fixture()
+        manager = next(row for row in rows if row["entity_key"] == key("merchant-manager"))
+        manager["semantic"]["facts"]["manager_active"] = False
+        inactive = context(rows)
+        self.assertEqual(inactive["features"]["merchants"]["status"], "inactive")
+        self.assertEqual(queries.how_runs(inactive, key("stock")), [])
+        self.assertNotIn(key("stock"), [entry["item"]["entity"] for entry in query(inactive, "start.materials")])
+        self.assertNotIn(key("stock"), [entry["item"]["entity"] for entry in query(inactive, "ring.new_materials", 0)])
+        self.assertIsNone(query(inactive, "ring.merchant_summary", 0))
+        self.assertEqual(inactive["unreleased"][key("stock")], "merchants")
+        self.assertEqual(inactive["unreleased"][key("merchant")], "merchants")
+        missing = context([row for row in rows if row is not manager])
+        self.assertEqual(missing["features"]["merchants"]["status"], "manager-object-missing")
+        self.assertIsNone(query(missing, "ring.merchant_summary", 0))
+        manager["semantic"]["facts"]["manager_active"] = True
+        active = context(rows)
+        self.assertIn("sold by merchants", words(queries.how_runs(active, key("stock"))))
+        guide = render(load_spec(ROOT / "guides/progression-by-biome.json"), queries.QUERIES, active)
+        self.assertIn("Merchants here sell 1 kind of item.", render_markdown(guide, lambda value: "/entry/" + value))
+        next_item = row("second-stock", "item", "Second stock", {"_Tag": "废旧材料"})
+        rows.append(next_item)
+        stock_table = next(row for row in rows if row["entity_key"] == key("merchant"))
+        stock_table["semantic"]["relationships"].append(link("merchant-stock-item", "second-stock"))
+        plural = context(rows)
+        self.assertEqual(query(plural, "ring.merchant_summary", 0),
+                         {"merchant_count": "2", "merchant_plural": "kinds of items"})
+        guide = render(load_spec(ROOT / "guides/progression-by-biome.json"), queries.QUERIES, plural)
+        self.assertIn("Merchants here sell 2 kinds of items.", render_markdown(guide, lambda value: "/entry/" + value))
 
     def test_easier_gathering_uses_first_located_ring_and_excludes_new_materials(self):
         rows = fixture() + [row("mountain", "biome", "Mountain"),

@@ -27,6 +27,7 @@ KINDS = tuple(sorted({spec.kind for spec in SPECS} | {"component", "asset", "unc
 VIEW_CLASSES = {("Item_Info", "Icon_Info"), ("UI", "Loot_Mgr"), ("UI", "Loot_Rate_Sets"),
                 ("Use_F", "Object_Interact"), ("Language", "Tooltip_Text")}
 PAYLOAD_TYPES = {"Texture2D", "Texture3D", "Cubemap", "Mesh", "AudioClip", "VideoClip", "Shader", "ComputeShader"}
+MERCHANT_MANAGER_OBJECT = "Merchant_Mgr"
 
 
 def spec_for(row):
@@ -39,7 +40,7 @@ def spec_for(row):
 
 
 def prepare(source, issues):
-    selected, groups, counts = {}, {}, Counter()
+    selected, groups, manager_objects, counts = {}, {}, {}, Counter()
     last = None
     for row in source.records(INPUTS[0]):
         identity = row.get("id")
@@ -49,6 +50,10 @@ def prepare(source, issues):
             raise ContractError("Catalog object index must have unique sorted identities")
         last = identity
         cls, assembly = row.get("class"), row.get("assembly")
+        if row["type"] == "GameObject" and row.get("name") == MERCHANT_MANAGER_OBJECT:
+            manager_objects[identity] = row
+            if row.get("record"):
+                source.locations[identity] = row["record"]
         spec = spec_for(row)
         if spec or cls in {"Tooltip_Text", "Language_Text"}:
             if row.get("record"):
@@ -64,7 +69,7 @@ def prepare(source, issues):
         group["count"] += 1
         if len(group["examples"]) < 8:
             group["examples"].append(identity)
-    source.catalog = {"selected": selected, "groups": groups,
+    source.catalog = {"selected": selected, "groups": groups, "manager_objects": manager_objects,
                       "coverage": {"scope": "catalog-accounting; not complete gameplay interpretation",
                                    "objects": sum(counts.values()), "accounting": dict(sorted(counts.items())),
                                    "index": INPUTS[0], "index_sha256": source.dependencies[INPUTS[0]]["sha256"]}}
@@ -114,6 +119,9 @@ def selected_records(source):
 
 def extract(source, issues):
     pending = []
+    # Read the small manager GameObject before selected_records can hold a legacy
+    # shard stream open. Its active flag is a separate serialized object fact.
+    manager_records = source.objects(sorted(source.catalog.get("manager_objects", {}))) if source.catalog.get("manager_objects") else {}
     # Prepare before selected_records can yield from a still-open legacy shard.
     mineable_items = (biomes.prepare_mineable_items(source)
                      if any(spec_for(metadata).name == "Terrain_Block_Info"
@@ -147,6 +155,19 @@ def extract(source, issues):
         # across builds. m_GameObject is an evidenced within-snapshot join key.
         row["game_objects"] = sorted(ref["target"] for ref in record.get("references", [])
                                      if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved" and "target" in ref)
+        if (spec.assembly, spec.name) == ("Merchant", "Merchant_Mgr"):
+            managers = sorted(set(row["game_objects"]) & source.catalog.get("manager_objects", {}).keys())
+            if len(managers) == 1:
+                manager_id = managers[0]
+                manager = manager_records.get(manager_id)
+                fields = manager.get("fields", {}) if manager and manager.get("type") == "GameObject" else {}
+                if fields.get("m_Name") == MERCHANT_MANAGER_OBJECT and type(fields.get("m_IsActive")) is bool:
+                    row["facts"].update(manager_object=MERCHANT_MANAGER_OBJECT, manager_active=fields["m_IsActive"])
+                    evidence = {"path": source.object_path(manager_id), "object": manager_id,
+                                "fields": ["/m_Name", "/m_IsActive"]}
+                    if manager_id in source.locations:
+                        evidence["record_sha256"] = source.locations[manager_id]["sha256"]
+                    row["evidence"].append(evidence)
         if identity in source.locations:
             row["evidence"][0]["record_sha256"] = source.locations[identity]["sha256"]
         if spec.name == "Terrain_Block_Info":

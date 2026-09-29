@@ -26,7 +26,7 @@
         {"type": "checklist", "title": "Now craftable", "query": "ring.new_recipes", "item": "{output} {made}", "group_by": "category", "limit_per_group": 8, "more": "{remaining} more in the crafting index", "empty": "Nothing new becomes craftable here."},
         {"type": "checklist", "title": "Benches you can build now", "query": "ring.new_benches", "item": "{bench}", "optional": true},
         {"type": "list", "title": "Only found here", "query": "ring.exclusive_loot", "item": "{item}: {how}", "optional": true},
-        {"type": "sentence", "template": "Merchants here sell {merchant_count} kinds of items.", "query": "ring.merchant_summary", "optional": true}
+        {"type": "sentence", "template": "Merchants here sell {merchant_count} {merchant_plural}.", "query": "ring.merchant_summary", "optional": true}
       ]
     },
     {

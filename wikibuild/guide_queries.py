@@ -70,11 +70,39 @@ def build_context(rows, registry, game_text, snapshot) -> dict:
     """Build all guide joins once for a model snapshot."""
     rows = list(rows)
     by_key = dict(sorted((row["entity_key"], row) for row in rows))
-    gameplay = graph(rows)
+    features = {}
+    disabled_types = set()
+    for name, feature in registry.get("features", {}).items():
+        if name == "about":
+            continue
+        managers = [row for row in rows
+                    if row["semantic"].get("facts", {}).get("manager_object") == feature["manager_object"]]
+        active = len(managers) == 1 and managers[0]["semantic"]["facts"].get("manager_active") is True
+        status = ("active" if active else "manager-object-missing" if not managers else
+                  "ambiguous-manager-object" if len(managers) > 1 else "inactive")
+        features[name] = {"manager_object": feature["manager_object"], "live": active, "status": status}
+        if not active:
+            disabled_types.update(feature["source_types"])
+    gameplay = graph(rows, disabled_source_types=disabled_types)
+    unreleased = {}
+    for name, feature in registry.get("features", {}).items():
+        if name == "about" or features[name]["live"]:
+            continue
+        for source_type in feature["source_types"]:
+            for source in gameplay["disabled_sources"].get(source_type, []):
+                item, via = source["item"], source["via"]
+                if not gameplay["items"][item]["sources"]:
+                    unreleased.setdefault(item, name)
+                unreleased.setdefault(via, name)
+                for link in by_key[via]["semantic"].get("relationships", []):
+                    if link["predicate"] == "defined-by":
+                        for target in link.get("targets", []):
+                            unreleased.setdefault(target, name)
     names = player_names(rows, registry, game_text, gameplay)
     cards = {key: card(registry, "item", by_key[key]["semantic"], game_text)
              for key in gameplay["items"]}
     context = {"rows": by_key, "graph": gameplay, "names": names, "cards": cards,
+               "features": features, "unreleased": unreleased,
                "registry": registry, "game_text": game_text,
                "snapshot": {key: str(value) for key, value in snapshot.items()}}
     guide_rules = registry.get("guides", {})
@@ -749,7 +777,8 @@ def _ring_merchants(context, scope):
     biomes = _ring_biomes(context, int(scope["index"]))
     count = len({entry["item"] for biome in biomes for entry in context["graph"]["biomes"][biome]["merchant"]
                  if _visible(context, entry["item"])})
-    return {"merchant_count": str(count)} if count else None
+    return {"merchant_count": str(count),
+            "merchant_plural": "kind of item" if count == 1 else "kinds of items"} if count else None
 
 
 def _targets(context, key, predicate, field=None):

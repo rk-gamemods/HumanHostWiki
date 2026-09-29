@@ -92,6 +92,54 @@ class PlayerProjectionTests(unittest.TestCase):
         for name in ("gameplay.py", "names.py", "guide_queries.py", "lint.py"):
             self.assertIn(name, reader.contract())
 
+    def test_merchant_only_item_and_stock_packs_follow_snapshot_activity(self):
+        registry = json.loads(self.fixture.registry_path.read_text(encoding="utf-8"))
+        registry["features"] = {"about": "Capture switches", "merchants": {
+            "manager_object": "Merchant_Mgr", "source_types": ["merchant"],
+            "label": "Merchants", "evidence": "Merchant.My_Start"}}
+        self.fixture.registry_path.write_bytes(json_bytes(registry))
+        self.project["repositories"][2]["owns"].append("loot-table")
+
+        def observations(active=None):
+            stock = self.row("stock", "Flux")
+            table = self.row("stock-table", "Forest merchant stock", "loot-table", {"BiomeName": "Forest"},
+                             [self.link("merchant-stock-item", "stock"), self.link("defined-by", "config")])
+            config = self.row("config", "Merchant config", "loot-source")
+            rows = [stock, table, config, self.row("forest", "Forest", "biome")]
+            if active is not None:
+                rows.append(self.row("manager", "Merchant_Mgr", "loot-source",
+                                     {"manager_object": "Merchant_Mgr", "manager_active": active}))
+            for value in (table, config, *rows[4:]):
+                value["semantic"]["topic"] = "loot"
+                value["revision_id"] = digest(json_bytes(value["semantic"]))
+            return rows
+
+        inactive = self.fixture.make_run("300", observations(False))
+        active = self.fixture.make_run("400", observations(True))
+        missing = self.fixture.make_run("500", observations())
+        site = self.build([inactive, active, missing])
+        for run, expected in ((inactive, "merchants"), (active, None), (missing, "merchants")):
+            _, items = self.maps(site, run)
+            _, loot = self.maps(site, run, "loot")
+            self.assertIn(self.key("stock"), items["search"])
+            self.assertIn(self.key("stock-table"), loot["search"])
+            for maps, name in ((items, "stock"), (loot, "stock-table"), (loot, "config")):
+                entry = maps["entries"][self.key(name)]
+                if expected is None and "player_id" not in entry:
+                    continue
+                player = maps["player"][entry["player_id"]]
+                self.assertEqual(player.get("unreleased"), expected)
+            if expected:
+                self.assertEqual(items["player"][items["entries"][self.key("stock")]["player_id"]]["how"], [])
+            else:
+                self.assertTrue(items["player"][items["entries"][self.key("stock")]["player_id"]]["how"])
+        manifest = json.loads((site / "candidate.json").read_bytes())
+        reports = {version["build_id"]: version["guides"]["features"]["merchants"]
+                   for version in manifest["versions"]}
+        self.assertEqual(reports["300"]["status"], "inactive")
+        self.assertEqual(reports["400"]["status"], "active")
+        self.assertEqual(reports["500"]["status"], "manager-object-missing")
+
     def test_history_existing_kinds_and_repeat_bytes(self):
         old = self.fixture.make_run("300", self.rows(1))
         def legacy(models, registry, text, snapshot, **kwargs):

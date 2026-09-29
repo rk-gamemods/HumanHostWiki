@@ -31,6 +31,26 @@ class CatalogFixture:
 
 
 class ComponentTests(unittest.TestCase):
+    def test_merchant_manager_gameobject_activity_is_extracted_with_evidence(self):
+        game_object = {"id": "fixture#1", "name": "Merchant_Mgr", "type": "GameObject"}
+        component = {"id": "fixture#2", "name": "Merchant_Mgr", "type": "MonoBehaviour",
+                     "assembly": "Merchant", "class": "Merchant_Mgr"}
+        record = {"id": "fixture#2", "script": {"assembly": "Merchant", "class": "Merchant_Mgr"},
+                  "fields": {"_BiomeItemSet": [], "_BuyPriceFactorGroups": [], "_SellPriceFactorGroups": []},
+                  "references": [{"field": "/m_GameObject", "status": "resolved", "target": "fixture#1"}]}
+        for active in (False, True):
+            source = CatalogFixture([game_object, component], {
+                "fixture#1": {"id": "fixture#1", "type": "GameObject",
+                              "fields": {"m_Name": "Merchant_Mgr", "m_IsActive": active}},
+                "fixture#2": record})
+            components.prepare(source, Exceptions())
+            results = list(components.extract(source, Exceptions()))
+            manager = next(row for row in results if row["source_id"] == "fixture#2")
+            self.assertEqual(manager["facts"]["manager_active"], active)
+            self.assertEqual(manager["facts"]["manager_object"], "Merchant_Mgr")
+            self.assertEqual(manager["evidence"][-1]["fields"], ["/m_Name", "/m_IsActive"])
+            self.assertIn("fixture#1", source.requested)
+
     def test_record_chunks_bound_bytes_and_count_without_losing_oversized_records(self):
         sizes = {"a": {"bytes": 7}, "b": {"bytes": 4}, "c": {"bytes": 12},
                  "d": {"bytes": 2}, "e": {}, "f": {"bytes": 2}}

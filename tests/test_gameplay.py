@@ -110,6 +110,16 @@ def near_spawn_fixture():
 
 
 class GameplayTests(unittest.TestCase):
+    def test_disabled_merchant_source_does_not_seed_reachability(self):
+        rows = fixture()
+        active = graph(rows)
+        inactive = graph(rows, disabled_source_types={"merchant"})
+        self.assertEqual([source["type"] for source in active["items"]["stock"]["sources"]], ["merchant"])
+        self.assertEqual(inactive["items"]["stock"]["sources"], [])
+        self.assertIsNone(inactive["items"]["stock"]["main_ring"])
+        self.assertEqual(inactive["disabled_sources"]["merchant"],
+                         [{"item": "seed-a", "via": "merchant"}, {"item": "stock", "via": "merchant"}])
+
     def test_every_output_field(self):
         result = graph(fixture())
         self.assertEqual(set(result), {"rings", "near_spawn", "biomes", "items", "recipes", "benches", "gaps"})

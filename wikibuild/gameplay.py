@@ -218,7 +218,7 @@ def _bench_construction(data, items, recipes, benches, hand):
             bench["gap_reason"] = "no-construction-recipe"
 
 
-def graph(rows):
+def graph(rows, disabled_source_types=()):
     """Return sorted JSON data without I/O or mutation of the input iterable.
 
     Unknown means no proven reachable ring, not ring zero. Relaxation starts
@@ -247,6 +247,8 @@ def graph(rows):
     the loader's base-terrain-prefab relationship has no resolved biome.
     """
     data = _Snapshot(rows)
+    disabled_source_types = set(disabled_source_types)
+    disabled_sources = defaultdict(set)
     items = {key: {"sources": [], "earliest_ring": None, "main_ring": None, "used_in": []}
              for key, value in data.sem.items() if value["kind"] == "item"}
     biomes = {key: {"name": value["name"], "ring": None, "mined": [],
@@ -274,6 +276,9 @@ def graph(rows):
 
     def source(item, kind, via, biome=None, bench=None, evidence="extracted"):
         if item in items:
+            if kind in disabled_source_types:
+                disabled_sources[kind].add((item, via))
+                return
             items[item]["sources"].append({"type": kind, "via": via, "biome": biome,
                                            "bench": bench, "evidence": evidence})
 
@@ -378,7 +383,7 @@ def graph(rows):
             for item in sorted(data.targets(key, "merchant-stock-item") & items.keys()):
                 for biome in sorted(places) or [None]:
                     source(item, "merchant", key, biome)
-                    if biome:
+                    if biome and "merchant" not in disabled_source_types:
                         biomes[biome]["merchant"].append({"item": item})
     for donor in items:
         for rule in data.targets(donor, "disassembly"):
@@ -504,6 +509,9 @@ def graph(rows):
                                    for field in ("mined", "container_loot", "harvest")}}
     return {"rings": rings, "near_spawn": near_spawn, "biomes": biomes, "items": items,
             "recipes": recipes, "benches": benches,
+            **({"disabled_sources": {kind: [{"item": item, "via": via} for item, via in sorted(entries)]
+                                     for kind, entries in sorted(disabled_sources.items())}}
+               if disabled_source_types else {}),
             "gaps": {"items_without_source": sorted(key for key, value in items.items() if not value["sources"]),
                      "unresolved_benches": sorted(key for key, bench in benches.items() if bench["gap_reason"]),
                      "unmapped_container_bundles": sorted(unmapped)}}

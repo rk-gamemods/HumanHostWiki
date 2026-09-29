@@ -1,6 +1,11 @@
 {
   "schema_version": 1,
   "about": "Player-facing presentation of extracted fields (ADR-0002 §2-§3). Reviewed data, not a run-time gate. Fields not listed are technical. Each decision cites the code that reads the field; see docs/adr/0002-player-template-and-guides.md.",
+  "features": {
+    "about": "Game systems a capture can ship switched off. A switched-off feature is left out of player text and marked on its entries; it returns by itself when a game update switches it on.",
+    "merchants": {"manager_object": "Merchant_Mgr", "source_types": ["merchant"], "label": "Merchants",
+                  "evidence": "Merchant.decompiled.cs:714-742 runs only while the Merchant_Mgr object is active"}
+  },
   "game_text": {
     "about": "Labels named {\"game\": KEY} are read per snapshot from the capture's item-tooltip text object (dynamicTooltip in UI.decompiled.cs) and localized Language_Mgr keys. English only; a trailing ': ' is removed. If the key is missing in a capture, the fallback label is used and the audit reports it.",
     "language": "English"
