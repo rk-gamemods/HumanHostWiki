@@ -277,7 +277,7 @@ def _loot_runs(context, sources, ring):
     return result
 
 
-def how_runs(context, item_key, ring=None, limit=2) -> list:
+def how_runs(context, item_key, ring=None, limit=2, *, gathering_only=False) -> list:
     """Return text/entity runs for at most two lowercase acquisition phrases.
 
     Join the runs without additional punctuation. Phrases already contain their
@@ -286,12 +286,15 @@ def how_runs(context, item_key, ring=None, limit=2) -> list:
     ring. Sources from other rings are omitted; if none remain, use the
     unscoped phrase. Generic scenery/loot families and grass are prose;
     named items, containers, benches and biomes retain their entity links.
+    Gathering-only phrases use located scenery so a ring lists what is there.
     """
     limit = min(2, max(0, limit))
     if not limit:
         return []
     gameplay = context["graph"]
     sources = _sources(context, item_key)
+    if gathering_only:
+        sources = [source for source in sources if source["type"] == "harvested" and source["biome"] is not None]
     if ring is not None:
         biomes = _ring_biomes(context, ring)
         sources = [source for source in sources if (
@@ -340,7 +343,7 @@ def how_runs(context, item_key, ring=None, limit=2) -> list:
         if len(phrases) >= limit:
             break
     if not phrases and ring is not None:
-        return how_runs(context, item_key, limit=limit)
+        return how_runs(context, item_key, limit=limit, gathering_only=gathering_only)
     return _join_runs(phrases, separator="; ", last="; ")
 
 
@@ -543,6 +546,10 @@ def _start_materials(context, scope):
     return [{"item": _link(context, key), "how": _how(context, key, 0), "method": method(context, key)} for key in keys]
 
 
+def _start_gathering_intro(context, scope):
+    return {}
+
+
 def _start_hand_recipes(context, scope):
     graph = context["graph"]
     recipes = [(key, recipe) for key, recipe in graph["recipes"].items()
@@ -678,6 +685,25 @@ def _ring_materials(context, scope):
     keys.sort(key=lambda key: (list(_METHODS.values()).index(method(context, key)),
                                -len(used_in(context, key)), _name(context, key).casefold(), key))
     return [{"item": _link(context, key), "how": _how(context, key, index), "method": method(context, key)} for key in keys]
+
+
+def _ring_easier_gathering(context, scope):
+    index = int(scope["index"])
+    current = _ring_biomes(context, index)
+    earlier = {biome for ring in context["graph"]["rings"] if ring["index"] < index
+               for biome in ring["biome_keys"]}
+    new_materials = {row["item"]["entity"] for row in _ring_materials(context, scope)}
+    keys = []
+    for key in context["graph"]["items"]:
+        if key in new_materials or not _visible(context, key):
+            continue
+        located = {source["biome"] for source in _sources(context, key)
+                   if source["type"] == "harvested" and source["biome"] is not None}
+        if located & current and not located & earlier:
+            keys.append(key)
+    keys.sort(key=lambda key: (_name(context, key).casefold(), key))
+    return [{"item": _link(context, key),
+             "how": {"runs": how_runs(context, key, ring=index, gathering_only=True)}} for key in keys]
 
 
 def _ring_recipes(context, scope):
@@ -981,12 +1007,14 @@ def _benches_overview(context, scope):
 
 QUERIES = {
     "start.first_biome": _start_first_biome, "start.materials": _start_materials,
+    "start.gathering_intro": _start_gathering_intro,
     "start.hand_intro": _start_hand_intro, "start.benches_intro": _start_benches_intro,
     "start.hand_recipes": _start_hand_recipes, "start.benches": _start_benches,
     "start.tools_and_weapons": _start_tools, "world.rings": _world_rings,
     "world.near_spawn": _world_near_spawn, "world.zombie_scaling": _world_zombie_scaling,
     "world.loot_quality_scaling": _world_loot_scaling, "rings": _rings,
     "ring.span": _ring_span, "ring.new_materials": _ring_materials,
+    "ring.easier_gathering": _ring_easier_gathering,
     "ring.new_recipes": _ring_recipes, "ring.new_benches": _ring_benches,
     "ring.exclusive_loot": _ring_exclusive_loot, "ring.merchant_summary": _ring_merchants,
     "weapons.stat_labels": _weapons_stat_labels, "weapons.melee": _weapons_melee,

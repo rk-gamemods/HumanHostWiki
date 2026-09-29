@@ -9,6 +9,7 @@
       "id": "first-materials",
       "heading": "Gather these first",
       "blocks": [
+        {"type": "sentence", "template": "Break rocks, trees and rubble with a melee weapon or your bare hands. With a gun or bow out, nothing drops.", "query": "start.gathering_intro"},
         {"type": "sentence", "template": "Everything below can be had in the first biome, {first_biome}. Most things in Human Host can also turn up in crates and on bodies anywhere, so this list is what you can count on, not all you might find.", "query": "start.first_biome"},
         {"type": "list", "title": "Raw materials", "query": "start.materials", "item": "{item}: {how}", "group_by": "method", "limit_per_group": 12, "more": "{remaining} more in the index"}
       ]
@@ -41,7 +42,7 @@
       "id": "sources",
       "heading": "Where this comes from",
       "blocks": [
-        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). \"First biome\" means biome 1, the ring around the spawn point."}
+        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). \"First biome\" means biome 1, the ring around the spawn point. Gathering needs a melee weapon or bare hands."}
       ]
     }
   ]

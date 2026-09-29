@@ -264,6 +264,14 @@ def graph(rows):
         linked = {key for key in matches if biomes[key]["ring"] is not None or key == base}
         return linked or matches
 
+    def bundle_biomes(bundle):
+        matches = [token for token in BUNDLE_BIOMES
+                   if re.search(r"(?:^|_)" + token + r"(?:_|\.|$)", bundle.casefold())]
+        if not matches:
+            return set()
+        token = sorted(matches, key=lambda token: (-len(token), token))[0]
+        return {biome for name in BUNDLE_BIOMES[token] for biome in named_biomes(name)}
+
     def source(item, kind, via, biome=None, bench=None, evidence="extracted"):
         if item in items:
             items[item]["sources"].append({"type": kind, "via": via, "biome": biome,
@@ -294,6 +302,16 @@ def graph(rows):
         # Item_Info._IconRef is a model identity, not an independent harvest.
         if semantic["kind"] != "building-piece":
             continue
+        harvest_places = places
+        harvest_evidence = "extracted"
+        if places == [None]:
+            source_id = data.rows[key].get("provenance", {}).get("source_id", "")
+            bundle = source_id.split("::", 1)[0].rsplit("/", 1)[-1]
+            if re.fullmatch(r"terrain_.+_assets_all(?:\.bundle)?", bundle.casefold()):
+                inferred = sorted(bundle_biomes(bundle))
+                if inferred:
+                    harvest_places = inferred
+                    harvest_evidence = "inferred-from-bundle-name"
         harvest = set()
         for link in data.links(key, "collectible-item"):
             match = re.fullmatch(r"/_Collectable_Info/_Items/(\d+)/_IconRef", link.get("field", ""))
@@ -309,8 +327,8 @@ def graph(rows):
                     continue
                 harvest.update(link.get("targets", []))
         for item in sorted(harvest & items.keys()):
-            for biome in places:
-                source(item, "harvested", key, biome)
+            for biome in harvest_places:
+                source(item, "harvested", key, biome, evidence=harvest_evidence)
                 if biome:
                     biomes[biome]["harvest"].append({"item": item, "source": key})
     # Grass is identified only among referenced vegetation prefabs, not material
@@ -341,13 +359,7 @@ def graph(rows):
         if semantic["kind"] == "loot-source" and data.links(key, "uses-loot-table"):
             source_id = data.rows[key].get("provenance", {}).get("source_id", "")
             bundle = source_id.split("::", 1)[0].rsplit("/", 1)[-1]
-            matches = [token for token in BUNDLE_BIOMES
-                       if re.search(r"(?:^|_)" + token + r"(?:_|\.|$)", bundle.casefold())]
-            places = set()
-            if matches:
-                token = sorted(matches, key=lambda token: (-len(token), token))[0]
-                for name in BUNDLE_BIOMES[token]:
-                    places.update(named_biomes(name))
+            places = bundle_biomes(bundle)
             if not places:
                 unmapped.add(bundle)
             loot = set()

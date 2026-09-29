@@ -54,10 +54,10 @@ def mining(identity, amounts):
          for index, (item, _) in enumerate(amounts)])
 
 
-def harvest_source(identity, name, item):
+def harvest_source(identity, name, item, **provenance):
     return row(identity, "building-piece", name,
                {"_Collectable_Info": {"_Items": [{"_RandomRate": 1}]}},
-               [link("collectible-item", item, "/_Collectable_Info/_Items/0/_IconRef")])
+               [link("collectible-item", item, "/_Collectable_Info/_Items/0/_IconRef")], **provenance)
 
 
 def fixture():
@@ -259,6 +259,38 @@ class GuideQueryTests(unittest.TestCase):
         self.assertEqual(query(self.ctx, "ring.exclusive_loot", 1), [])
         self.assertEqual(query(self.ctx, "ring.merchant_summary", 0), {"merchant_count": "1"})
         self.assertIsNone(query(self.ctx, "ring.merchant_summary", 1))
+
+    def test_easier_gathering_uses_first_located_ring_and_excludes_new_materials(self):
+        rows = fixture() + [row("mountain", "biome", "Mountain"),
+                            row("top2", "resource-distribution", "Mountain ground", links=[link("biome", "mountain")]),
+                            row("rebar", "item", "Rebar", {"_Tag": "BuildMat"}),
+                            row("cement", "item", "Cement", {"_Tag": "BuildMat"}),
+                            recipe("make-rebar", "rebar", [("wood", 1)]),
+                            recipe("make-cement", "cement", [("wood", 1)])]
+        world = next(row for row in rows if row["entity_key"] == key("world"))["semantic"]
+        world["facts"]["_BiomesLayers"].append({})
+        world["relationships"].append(link("biome-terrain-prefab", "top2", "/_BiomesLayers/2/terrainTops/0"))
+        for identity, name, item, bundle in [
+            ("rebar-desert", "ConBrick Debris 01", "rebar", "terrain_desert_assets_all"),
+            ("rebar-mountain", "Cactus 02", "rebar", "terrain_mountain_assets_all"),
+            ("rebar-collapse", "Rock 01", "rebar", "ground_debris_assets_all"),
+            ("cement-desert", "ConBrick Debris 03", "cement", "terrain_desert_assets_all"),
+            ("ore-desert", "ConBrick Debris 04", "ore", "terrain_desert_assets_all"),
+            ("wood-desert", "ConBrick Debris 05", "wood", "terrain_desert_assets_all"),
+        ]:
+            rows.append(harvest_source(identity, name, item,
+                                       source_id=f"bundles/{bundle}.bundle::0#1"))
+        ctx = context(rows)
+        self.assertEqual(query(ctx, "ring.easier_gathering", 0), [])
+        self.assertEqual(query(ctx, "ring.easier_gathering", 1), [
+            {"item": entity("cement", "Cement"), "how": rich("gathered from ", "rubble")},
+            {"item": entity("rebar", "Rebar"), "how": rich("gathered from ", "rubble")},
+        ])
+        self.assertEqual(query(ctx, "ring.easier_gathering", 2), [])
+        markdown = render_markdown(render(load_spec(ROOT / "guides/progression-by-biome.json"),
+                                          queries.QUERIES, ctx), lambda k: "/entry/" + k)
+        self.assertIn("Easier to get here", markdown)
+        self.assertIn(f"[Rebar](/entry/{key('rebar')}): gathered from rubble", markdown)
 
     def test_all_checkpoint_specs_render_without_jargon(self):
         ctx = context(weapon_fixture())
@@ -599,6 +631,9 @@ class GuideQueryTests(unittest.TestCase):
         document = render(load_spec(ROOT / "guides/getting-started.json"), queries.QUERIES, ctx)
         markdown = render_markdown(document, lambda k: "/entry/" + k)
         self.assertIn(f"mined in [Mossy Forest](/entry/{key('forest')})", markdown)
+        self.assertLess(markdown.index("Break rocks, trees and rubble with a melee weapon or your bare hands. With a gun or bow out, nothing drops."),
+                        markdown.index("Everything below can be had in the first biome"))
+        self.assertIn("Gathering needs a melee weapon or bare hands.", markdown)
         document = render(load_spec(ROOT / "guides/progression-by-biome.json"), queries.QUERIES, ctx)
         self.assertIn(f"at the [Workbench](/entry/{key('bench1')})", render_markdown(document, lambda k: "/entry/" + k))
 

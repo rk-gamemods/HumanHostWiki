@@ -425,6 +425,25 @@ class GameplayTests(unittest.TestCase):
         self.assertEqual(result["gaps"]["unmapped_container_bundles"], [])
         self.assertEqual({source["via"]: source["biome"] for source in result["items"]["part"]["sources"]}, bundles)
 
+    def test_terrain_bundle_places_harvest_but_ground_debris_and_other_bundles_do_not(self):
+        rows = fixture() + [row("warzone", "biome", name="Warzone"), row("rebar", "item")]
+        bundles = {
+            "standing": "terrain_war_zone_assets_all",
+            "collapse": "ground_debris_assets_all",
+            "other": "props_war_zone_assets_all",
+            "generic": "terrain_unknown_assets_all",
+        }
+        for identity, bundle in bundles.items():
+            rows.append(row(identity, "building-piece", {"_Collectable_Info": {"_Items": [{"_RandomRate": 1}]}},
+                            [link("collectible-item", "rebar", "/_Collectable_Info/_Items/0/_IconRef")],
+                            source_id=f"bundles/{bundle}.bundle::0#1"))
+        result = graph(rows)
+        sources = {source["via"]: source for source in result["items"]["rebar"]["sources"]}
+        self.assertEqual({via: source["biome"] for via, source in sources.items()},
+                         {"standing": "warzone", "collapse": None, "other": None, "generic": None})
+        self.assertEqual(sources["standing"]["evidence"], "inferred-from-bundle-name")
+        self.assertEqual(result["biomes"]["warzone"]["harvest"], [{"item": "rebar", "source": "standing"}])
+
     def test_zero_chances_and_unknown_biome_do_not_seed_cycles(self):
         rows = fixture()
         by_key = {r["entity_key"]: r for r in rows}
