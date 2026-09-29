@@ -146,8 +146,8 @@
       "loot-source": {"source": "game", "how": "The container's Tooltip_Text _ItemName (e.g. Wooden_Crate_Tooltip)."},
       "skill": {"source": "game", "how": "Skill_Mgr.AllSkill _name / _instruct Language_Text; the description's {0}-style placeholders are filled per level from _values[level-1]._replaceStrs (Creature.decompiled.cs ~12381, Replace_One_By_One)."},
       "creature": {"source": "wiki", "how": "The game shows no creature names (no nameplate, no kill log). Pattern Z_Man_N → 'Male zombie (type N)', Z_Woman_N → 'Female zombie (type N)', names containing ZBoss → 'Boss zombie (type N)'. Pages mark these as wiki names."},
-      "biome": {"source": "wiki", "how": "The game shows no biome names (Merchant_Mgr.GetBiomeNameFromHit is internal only). Wiki names; pages mark them as such.",
-        "names": {"Mountain_Forest": "Mountain Forest", "Moss_Forest": "Moss Forest", "War_Zone": "War Zone", "Wasteland": "Wasteland", "Desert": "Desert", "Desert_Rocky": "Rocky Desert", "Tropical_Jungle": "Tropical Jungle", "Tropical_Swamp": "Tropical Swamp", "Winter_Town": "Winter Town", "Winter_Forest": "Winter Forest", "Base": "Base"}}
+      "biome": {"source": "wiki", "how": "The game shows no biome names (Merchant_Mgr.GetBiomeNameFromHit is internal only). Wiki names keyed by the biome record name, worded after the terrain bundle (terrain_mossy_forest, terrain_tropical_swamp); pages mark them as such. The near-spawn Base ground is \"Spawn area\", because players read \"Base\" as their own base.",
+        "names": {"Mountain": "Mountain Forest", "Forest": "Mossy Forest", "Warzone": "War Zone", "Wasteland": "Wasteland", "Desert": "Desert", "Desert_Rocky": "Rocky Desert", "Tropical": "Tropical Jungle", "Swamp": "Tropical Swamp", "Winter_Town": "Winter Town", "Winter_Forest": "Winter Forest", "Base": "Spawn area"}}
     }
   }
 }
