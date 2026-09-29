@@ -7,6 +7,17 @@ Mutable slots, save identifiers, current quality and menus are excluded.
 from .schema import NUMBER as N, Ref, component, fields
 
 SPECS = (
+    component("UI", "DynamicToolTipSet", "equipment", "items-equipment", {
+        # UI/UI.decompiled.cs: DynamicToolTipSet.ToolTipTiles contains only
+        # these Language_Text references; data is the serialized wrapper.
+        "data": fields({name: Ref("tooltip-text") for name in """
+_Dura_Title _BlockDura _Damage_Title _HitDown_Title _BladeHit_Title _GunFireRate_Title
+_SingleShot_Title _GunMaxMag_Title _GunAmmoType_Title _BowAmmoType_Str _Quality_Title
+_BladeHit_Instruct _HeadShot_Instruct _ArrowDamage _ArrowRange _ArrowSpeed
+_ShootRange_Title _Recoil_Title _DummyRound_Title _Jam_Title _GatheringTool
+_GatheringToolSmallAxe""".split()}),
+    }, "m_Enabled m_GameObject m_Name m_Script",
+       notes="Item tooltip title and instruction bindings to the game's localized text records."),
     component("UI", "Slot_Info", "equipment", "items-equipment", {
         "_slotIndex": int, "_SlotType": int, "_NeedSwapCheck": int,
         "_slotTag": str, "_slotTag2": str,
