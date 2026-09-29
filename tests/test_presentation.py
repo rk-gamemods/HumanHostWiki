@@ -112,6 +112,29 @@ class PresentationTests(unittest.TestCase):
             ("/_BladeHitProb", "2.5%"),
         ])
 
+    def test_handmade_ammo_effects(self):
+        ammo = record("combat-rule", {"_HandCraftBullet": [
+            {"BulletMat": "Neutral_Bullet", "Damage_F": 1, "Range_F": 1,
+             "Recoil_F": 1, "Dummy_Rate": 0, "Stuck_Rate": 0},
+            {"BulletMat": "Cop_Bullet", "Damage_F": 0.87345, "Range_F": 0.8,
+             "Recoil_F": 1.12555, "Dummy_Rate": 0.01234, "Stuck_Rate": 0.025},
+        ]})
+        text = {**GAME_TEXT, "_ShootRange_Title": "Range: ",
+                "_Recoil_Title": "Recoil: ", "_DummyRound_Title": "Dud chance: "}
+        result = presentation.card(self.registry, "combat-rule", ammo, text)
+        self.assertEqual(result["stats"][0]["display"], [
+            {"material": "Neutral_Bullet", "effects": []},
+            {"material": "Cop_Bullet", "effects": [
+                {"label": "Damage", "value": "-12.66%"},
+                {"label": "Range", "value": "-20%"},
+                {"label": "Recoil", "value": "+12.56%"},
+                {"label": "Dud chance", "value": "1.23%"},
+                {"label": "Jam rate", "value": "2.5%"},
+            ]},
+        ])
+        self.assertEqual(result["missing_game_text"], ["_Jam_Title"])
+        self.assertNotIn("pending", result)
+
     def test_case_can_match_fact_label_and_rounding_is_away_from_zero(self):
         bow = record("item", {"_Tag": 9, "_baseDamage": 1.005},
                      fact_labels={"/_Tag": "Bow"})
@@ -130,13 +153,47 @@ class PresentationTests(unittest.TestCase):
         result = presentation.card(self.registry, "item", item, text)
         self.assertEqual(result["notes"], [{"field": "/_Tags/0", "text": "Small axe harvest note."}])
 
-    def test_pending_and_technical_kind(self):
+    def test_m1891_recipe_ingredients(self):
+        # M1891 in build 25548639; amounts and links from its extracted record.
+        ingredients = [
+            ("f739d2433cb36ed4ab87c9ba69a7a193", 1, "e-77bb72f728767343e6357ca500db2067", "Rifle Parts"),
+            ("7cdd1222de58be149815c0d6647bb151", 8, "e-9d402ed7dc3d50909f7145b32019b7cf", "Iron Ingot"),
+            ("0ddbabcee7601a149be867215cf5c2f7", 6, "e-df8e84f3d486ad265038daac0b34d9bf", "Wood"),
+            ("d4ba8c34406374e478452b2a2e2bdc49", 12, "e-b6db28444d6529e0fe27b9edc9ed4e71", "Waste plastic"),
+            ("e0233852a8ff00642ba77bfb8f46203a", 10, "e-9b5858d6176076264aa4e1ceae8ca514", "Tape"),
+            ("d2f5eb8d492179647a448f98ff62adf8", 8, "e-69100e9633eeac8d54ad9ac303f6d0a5", "Spring"),
+        ]
+        recipe = record("recipe", {"craftNum": 1, "craftSeconds": 20.0,
+                                   "matsData": [{"matIcon": icon, "matNeedCount": count}
+                                                for icon, count, _, _ in ingredients]},
+                        [{"predicate": "consumes-item-asset", "field": f"/matsData/{index}/matIcon",
+                          "targets": [target]}
+                         for index, (_, _, target, _) in enumerate(ingredients)])
+        recipe["relationships"].reverse()  # The facts, not relationship order, set display order.
+        links = {target: {"name": name, "topic": "items-equipment"}
+                 for _, _, target, name in ingredients}
+        result = presentation.card(self.registry, "recipe", recipe, GAME_TEXT, links)
+        self.assertEqual(result["stats"][2]["display"], [
+            {"name": name, "count": count, "target": target}
+            for _, count, target, name in ingredients
+        ])
+        self.assertNotIn("pending", result)
+
+        # A relationship without a linked name cannot provide a usable target.
+        links.pop(ingredients[3][2])
+        gap = presentation.card(self.registry, "recipe", recipe, GAME_TEXT, links)["stats"][2]["display"]
+        self.assertEqual(gap[3], {"name": None, "count": 12, "target": None, "gap": True})
+        self.assertEqual(gap[:3], result["stats"][2]["display"][:3])
+        self.assertEqual(gap[4:], result["stats"][2]["display"][4:])
+
+    def test_missing_ingredient_target_and_technical_kind(self):
         recipe = record("recipe", {"craftNum": 2, "craftSeconds": 20,
                                    "matsData": [{"matNeedCount": 1}]})
         result = presentation.card(self.registry, "recipe", recipe, GAME_TEXT)
-        self.assertEqual(result["pending"], ["/matsData"])
+        self.assertNotIn("pending", result)
         self.assertEqual(result["stats"][1]["display"], "20 s")
-        self.assertIsNone(result["stats"][2]["display"])
+        self.assertEqual(result["stats"][2]["display"], [
+            {"name": None, "count": 1, "target": None, "gap": True}])
         self.assertIsNone(presentation.card(self.registry, "creature", recipe, GAME_TEXT))
 
     def test_registry_rejects_bad_keys(self):

@@ -181,9 +181,52 @@ def _round2(value: Any) -> str:
     return "0" if result in ("", "-0") else result
 
 
-def _display(fmt: str, value: Any, pointer: str, labels: dict, semantic: dict, links: dict) -> str | None | object:
-    if fmt in ("ingredients", "handmade_ammo", "flag"):
+def _ingredients(value: list, pointer: str, semantic: dict, links: dict) -> list:
+    targets_by_field = {}
+    for relation in semantic.get("relationships", []):
+        if relation.get("predicate") == "consumes-item-asset":
+            targets_by_field.setdefault(relation.get("field"), []).extend(relation.get("targets", []))
+    ingredients = []
+    for index, item in enumerate(value):
+        targets = targets_by_field.get(f"{pointer}/{index}/matIcon", [])
+        target = next((key for key in targets if key in links and isinstance(links[key].get("name"), str)), None)
+        ingredient = {"name": links[target]["name"] if target is not None else None,
+                      "count": item.get("matNeedCount"), "target": target}
+        if target is None:
+            ingredient["gap"] = True
+        ingredients.append(ingredient)
+    return ingredients
+
+
+def _handmade_ammo(value: list, game_text: dict, missing: set) -> list:
+    specs = (
+        ("Damage_F", "_Damage_Title", "Damage", 1, -1, "-"),
+        ("Range_F", "_ShootRange_Title", "Range", 1, -1, "-"),
+        ("Recoil_F", "_Recoil_Title", "Recoil", 1, 1, "+"),
+        ("Dummy_Rate", "_DummyRound_Title", "Dud rate", 0, 1, ""),
+        ("Stuck_Rate", "_Jam_Title", "Jam rate", 0, 1, ""),
+    )
+    rows = []
+    for item in value:
+        effects = []
+        for field, text_key, fallback, neutral, direction, prefix in specs:
+            factor = Decimal(str(item[field]))
+            if factor == neutral:
+                continue
+            label = _game_string(game_text, text_key, fallback, missing).strip(": ")
+            effects.append({"label": label, "value": prefix + _round2((factor - neutral) * direction * 100) + "%"})
+        rows.append({"material": item["BulletMat"], "effects": effects})
+    return rows
+
+
+def _display(fmt: str, value: Any, pointer: str, labels: dict, semantic: dict,
+             game_text: dict, links: dict, missing: set) -> Any:
+    if fmt == "flag":
         return None
+    if fmt == "ingredients":
+        return _ingredients(value, pointer, semantic, links)
+    if fmt == "handmade_ammo":
+        return _handmade_ammo(value, game_text, missing)
     if fmt == "repair_link":
         targets = (target for rel in semantic.get("relationships", []) if rel.get("predicate") == "repair-item"
                    for target in rel.get("targets", []))
@@ -223,11 +266,11 @@ def _game_string(game_text: dict, key: str, fallback: str | None, missing: set) 
 
 
 def _stat(pointer: str, value: Any, entry: dict, labels: dict, semantic: dict,
-          game_text: dict, links: dict, stats: list, notes: list, pending: set, missing: set) -> None:
+          game_text: dict, links: dict, stats: list, notes: list, missing: set) -> None:
     if _omitted(value, entry.get("omit", [])):
         return
     fmt = entry["format"]
-    display = _display(fmt, value, pointer, labels, semantic, links)
+    display = _display(fmt, value, pointer, labels, semantic, game_text, links, missing)
     if display is _MISSING:
         return
     label = entry["label"]
@@ -236,8 +279,6 @@ def _stat(pointer: str, value: Any, entry: dict, labels: dict, semantic: dict,
     if entry.get("unit") and display is not None:
         display += " " + entry["unit"]
     stats.append({"field": pointer, "label": text, "display": display, "order": entry.get("order", 0)})
-    if fmt in ("ingredients", "handmade_ammo"):
-        pending.add(pointer)
     if "note" in entry:
         note = entry["note"]
         note_key = note.get("cases", {}).get(str(value), note["game"])
@@ -256,7 +297,7 @@ def card(registry: Registry, kind: str, semantic: dict, game_text: dict,
     labels = semantic.get("fact_labels") or {}
     links = links or {}
     eyebrow, stats, notes = [], [], []
-    hidden, technical, pending, missing = set(), set(), set(), set()
+    hidden, technical, missing = set(), set(), set()
     for spec in definition.get("card", {}).get("eyebrow", []):
         pointer = spec["field"]
         value = labels.get(pointer, _lookup(facts, pointer))
@@ -289,16 +330,14 @@ def card(registry: Registry, kind: str, semantic: dict, game_text: dict,
                         item = {**entry, **position}
                         item_pointer = f"{pointer}/{index}"
                         _stat(item_pointer, value[index], item, labels, semantic, game_text,
-                              links, stats, notes, pending, missing)
+                              links, stats, notes, missing)
         else:
             _stat(pointer, value, entry, labels, semantic, game_text,
-                  links, stats, notes, pending, missing)
+                  links, stats, notes, missing)
     registered = set(definition["fields"])
     technical.update("/" + key.replace("~", "~0").replace("/", "~1")
                      for key in facts if "/" + key.replace("~", "~0").replace("/", "~1") not in registered)
     result = {"eyebrow": eyebrow, "stats": sorted(stats, key=lambda stat: (stat["order"], stat["field"])),
               "notes": sorted(notes, key=lambda note: (note["field"], note["text"])),
               "hidden": sorted(hidden), "technical": sorted(technical), "missing_game_text": sorted(missing)}
-    if pending:
-        result["pending"] = sorted(pending)
     return result
