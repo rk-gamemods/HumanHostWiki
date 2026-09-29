@@ -71,6 +71,16 @@ tier.
 Records that share a display name get distinct player names, derived from their sources. For
 example, "M1891 (crafted)" and "M1891 (loot)". Identity rules are unchanged.
 
+Records whose only name is internal, such as combat records named `Axe_Combo_2` or
+`Z_Attack_01`, get a wiki name. Where exactly one item or creature uses a record, the name
+comes from that user, as in "Crude Axe combat". Otherwise the internal name is split into
+words. Pages mark these as wiki names. Any player name that the jargon lint (§6) flags as an
+identifier falls back to the same rule, so no internal name reaches a player page.
+
+Values that the game names from a code table use the game's names. Handmade ammo materials
+are Copper, Steel, Titanium, Chrome and Tungsten, by position in `_HandCraftBullet`
+(`Hand_Tools.decompiled.cs:11213`, `UI.decompiled.cs:3188`).
+
 ## 4. Derived gameplay joins
 
 New adapters add these relationships, each with an evidence level:
@@ -81,6 +91,23 @@ New adapters add these relationships, each with an evidence level:
 - vegetation to collectible;
 - an acquisition summary for each item;
 - the earliest ring in which each recipe and its workbench chain can be made.
+
+The patches of Base terrain near spawn are not a ring. The terrain loader uses
+`_BaseBigTerrains` when the chosen layer index is -1, through the border blend next to layer 0
+(`Terrain.decompiled.cs` ~7334-7411). That ground can drop every ore, but each rare ore drops
+on only 1% of dig hits there, against 20% in its home biome. Counting it as ring 0 would put
+every ore at ring 0 and flatten the progression guide. The graph records it separately as
+`near_spawn`, and guides mention it once.
+
+Each item, recipe and bench therefore carries two rings:
+
+- `earliest_ring`: the first ring where it can be had at all;
+- `main_ring`: the ring where it is reliably had. For a mined material, this is the ring whose
+  biome gives the highest chance per dig hit. For a crafted thing, it is the latest main ring
+  among its ingredients and its bench.
+
+Guides show `main_ring` and label it "Ring". Each guide's sources line says what the ring
+means.
 
 Rates stay labelled as rates. ADR-0001 §4 forbids presenting them as probabilities without a
 verified selection rule. A rate that the game itself shows as a percentage, and whose roll is
