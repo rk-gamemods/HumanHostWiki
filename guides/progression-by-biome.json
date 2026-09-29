@@ -10,6 +10,7 @@
       "heading": "How the world is laid out",
       "blocks": [
         {"type": "sentence", "template": "The world is a set of rings around your starting point. Each ring is one biome and is about {ring_width} wide, and the pattern repeats after {ring_count} rings.", "query": "world.rings"},
+        {"type": "sentence", "template": "Close to the spawn point there are patches of mixed ground where any ore can turn up, but only about {near_spawn_chance} of dig hits find one. Each ore is far more common in its home biome, listed below.", "query": "world.near_spawn", "optional": true},
         {"type": "sentence", "template": "Zombies get stronger the farther you are from the start: every {zombie_level_step} adds a level, and each level adds health and damage.", "query": "world.zombie_scaling", "optional": true},
         {"type": "sentence", "template": "Loot quality can also rise with distance: the best possible quality goes up one tier every {quality_step}.", "query": "world.loot_quality_scaling", "optional": true}
       ]
@@ -19,9 +20,9 @@
       "repeat": "rings",
       "heading": "Ring {index}: {biome}",
       "blocks": [
-        {"type": "sentence", "template": "{biome} starts about {start_distance} from the start.", "query": "ring.span"},
+        {"type": "sentence", "template": "{biome} runs from {start_distance} to {end_distance} out from the spawn point.", "query": "ring.span"},
         {"type": "list", "title": "New raw materials", "query": "ring.new_materials", "item": "{item}: {how}", "empty": "No raw material first appears here."},
-        {"type": "checklist", "title": "Now craftable", "query": "ring.new_recipes", "item": "{output} at the {bench}", "group_by": "category", "limit_per_group": 8, "more": "{remaining} more in the crafting index", "empty": "Nothing new becomes craftable here."},
+        {"type": "checklist", "title": "Now craftable", "query": "ring.new_recipes", "item": "{output} {made}", "group_by": "category", "limit_per_group": 8, "more": "{remaining} more in the crafting index", "empty": "Nothing new becomes craftable here."},
         {"type": "checklist", "title": "Benches you can build now", "query": "ring.new_benches", "item": "{bench}", "optional": true},
         {"type": "list", "title": "Only found here", "query": "ring.exclusive_loot", "item": "{item}: {how}", "optional": true},
         {"type": "sentence", "template": "Merchants here sell {merchant_count} kinds of items.", "query": "ring.merchant_summary", "optional": true}
@@ -31,7 +32,7 @@
       "id": "sources",
       "heading": "Where this comes from",
       "blocks": [
-        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Distances are in metres, the unit the game itself uses when it shows speeds in m/s. Chances per dig hit come from the game's weighted pick. A container's biome is inferred from the name of the asset bundle it ships in."}
+        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Distances are in metres, the unit the game itself uses when it shows speeds in m/s. A material belongs to the ring where it drops most often per dig hit. A container's biome is inferred from the name of the asset bundle it ships in."}
       ]
     }
   ]

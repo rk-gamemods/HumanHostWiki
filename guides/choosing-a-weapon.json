@@ -4,7 +4,7 @@
   "title": "Choosing a weapon",
   "dek": "Every melee weapon, gun and bow side by side: how hard it hits, what it needs, and how early you can get it.",
   "audience": "A player comparing weapons.",
-  "rule": "No weapon is called best. Tables sort by the earliest ring you can get each weapon, then by damage.",
+  "rule": "No weapon is called best. Tables sort by ring, then by damage.",
   "sections": [
     {
       "id": "reading-the-stats",
@@ -17,14 +17,14 @@
       "id": "melee",
       "heading": "Melee weapons",
       "blocks": [
-        {"type": "table", "query": "weapons.melee", "columns": ["Weapon", "Damage", "Execute", "Knockdown", "Durability", "Earliest ring", "How to get it"]}
+        {"type": "table", "query": "weapons.melee", "columns": ["Weapon", "Damage", "Execute", "Knockdown", "Durability", "Ring", "How to get it"]}
       ]
     },
     {
       "id": "guns",
       "heading": "Guns",
       "blocks": [
-        {"type": "table", "query": "weapons.guns", "columns": ["Weapon", "Type", "Damage", "Fire rate", "Capacity", "Ammo", "Earliest ring", "How to get it"]},
+        {"type": "table", "query": "weapons.guns", "columns": ["Weapon", "Type", "Damage", "Fire rate", "Capacity", "Ammo", "Ring", "How to get it"]},
         {"type": "list", "title": "Where the ammo comes from", "query": "weapons.ammo_sources", "item": "{ammo}: {how}"}
       ]
     },
@@ -32,7 +32,7 @@
       "id": "bows",
       "heading": "Bows",
       "blocks": [
-        {"type": "table", "query": "weapons.bows", "columns": ["Weapon", "Arrow Damage", "Speed", "Durability", "Earliest ring", "How to get it"]}
+        {"type": "table", "query": "weapons.bows", "columns": ["Weapon", "Arrow Damage", "Speed", "Durability", "Ring", "How to get it"]}
       ]
     },
     {
@@ -46,7 +46,7 @@
       "id": "sources",
       "heading": "Where this comes from",
       "blocks": [
-        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Stats are the item values the game's own tooltip shows, before quality bonuses."}
+        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Stats are the item values the game's own tooltip shows, before quality bonuses. Ring is the first ring where you can reliably get the weapon and everything needed to make it."}
       ]
     }
   ]
