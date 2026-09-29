@@ -32,6 +32,13 @@ class PresentationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.registry = presentation.load(REGISTRY)
 
+    def test_language_keys_are_their_own_english_labels(self):
+        food = record("item", {"_Tag": "Food", "_Tags": ["+20", "+5", "", ""]})
+        result = presentation.card(self.registry, "item", food, {})
+        self.assertEqual([stat["label"] for stat in result["stats"] if stat["order"] in (90, 91)],
+                         ["Food", "Water"])
+        self.assertEqual(result["missing_game_text"], [])
+
     def test_crude_axe(self):
         axe = record("item", {
             "_baseDamage": 10.0, "_BaseMaxDurability": 165.0,

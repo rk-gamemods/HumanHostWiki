@@ -278,8 +278,14 @@ def _stat(pointer: str, value: Any, entry: dict, labels: dict, semantic: dict,
     if display is _MISSING:
         return
     label = entry["label"]
-    game_key = label.get("game", label.get("game_key"))
-    text = _game_string(game_text, game_key, label["fallback"], missing) if game_key else label["fallback"]
+    if "game" in label:
+        text = _game_string(game_text, label["game"], label["fallback"], missing)
+    elif "game_key" in label:
+        # Language_Mgr.Get_Text looks strings up by their English text (Language.decompiled.cs:75-83),
+        # so in English a Language_Mgr key is its own label.
+        text = label["game_key"]
+    else:
+        text = label["fallback"]
     if entry.get("unit") and display is not None:
         display += " " + entry["unit"]
     stats.append({"field": pointer, "label": text, "display": display, "order": entry.get("order", 0)})
