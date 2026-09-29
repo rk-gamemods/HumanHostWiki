@@ -14,7 +14,14 @@
     "text": "String as stored, trimmed.",
     "signed_text": "String as stored; the game shows these with their sign, e.g. '+10'.",
     "per_minute_from_seconds": "60 / x shots per minute, rounded to a whole number, then ' / min'.",
-    "positive_integer": "abs(x) rounded to a whole number."
+    "positive_integer": "abs(x) rounded to a whole number.",
+    "multiplier_list": "List of multipliers: '× 1.1, × 1.3'.",
+    "yes_no": "'Yes' or 'No'.",
+    "coded": "The coded value's readable label from fact_labels, else the raw value.",
+    "flag": "The label alone, with no value; used for yes-only traits such as Harvest.",
+    "repair_link": "Name of the repair-item relationship target; omitted when there is none.",
+    "ingredients": "Recipe ingredients with amounts (phase 3 join).",
+    "handmade_ammo": "Handmade ammo modifiers: damage −%, range −%, recoil +%, dud %, jam %, neutral values hidden (phase 3)."
   },
   "kinds": {
     "item": {
@@ -27,9 +34,11 @@
           "cases": [{"when": {"/_Tag": "Bow"}, "label": {"game": "_ArrowDamage", "fallback": "Arrow Damage"}, "format": "percent"}],
           "evidence": "UI.decompiled.cs:10322 (Get_Damage_Text, Math.Round 2); bows :10408-10411 (x100 %)"},
         "/_fireRate": {"tier": "player", "label": {"game": "_GunFireRate_Title", "fallback": "Fire rate"}, "format": "text", "omit": ["empty", {"equals": "00"}], "order": 20,
-          "cases": [{"when": {"/_Tag": "Bow"}, "label": {"game": "_ArrowSpeed", "fallback": "Speed"}, "format": "text", "unit": "m/s"}],
+          "cases": [{"when": {"/_Tag": "Bow"}, "label": {"game": "_ArrowSpeed", "fallback": "Speed"}, "format": "text", "unit": "m/s"},
+                    {"when": {"/_fireRate": "00"}, "label": {"game": "_SingleShot_Title", "fallback": "Single Shot"}, "format": "flag", "omit": []}],
           "evidence": "UI.decompiled.cs:10340-10349 (\"00\" means no line, Single Shot); bows :10104-10105 (' m/s')"},
         "/_maxMagCount": {"tier": "player", "label": {"game": "_GunMaxMag_Title", "fallback": "Capacity"}, "format": "integer", "omit": ["zero"], "order": 30,
+          "cases": [{"when": {"/_Tag": "Bow"}, "tier": "technical"}],
           "evidence": "UI.decompiled.cs:10364-10365"},
         "/_ammoType": {"tier": "player", "label": {"game": "_GunAmmoType_Title", "fallback": "Ammo"}, "format": "text", "omit": ["empty"], "order": 40,
           "cases": [{"when": {"/_Tag": "Bow"}, "label": {"game": "_BowAmmoType_Str", "fallback": "Arrow"}}],
@@ -118,7 +127,7 @@
       "": null
     },
     "slot-type": {
-      "Nothing": null, "Hand R": "Main hand", "Hand_R": "Main hand", "Hand L": "Off hand", "Hand_L": "Off hand",
+      "Nothing": null, "Hand R": null, "Hand_R": null, "Hand L": "Off hand", "Hand_L": "Off hand",
       "Equip": "Worn", "Ammo": null, "GunAttach": "Gun attachment", "Gun Attach": "Gun attachment", "Merchant": null
     }
   },

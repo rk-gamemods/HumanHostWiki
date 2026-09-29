@@ -46,7 +46,7 @@ class PresentationTests(unittest.TestCase):
             {"/_SlotType": "Hand R"})
         result = presentation.card(self.registry, "item", axe, GAME_TEXT,
                                    {"kit": {"name": "Tool Kit", "topic": "items"}})
-        self.assertEqual(result["eyebrow"], ["Melee weapon", "Main hand"])
+        self.assertEqual(result["eyebrow"], ["Melee weapon"])
         self.assertEqual([(stat["label"], stat["display"]) for stat in result["stats"]], [
             ("Damage", "10"), ("Head Damage", "× 4"), ("Execute", "8%"),
             ("Durability", "165"), ("Harvest", None), ("Repair with", "Tool Kit"),
