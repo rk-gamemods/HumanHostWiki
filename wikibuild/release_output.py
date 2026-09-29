@@ -5,12 +5,16 @@ from .storage import ContractError, digest, json_bytes, within
 
 OWNER_FILE = ownership.OWNER_FILE
 IMMUTABLE = ("site/data/", "site/objects/", "site/releases/", "site/runtime/", "site/fonts/")
+HUB_ATTRIBUTES = b"* text=auto eol=lf\n/.github/ISSUE_TEMPLATE/*.yml -text\n"
 
 
 def owned(path, receipt=None):
     owner, pages = ownership.checkout(path) if receipt is None else receipt
     files = owner["files"]
-    for folder in ("site", "reference", ownership.PAGE_DIRECTORY):
+    folders = ["site", "reference", ownership.PAGE_DIRECTORY]
+    if owner.get("repository_id") == "hub":
+        folders.append(".github/ISSUE_TEMPLATE")
+    for folder in folders:
         base = path / folder
         if base.is_symlink():
             raise ContractError(f"Generated directory is a symbolic link: {base}")
@@ -20,7 +24,7 @@ def owned(path, receipt=None):
                 if entry.is_symlink() or (entry.is_file() and entry.relative_to(path).as_posix() not in allowed):
                     raise ContractError(f"Unknown file in generated namespace: {entry}")
     for name, record in files.items():
-        if name != "README.md" and not name.startswith(("site/", "reference/")):
+        if name not in {"README.md", ".gitattributes"} and not name.startswith(("site/", "reference/")) and ownership.ISSUE_TEMPLATE.fullmatch(name) is None:
             raise ContractError(f"Generated ownership escapes site/reference: {name}")
         target = within(path, name)
         if not target.is_file() or target.stat().st_size != record["bytes"] or extraction.file_hash(target) != record["sha256"]:
@@ -39,6 +43,9 @@ class Writer:
         readme = destination / "README.md"
         if repo["role"] != "partition" and "README.md" not in self.previous and readme.is_file() and readme.read_bytes() == workspace.seed_readme(repo):
             self.previous["README.md"] = {"sha256": extraction.file_hash(readme), "bytes": readme.stat().st_size}
+        attributes = destination / ".gitattributes"
+        if repo["role"] == "hub" and ".gitattributes" not in self.previous and attributes.is_file() and attributes.read_bytes() == b"* text=auto eol=lf\n":
+            self.previous[".gitattributes"] = {"sha256": extraction.file_hash(attributes), "bytes": attributes.stat().st_size}
         self.output, self.changes = dict(self.previous), {}
 
     def add(self, name, data, *, allocated=False):
@@ -60,6 +67,11 @@ class Writer:
         staged.parent.mkdir(parents=True, exist_ok=True)
         staged.write_bytes(data)
         self.changes[name] = {"old": prior["sha256"] if prior else None, "new": record["sha256"], "bytes": len(data)}
+
+    def remove(self, name):
+        prior = self.previous[name]
+        self.output.pop(name)
+        self.changes[name] = {"old": prior["sha256"], "new": None, "bytes": 0}
 
     def finish(self, file_limit=capacity.Budgets().file_bytes):
         if self.changes or not self.marker.exists():

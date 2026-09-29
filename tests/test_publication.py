@@ -245,6 +245,38 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "Private or binary"):
             publication_git.audit(repo, git(repo, "rev-parse", "HEAD"))
 
+    def test_public_history_allows_hub_issue_template_only_and_scans_bytes(self):
+        data = b"name: Correction\ndescription: Wrong fact\nbody:\n  - type: input\n"
+        for identity in ("hub", "items"):
+            repo = self.root / "repositories" / identity
+            baseline = git(repo, "rev-parse", "HEAD")
+            path = repo / ".github/ISSUE_TEMPLATE/accuracy.yml"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(data)
+            git(repo, "add", ".github/ISSUE_TEMPLATE/accuracy.yml")
+            git(repo, "commit", "-qm", "Issue template fixture")
+            head = git(repo, "rev-parse", "HEAD")
+            if identity == "hub":
+                self.assertEqual(publication_git.audit(repo, head, baseline)["commits"], 1)
+                invalid = repo / ".github/ISSUE_TEMPLATE/accuracy_bad.yml"
+                invalid.write_bytes(data)
+                git(repo, "add", ".github/ISSUE_TEMPLATE/accuracy_bad.yml")
+                git(repo, "commit", "-qm", "Invalid template path fixture")
+                with self.assertRaisesRegex(ContractError, "Unapproved public history path"):
+                    publication_git.audit(repo, git(repo, "rev-parse", "HEAD"), head)
+                invalid.unlink()
+                git(repo, "add", ".github/ISSUE_TEMPLATE/accuracy_bad.yml")
+                git(repo, "commit", "-qm", "Remove invalid template fixture")
+                head = git(repo, "rev-parse", "HEAD")
+                path.write_bytes(data + b"C:/Users/Admin/private\n")
+                git(repo, "add", ".github/ISSUE_TEMPLATE/accuracy.yml")
+                git(repo, "commit", "-qm", "Private template fixture")
+                with self.assertRaisesRegex(ContractError, "Private or binary"):
+                    publication_git.audit(repo, git(repo, "rev-parse", "HEAD"), head)
+            else:
+                with self.assertRaisesRegex(ContractError, "Unapproved public history path"):
+                    publication_git.audit(repo, head, baseline)
+
 
     def test_curated_json_is_audited_and_cannot_export_private_bytes_or_code_paths(self):
         repo = self.root / 'repositories/items'

@@ -122,6 +122,41 @@ class ReaderTests(unittest.TestCase):
         self.assertNotEqual(old_fonts["base"], new_fonts["base"])
         self.assertEqual((second / (new_fonts["base"] + font.name).lstrip("/")).read_bytes(), font.read_bytes() + b"\r\n")
 
+    def test_issue_template_bytes_change_hub_digest_and_candidate(self):
+        first = self.build()[1]
+        folder = self.root / "presentation/issue-templates"
+        folder.mkdir()
+        template = folder / "accuracy.yml"
+        template.write_bytes(b"name: Accuracy\r\ndescription: Report a fact\r\nbody:\r\n  - type: input\r\n")
+        before = reader.hub_inputs(self.root)[1]["issue_templates"]
+        second = self.build()[1]
+        template.write_bytes(template.read_bytes().replace(b"Accuracy", b"Correction"))
+        after = reader.hub_inputs(self.root)[1]["issue_templates"]
+        third = self.build()[1]
+        self.assertNotEqual(first["candidate_id"], second["candidate_id"])
+        self.assertNotEqual(second["candidate_id"], third["candidate_id"])
+        self.assertNotEqual(before, after)
+        self.assertEqual(after["accuracy.yml"], digest(template.read_bytes()))
+
+    def test_issue_template_text_requires_utf8_no_tabs_and_top_level_keys(self):
+        folder = self.root / "presentation/issue-templates"
+        folder.mkdir()
+        template = folder / "accuracy.yml"
+        for data in (b"\xff", b"name: Report\x00\ndescription: Fact\nbody:\n",
+                     b"name: Report\n\tdescription: Fact\nbody:\n",
+                     b"  name: Nested\ndescription: Fact\nbody:\n",
+                     b"name: Report\nbody:\n"):
+            with self.subTest(data=data):
+                template.write_bytes(data)
+                with self.assertRaises(ContractError):
+                    reader.hub_inputs(self.root)
+        template.unlink()
+        (folder / "config.yml").write_bytes(b"name: Nested\n")
+        with self.assertRaises(ContractError):
+            reader.hub_inputs(self.root)
+        (folder / "config.yml").write_bytes(b"blank_issues_enabled: true\n")
+        self.assertIn("config.yml", reader.hub_inputs(self.root)[1]["issue_templates"])
+
     def test_short_cache_name_keeps_full_identity_and_rejects_prefix_collision(self):
         site, result = self.build()
         self.assertEqual(site.name, result["candidate_id"][:24])

@@ -40,11 +40,13 @@ def audit(path, head, baseline=None):
             name = raw_name.decode()
             metadata = name in {".gitattributes", ".gitignore", ".wiki-repository.json", ".wiki-output.json", "README.md"}
             metadata = metadata or re.fullmatch(r"\.wiki-ownership/[0-9a-f]{64}\.json", name) is not None
+            issue_template = (path.name == "hub" and
+                              re.fullmatch(r"\.github/ISSUE_TEMPLATE/[A-Za-z0-9-]+\.yml", name) is not None)
             generated = name.startswith(("site/", "reference/")) and name.rsplit("/", 1)[-1].endswith((".json", ".md", ".js", ".css", ".html", ".nojekyll"))
             font = re.fullmatch(r"site/fonts/[0-9a-f]{64}/[A-Za-z0-9-]+\.(?:woff2|txt)", name) is not None
             authored = (name.startswith("authored/") and name.endswith(".md")) or (
                 name.startswith("curated/") and name.endswith(".json"))
-            if mode != b"100644" or kind != b"blob" or not (metadata or generated or authored or font):
+            if mode != b"100644" or kind != b"blob" or not (metadata or generated or authored or font or issue_template):
                 raise ContractError(f"Unapproved public history path: {name}")
             # A blob may also occur at a non-font path or in older history.
             # Retain the strictest use when deduplicating bytes for the scan.

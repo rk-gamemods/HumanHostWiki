@@ -170,6 +170,9 @@ def run(root, project, candidate):
             journal = json.loads(data)
             resume(root, journal)
     manifest = reader.verify(Path(candidate["path"]), candidate["candidate_id"])
+    templates = reader.issue_templates(root)
+    if {name: digest(data) for name, data in templates.items()} != manifest["inputs"].get("issue_templates"):
+        raise ContractError("Issue template inputs changed after reader build")
     inputs = {"reader": candidate["candidate_id"], "contract": contract(), "project_sha256": digest(json_bytes(project))}
     release_id = digest(json_bytes(inputs))
     existing = within(root, f"releases/{release_id}.json")
@@ -185,11 +188,13 @@ def run(root, project, candidate):
     from . import capacity_inventory, publication
     inventory = capacity_inventory.read(root, project)
     previous = publication.published(root)
-    prepared, outputs = release_prepare.prepare(root, project, candidate, release_id, inventory, previous)
+    prepared, outputs = release_prepare.prepare(root, project, candidate, release_id, inventory, previous, templates)
     stage = within(root, prepared["stage"])
     if contract() != inputs["contract"]:
         raise ContractError("Release rules changed during preparation")
     reader.verify(Path(candidate["path"]), candidate["candidate_id"])
+    if reader.issue_templates(root) != templates:
+        raise ContractError("Issue template inputs changed during release preparation")
     result = {"schema_version": 1, "release_id": release_id, "inputs": inputs,
               "reader_candidate": candidate["candidate_id"], "versions": manifest["versions"],
               "routes": manifest["inputs"]["bases"], **outputs,

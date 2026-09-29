@@ -111,6 +111,52 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(again, result)
         self.assertEqual(self.heads(), before)
 
+    def test_issue_templates_are_hub_only_byte_exact_and_reconcile_removals(self):
+        source = self.root / "presentation/issue-templates"
+        source.mkdir()
+        accuracy = source / "accuracy.yml"
+        accuracy.write_bytes(b"name: Accuracy\r\ndescription: Wrong fact\r\nbody:\r\n  - type: input\r\n")
+        config = source / "config.yml"
+        config.write_bytes(b"blank_issues_enabled: true\r\n")
+        self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
+        first, _ = self.run_release()
+        hub = self.root / "repositories/hub/.github/ISSUE_TEMPLATE"
+        self.assertEqual((hub / "accuracy.yml").read_bytes(), accuracy.read_bytes())
+        self.assertEqual((hub / "config.yml").read_bytes(), config.read_bytes())
+        self.assertIn(b"/.github/ISSUE_TEMPLATE/*.yml -text", (self.root / "repositories/hub/.gitattributes").read_bytes())
+        for topic in ("items", "loot"):
+            self.assertFalse((self.root / "repositories" / topic / ".github/ISSUE_TEMPLATE").exists())
+        self.assertIn(".github/ISSUE_TEMPLATE/accuracy.yml", release.owned(self.root / "repositories/hub"))
+        accuracy.write_bytes(accuracy.read_bytes().replace(b"Accuracy", b"Correction"))
+        site_problem = source / "site-problem.yml"
+        site_problem.write_bytes(b"name: Site problem\ndescription: Broken page\nbody:\n  - type: textarea\n")
+        self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
+        second, _ = self.run_release()
+        self.assertNotEqual(first["release_id"], second["release_id"])
+        self.assertEqual((hub / "accuracy.yml").read_bytes(), accuracy.read_bytes())
+        self.assertEqual((hub / "site-problem.yml").read_bytes(), site_problem.read_bytes())
+        accuracy.unlink()
+        self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
+        third, _ = self.run_release()
+        self.assertNotEqual(second["release_id"], third["release_id"])
+        self.assertFalse((hub / "accuracy.yml").exists())
+        self.assertNotIn(".github/ISSUE_TEMPLATE/accuracy.yml", release.owned(self.root / "repositories/hub"))
+        heads = self.heads()
+        self.assertTrue(self.run_release()[1]["reused"])
+        self.assertEqual(self.heads(), heads)
+        self.assertEqual(independent_check(self.root)["status"], "passed")
+
+    def test_issue_template_change_after_reader_build_refuses_release(self):
+        source = self.root / "presentation/issue-templates"
+        source.mkdir()
+        template = source / "accuracy.yml"
+        template.write_bytes(b"name: Accuracy\ndescription: Wrong fact\nbody:\n")
+        self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
+        template.write_bytes(template.read_bytes().replace(b"Accuracy", b"Correction"))
+        with self.assertRaisesRegex(ContractError, "Issue template inputs changed after reader build"):
+            self.run_release()
+        self.assertFalse((self.root / "releases/latest.json").exists())
+
     def test_prior_release_data_and_runtime_remain_available_without_pack_duplication(self):
         first, _ = self.run_release()
         folder = self.root / 'repositories/items/site'

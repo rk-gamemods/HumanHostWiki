@@ -14,6 +14,7 @@ from .storage import ContractError, digest, json_bytes, within
 OWNER_FILE = ".wiki-output.json"
 PAGE_DIRECTORY = ".wiki-ownership"
 PAGE_PATH = re.compile(r"\.wiki-ownership/([0-9a-f]{64})\.json")
+ISSUE_TEMPLATE = re.compile(r"\.github/ISSUE_TEMPLATE/[A-Za-z0-9-]+\.yml")
 PAGE_BYTES = 64 * 1024
 
 
@@ -26,7 +27,8 @@ def validate(value):
     for name, meta in files.items():
         if (not isinstance(name, str) or "\\" in name or ":" in name or
                 any(part in {"", ".", ".."} for part in name.split("/")) or
-                (name != "README.md" and not name.startswith(("site/", "reference/")))):
+                (name not in {"README.md", ".gitattributes"} and not name.startswith(("site/", "reference/")) and
+                 ISSUE_TEMPLATE.fullmatch(name) is None)):
             raise ContractError(f"Generated ownership escapes site/reference: {name}")
         if (not isinstance(meta, dict) or set(meta) != {"sha256", "bytes"} or
                 not isinstance(meta["sha256"], str) or not capacity.SHA.fullmatch(meta["sha256"]) or

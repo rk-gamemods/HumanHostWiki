@@ -249,7 +249,34 @@ def hub_inputs(root):
         raise ContractError("Site guide IDs must be unique path-safe names")
     return site, {"site": digest(data), "guides": {
         key: digest((root / "guides" / (key + ".json")).read_bytes())
-        if (root / "guides" / (key + ".json")).is_file() else None for key in identities}}
+        if (root / "guides" / (key + ".json")).is_file() else None for key in identities},
+        "issue_templates": {name: digest(content) for name, content in issue_templates(root).items()}}
+
+
+def issue_templates(root):
+    """Read the hub's issue forms as validated, byte-exact release inputs."""
+    folder = root / "presentation/issue-templates"
+    if folder.is_symlink():
+        raise ContractError("Issue template input must be a directory")
+    if not folder.exists():
+        return {}
+    if not folder.is_dir():
+        raise ContractError("Issue template input must be a directory")
+    result = {}
+    for path in sorted(folder.glob("*.yml")):
+        if not re.fullmatch(r"[A-Za-z0-9-]+\.yml", path.name) or path.is_symlink() or not path.is_file():
+            raise ContractError(f"Invalid issue template input: {path}")
+        data = path.read_bytes()
+        try:
+            content = data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ContractError(f"Issue template is not UTF-8: {path}") from error
+        required = ("blank_issues_enabled",) if path.name == "config.yml" else ("name", "description", "body")
+        if ("\t" in content or "\x00" in content or
+                any(re.search(r"^" + key + r":", content, re.MULTILINE) is None for key in required)):
+            raise ContractError(f"Invalid issue template text: {path}")
+        result[path.name] = data
+    return result
 
 
 def document_runs(value):

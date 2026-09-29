@@ -5,11 +5,11 @@ import json
 from pathlib import Path
 import uuid
 
-from . import capacity_projection, entrypoints, git_transaction, physical, publication_git, release_output, release_partitions
+from . import capacity_projection, entrypoints, git_transaction, ownership, physical, publication_git, release_output, release_partitions
 from .storage import ContractError, git, within
 
 
-def prepare(root, project, candidate, release_id, inventory, previous):
+def prepare(root, project, candidate, release_id, inventory, previous, issue_templates):
     # Import at the coordinator boundary; neither placement nor the writer calls
     # release orchestration. A failed proposal never acquires a pending journal.
     from . import capacity_inventory, release
@@ -58,6 +58,14 @@ def prepare(root, project, candidate, release_id, inventory, previous):
                                    fonts_base=config.get("fonts", {}).get("base"))
             elif repo["role"] == "partition":
                 release_partitions.landing(writer, project, repo)
+            if repo["role"] == "hub":
+                writer.add(".gitattributes", release_output.HUB_ATTRIBUTES)
+                current = {f".github/ISSUE_TEMPLATE/{name}" for name in issue_templates}
+                for name, data in issue_templates.items():
+                    writer.add(f".github/ISSUE_TEMPLATE/{name}", data)
+                for name in writer.previous.keys() - current:
+                    if ownership.ISSUE_TEMPLATE.fullmatch(name):
+                        writer.remove(name)
             changes, summary = writer.finish(limits.file_bytes)
             if any(meta["bytes"] > limits.file_bytes for meta in changes.values()):
                 raise ContractError(f"Generated control file exceeds the configured file budget: {identity}")
