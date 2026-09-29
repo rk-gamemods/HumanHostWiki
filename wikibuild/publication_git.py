@@ -41,11 +41,15 @@ def audit(path, head, baseline=None):
             metadata = name in {".gitattributes", ".gitignore", ".wiki-repository.json", ".wiki-output.json", "README.md"}
             metadata = metadata or re.fullmatch(r"\.wiki-ownership/[0-9a-f]{64}\.json", name) is not None
             generated = name.startswith(("site/", "reference/")) and name.rsplit("/", 1)[-1].endswith((".json", ".md", ".js", ".css", ".html", ".nojekyll"))
+            font = re.fullmatch(r"site/fonts/[0-9a-f]{64}/[A-Za-z0-9-]+\.(?:woff2|txt)", name) is not None
             authored = (name.startswith("authored/") and name.endswith(".md")) or (
                 name.startswith("curated/") and name.endswith(".json"))
-            if mode != b"100644" or kind != b"blob" or not (metadata or generated or authored):
+            if mode != b"100644" or kind != b"blob" or not (metadata or generated or authored or font):
                 raise ContractError(f"Unapproved public history path: {name}")
-            blobs[oid.decode()] = name
+            # A blob may also occur at a non-font path or in older history.
+            # Retain the strictest use when deduplicating bytes for the scan.
+            if oid.decode() not in blobs or not (font and name.endswith(".woff2")):
+                blobs[oid.decode()] = name
     # One streaming Git process; only a small block is resident per blob.
     process = subprocess.Popen(["git", "-C", str(path), "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     private = re.compile(rb"(?i)([A-Z]:[/\\]{1,2}Users[/\\]{1,2}|/home/[^/ ]+/|gh[pousr]_[A-Za-z0-9]{30}|github_pat_[A-Za-z0-9_]{30}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY)")
@@ -58,11 +62,18 @@ def audit(path, head, baseline=None):
                 raise ContractError(f"Invalid Git object during public audit: {name}")
             remaining = int(header[2])
             tail = b""
+            font = re.fullmatch(r"site/fonts/[0-9a-f]{64}/[A-Za-z0-9-]+\.woff2", name) is not None
+            if font and remaining < 4:
+                raise ContractError(f"Invalid WOFF2 font in public history: {name}")
+            first = True
             while remaining:
                 block = process.stdout.read(min(65536, remaining))
                 if not block:
                     raise ContractError("Git stopped during public history audit")
-                if b"\0" in block or private.search(tail + block):
+                if font and first and not block.startswith(b"wOF2"):
+                    raise ContractError(f"Invalid WOFF2 font in public history: {name}")
+                first = False
+                if (not font and b"\0" in block) or private.search(tail + block):
                     raise ContractError(f"Private or binary bytes in public history: {name}")
                 tail = block[-256:]
                 remaining -= len(block)

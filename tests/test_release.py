@@ -85,6 +85,25 @@ class ReleaseTests(unittest.TestCase):
             independent_check(self.root)
         pack.write_bytes(original)
 
+    def test_font_links_and_exact_bytes_survive_release_and_repeat(self):
+        result, _ = self.run_release()
+        candidate = Path(self.candidate["path"])
+        fonts = json.loads((candidate / "hub/reader.json").read_bytes())["fonts"]
+        folder = fonts["base"].removeprefix(release.bases(self.project)["hub"])
+        for name in fonts["files"]:
+            original = (Path(reader.__file__).parent / "web/fonts" / name).read_bytes()
+            self.assertEqual((self.root / "repositories/hub/site" / folder / name).read_bytes(),
+                             original if name.endswith(".woff2") else original.replace(b"\r\n", b"\n"))
+        for repo in self.project["repositories"]:
+            for shell in (self.root / repo["path"] / "site").rglob("*.html"):
+                self.assertIn('href="' + fonts["base"] + 'fonts.css"', shell.read_text())
+        self.assertEqual(independent_check(self.root)["status"], "passed")
+        before = self.heads()
+        again, metrics = self.run_release()
+        self.assertTrue(metrics["reused"])
+        self.assertEqual(again, result)
+        self.assertEqual(self.heads(), before)
+
     def test_prior_release_data_and_runtime_remain_available_without_pack_duplication(self):
         first, _ = self.run_release()
         folder = self.root / 'repositories/items/site'

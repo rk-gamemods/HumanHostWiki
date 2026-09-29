@@ -109,7 +109,7 @@ function fixture() {
     for await (const ref of subject.context.shardReferences(index.search)) {
       searchCount += Object.keys(await subject.context.json(ref.path, ref)).length;
     }
-    assert.equal(searchCount, 160);
-    console.log("Generated multi-partition snapshot: entry lookup and 160 search records passed");
+    assert.equal(searchCount, input.count);
+    console.log("Generated multi-partition snapshot: entry lookup and all expected search records passed");
   }
 })().catch(error => {console.error(error); process.exitCode = 1;});

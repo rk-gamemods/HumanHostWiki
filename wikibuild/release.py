@@ -49,6 +49,7 @@ def project_topic(candidate, repo, writer, projection):
     release_id = projection.release_id
     config_key = logical + f"/site/releases/{release_id}.json"
     configuration = projection.payloads[config_key].read()
+    fonts = json.loads(configuration).get("fonts")
     config_ref = projection.configurations[logical]
     if config_ref["path"].startswith("https://") or repo["id"] != logical:
         if not config_ref["path"].startswith("https://"):
@@ -70,11 +71,19 @@ def project_topic(candidate, repo, writer, projection):
             reference_paths.append(name)
         elif name in {"index.html", "404.html", ".nojekyll"} or re.fullmatch(r"groups/[a-z][a-z0-9-]*/index\.html", name):
             data = source.read_bytes()
+            # Protect the shared font URL while rewriting a rolled front's
+            # own routes, including when the logical topic is the hub itself.
+            if fonts and source.suffix == ".html":
+                original_fonts = json.loads((topic / "reader.json").read_bytes())["fonts"]
+                from html import escape
+                data = data.replace(escape(original_fonts["base"], quote=True).encode(), b"__WIKI_FONT_BASE__")
             if repo["id"] != logical and source.suffix == ".html":
                 from urllib.parse import urlsplit
                 config = json.loads((topic / "reader.json").read_bytes())
                 base = next(item["base"] for item in config["topics"] if item["id"] == logical)
                 data = data.replace(urlsplit(base).path.encode(), urlsplit(projection.entrypoints[logical]).path.encode())
+            if fonts and source.suffix == ".html":
+                data = data.replace(b"__WIKI_FONT_BASE__", escape(fonts["base"], quote=True).encode())
             writer.add("site/" + name, data)
     writer.add("site/reader.js", (Path(__file__).parent / "release_bootstrap.js").read_bytes().replace(b"\r\n", b"\n"))
     writer.add("site/reader.css", b"/* The release loader selects the versioned stylesheet. */\n")

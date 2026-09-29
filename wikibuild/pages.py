@@ -13,7 +13,7 @@ def shell(title, base, project_name="Unofficial game reference", fonts_base=None
     title, base, brand = escape(title), escape(base, quote=True), escape(project_name)
     head, sep, tail = brand.rpartition(" for ")
     mark = f"{head} <em>for {tail}</em>" if sep else brand
-    fonts = f'<link rel="stylesheet" href="{escape(fonts_base, quote=True)}fonts/fonts.css">' if fonts_base else ""
+    fonts = f'<link id="wiki-fonts" rel="stylesheet" href="{escape(fonts_base, quote=True)}fonts.css">' if fonts_base else ""
     return (f'<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} | {brand}</title>'
             f'{fonts}<link rel="stylesheet" href="{base}reader.css"><script defer src="{base}reader.js"></script></head>'

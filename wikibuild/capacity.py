@@ -16,6 +16,7 @@ SHA = re.compile(r"[0-9a-f]{64}")
 OBJECT = re.compile(
     r"(?:site/(?:data|objects)/(?P<json>[0-9a-f]{64})\.json|"
     r"site/runtime/(?P<runtime>[0-9a-f]{64})/reader\.(?:js|css)|"
+    r"site/fonts/[0-9a-f]{64}/[A-Za-z0-9-]+\.(?:woff2|css|txt)|"
     r"site/releases/[0-9a-f]{64}\.json|"
     r"reference/objects/(?P<markdown>[0-9a-f]{64})\.md)")
 
@@ -202,18 +203,38 @@ def allocate(topics, partitions, stored, requested, budgets=None):
     chosen = {key: existing[key] for key in wanted.keys() & existing.keys()}
     reused = tuple(sorted(chosen))
     created = []
-    for value in sorted((value for key, value in wanted.items() if key not in existing),
-                        key=lambda value: (value.topic, -value.bytes, value.path)):
-        site_growth = value.bytes if value.path.startswith("site/") else 0
+    # A stylesheet and its relative font URLs are one placement unit. Other
+    # kinds retain their original first-fit decreasing order and accounting.
+    units = {}
+    for key, value in wanted.items():
+        if key not in existing:
+            group = key.rsplit("/", 1)[0] if value.path.startswith("site/fonts/") else key
+            units.setdefault(group, []).append(value)
+    for batch in sorted(units.values(), key=lambda values: (values[0].topic, -sum(v.bytes for v in values),
+                                                           min(v.path for v in values))):
+        value = batch[0]
+        site_growth = sum(v.bytes for v in batch if v.path.startswith("site/"))
+        blobs = {v.sha256: v.bytes for v in batch}
+        if site_growth > budgets.site_bytes - budgets.site_reserve_bytes or sum(blobs.values()) > budgets.history_bytes - budgets.history_reserve_bytes:
+            raise ContractError("Font set exceeds partition capacity")
+        pinned = ({p.partition for p in existing.values() if p.artifact.topic == value.topic and
+                   p.artifact.path.rsplit("/", 1)[0] == value.path.rsplit("/", 1)[0]}
+                  if value.path.startswith("site/fonts/") else set())
+        if len(pinned) > 1:
+            raise ContractError("Font set spans multiple partitions")
         selected = None
         for identity in groups[value.topic]:
+            if pinned and identity not in pinned:
+                continue
             item = physical[identity]
-            history_growth = 0 if value.sha256 in blob_sizes[identity] else value.bytes
+            history_growth = sum(size for sha, size in blobs.items() if sha not in blob_sizes[identity])
             if (not item.sealed and not item.entrypoint and item.site_bytes + site_growth <= budgets.site_bytes - budgets.site_reserve_bytes
                     and item.history_bytes + history_growth <= budgets.history_bytes - budgets.history_reserve_bytes):
                 selected = item
                 break
         if selected is None:
+            if pinned:
+                raise ContractError("Existing font set has no capacity for missing files")
             ordinal = physical[groups[value.topic][-1]].ordinal + 1
             selected = partition(owners[value.topic], ordinal)
             while selected.id in physical or selected.github_name.casefold() in names:
@@ -224,10 +245,11 @@ def allocate(topics, partitions, stored, requested, budgets=None):
             names.add(selected.github_name.casefold())
             blob_sizes[selected.id] = {}
             created.append(selected.id)
-        history_growth = 0 if value.sha256 in blob_sizes[selected.id] else value.bytes
+        history_growth = sum(size for sha, size in blobs.items() if sha not in blob_sizes[selected.id])
         physical[selected.id] = replace(selected, site_bytes=selected.site_bytes + site_growth,
                                         history_bytes=selected.history_bytes + history_growth)
-        blob_sizes[selected.id][value.sha256] = value.bytes
-        chosen[value.key] = Placement(value, selected.id)
+        blob_sizes[selected.id].update(blobs)
+        for value in batch:
+            chosen[value.key] = Placement(value, selected.id)
     return Plan(input_hash, tuple(sorted(physical.values(), key=lambda value: (value.topic, value.ordinal))),
                 tuple(created), tuple(chosen[key] for key in sorted(chosen)), reused)

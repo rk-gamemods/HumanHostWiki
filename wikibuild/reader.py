@@ -400,6 +400,14 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     projected = [projected[run["snapshot_id"]] for run in runs]
     views = external_views(stage, project, inputs["external_articles"], runs, max_pack_bytes, output)
     web = Path(__file__).parent / "web"
+    font_files = {file.name: (file.read_bytes() if file.suffix == ".woff2" else
+                             file.read_bytes().replace(b"\r\n", b"\n"))
+                  for file in sorted((web / "fonts").iterdir()) if file.is_file()}
+    font_metadata = {name: {"sha256": digest(data), "bytes": len(data)} for name, data in font_files.items()}
+    font_path = "fonts/" + digest(json_bytes(font_metadata)) + "/"
+    fonts = {"base": bases["hub"] + font_path, "files": font_metadata}
+    for name, data in font_files.items():
+        output("hub/" + font_path + name, data)
     topics = [{"id": repo["id"], "title": repo["title"], "base": bases[repo["id"]], "coverage": repo["coverage"]}
               for repo in project["repositories"]]
     for repo in project["repositories"]:
@@ -408,14 +416,15 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
             if file.is_file():
                 output(f"{topic}/{file.name}", file.read_bytes().replace(b"\r\n", b"\n"))
         output(f"{topic}/.nojekyll", b"")
-        # Fonts wait for a content-addressed place in the release model (U12b); until then the CSS falls back.
-        content = pages.shell(repo["title"], bases[topic], project.get("project", "Unofficial game reference"))
+        content = pages.shell(repo["title"], bases[topic], project.get("project", "Unofficial game reference"),
+                              fonts_base=fonts["base"])
         output(f"{topic}/index.html", content)
         output(f"{topic}/404.html", content)
         output(f"{topic}/reader.json", packs.compact({"schema_version": 1, "candidate_id": candidate_id,
                "project": project.get("project", "Unofficial game reference"),
                "features": ["shard-directories-v1", "paged-captures-v1", "entrypoint-rollover-v1"],
                "availability": inputs["availability"],
+               "fonts": fonts,
                "external_articles": views.get(topic),
                "topic": topic, "topics": topics, "versions": projected, "default_snapshot": projected[0]["snapshot_id"],
                "official_links": project["official_links"], "publication": "local-candidate"}))

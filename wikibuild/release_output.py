@@ -4,7 +4,7 @@ from . import capacity, extraction, ownership, workspace
 from .storage import ContractError, digest, json_bytes, within
 
 OWNER_FILE = ownership.OWNER_FILE
-IMMUTABLE = ("site/data/", "site/objects/", "site/releases/", "site/runtime/")
+IMMUTABLE = ("site/data/", "site/objects/", "site/releases/", "site/runtime/", "site/fonts/")
 
 
 def owned(path, receipt=None):
