@@ -134,6 +134,15 @@ Guides give distances in metres and kilometres. The game's own tooltip shows pro
 speed in m/s (`UI.decompiled.cs:10105`), so it treats one world unit as one metre. Raw
 game units mean nothing to a player.
 
+Guide wording follows fixed rules, so every update reads the same way:
+
+- A phrase inside a ring's section describes that ring only. The starting-ring list never sends a player to the Desert.
+- Loot is named by container family ("crates", "cars", "dead bodies", "the abandoned airport"), never by an individual container. It reads "almost everywhere" when an item is looted in 8 or more ring biomes.
+- Scenery is named by family ("ground rock", "beech tree"), with model variant and detail-level suffixes removed.
+- Benches appear only in bench lists, never again among the recipes they make possible.
+- Lists use one "and" and a correct singular ("1 more").
+- Biomes have two records each. The terrain record, which carries the gameplay, gets the plain name. The scene record is "(scene)".
+
 The first guides are:
 
 - Getting started
