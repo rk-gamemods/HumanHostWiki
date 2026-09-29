@@ -455,7 +455,6 @@ async function showEntry(key) {
   }
   if (record.decision.status === "ambiguous") body.push(notice("This may be the same thing as another entry from an older version. The wiki keeps them apart until that is settled."));
   body.push(playerCard(card, player, record));
-  if (record.explanations?.length) body.push(el("section", {class: "record-notes"}, checkedExplanations(record.explanations)));
   const reference = await technicalReference(record, semantic, card), view = el("article", {class: "entry"}, body, reference);
   show(view);
   // Community article checks are optional: they never delay the page, and attach only while it is still shown.
@@ -472,6 +471,7 @@ async function technicalReference(record, semantic, card) {
     stamps.append(el("dt", {}, label), el("dd", {}, value || "Not recorded"));
   }
   box.append(stamps);
+  if (record.explanations?.length) box.append(el("h3", {}, "Checked notes"), checkedExplanations(record.explanations));
   const notes = Array.isArray(semantic.notes) ? semantic.notes : semantic.notes ? [semantic.notes] : [];
   for (const note of notes) box.append(notice(note));
   if (semantic.fact_scope) box.append(el("p", {class: "muted"}, `Scope: ${semantic.fact_scope}`));

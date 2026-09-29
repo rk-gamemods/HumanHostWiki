@@ -32,18 +32,18 @@ main:focus { outline: none; }
 .mast nav { display: flex; gap: 1.2rem; align-items: baseline; font-size: .85rem; }
 .mast nav a { color: var(--ink); text-decoration: none; }
 .mast nav a[aria-current="page"] { text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 2px; }
-#find { display: flex; align-items: center; gap: .4rem; }
-#find input { width: 13rem; border: 0; border-bottom: 1px solid var(--ink); background: transparent; font: .85rem var(--sans); padding: .2rem 0; }
-#find input:focus-visible { outline: none; border-bottom: 2px solid var(--accent-2); }
-.is-home #find { display: none; }
+#search-form { display: flex; align-items: center; gap: .4rem; }
+#search-form input { width: 13rem; border: 0; border-bottom: 1px solid var(--ink); background: transparent; font: .85rem var(--sans); padding: .2rem 0; }
+#search-form input:focus-visible { outline: none; border-bottom: 2px solid var(--accent-2); }
+.is-home #search-form { display: none; }
 kbd { font: .66rem var(--mono); border: 1px solid var(--rule); padding: 0 .35rem; color: var(--muted); background: var(--paper); }
 .aff { grid-column: 1 / -1; margin: 0; font-size: .78rem; color: var(--muted); }
 
 /* Edition bar: which game version the page shows, and the switch to another. */
 .edition { display: flex; flex-wrap: wrap; gap: .3rem 1rem; align-items: baseline; padding: .35rem var(--gutter); border-bottom: 1px solid var(--rule); font: .74rem/1.4 var(--sans); color: var(--muted); }
 .edition b { color: var(--ink); font-weight: 600; }
-.edition label { display: inline-flex; gap: .4rem; align-items: baseline; }
-.edition select { font: .74rem var(--sans); border: 1px solid var(--rule); background: var(--paper); padding: .1rem .3rem; max-width: 22rem; }
+.edition label { display: inline-flex; gap: .4rem; align-items: baseline; min-width: 0; max-width: 100%; }
+.edition select { font: .74rem var(--sans); border: 1px solid var(--rule); background: var(--paper); padding: .1rem .3rem; min-width: 0; max-width: min(22rem, 100%); }
 .edition .older { font-weight: 600; color: var(--accent); }
 .edition button { font: .72rem var(--sans); border: 1px solid var(--rule); background: var(--paper); padding: .05rem .5rem; }
 
@@ -255,8 +255,8 @@ kbd { font: .66rem var(--mono); border: 1px solid var(--rule); padding: 0 .35rem
   :root { font-size: 17px; }
   .mast { grid-template-columns: minmax(0, 1fr); }
   .mast-r { flex-wrap: wrap; gap: .4rem 1.2rem; }
-  #find { order: 2; flex: 1 1 100%; }
-  #find input { width: 100%; }
+  #search-form { order: 2; flex: 1 1 100%; }
+  #search-form input { width: 100%; }
   .hero { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; padding-top: 1rem; }
   .map { height: 460px; min-height: 0; }
   .thread-lbl { font-size: 10px; }
