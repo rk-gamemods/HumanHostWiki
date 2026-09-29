@@ -274,12 +274,12 @@ function rank(rows, query, options = {}) {
     let score = !whole ? 0 : name === whole ? 100 : name.startsWith(whole) ? 80
       : words.every(word => name.split(/[\s_().,-]+/).some(part => part.startsWith(word))) ? 60 : words.every(word => name.includes(word)) ? 40 : 10;
     if (whole && words.every(word => name.split(/[\s()]+/).includes(word))) score += 10;
-    // Players look for things they can hold; game-file records rank after them.
-    if (row.topic === "technical-reference") score -= 30;
-    else if (row.kind === "asset" || row.kind === "configuration") score -= 15;
-    out.push({...row, score});
+    // Players look for things they can hold: items lead a tie, and game-file records come after every player entry.
+    if (row.kind === "item") score += 5;
+    const tier = row.topic === "technical-reference" || row.kind === "asset" || row.kind === "configuration" ? 1 : 0;
+    out.push({...row, score, tier});
   }
-  out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "en") || a.entity_key.localeCompare(b.entity_key));
+  out.sort((a, b) => a.tier - b.tier || b.score - a.score || a.name.localeCompare(b.name, "en") || a.entity_key.localeCompare(b.entity_key));
   return out;
 }
 
