@@ -101,12 +101,26 @@ class GitHubPages:
         if value["html_url"].rstrip("/").casefold() != expected.rstrip("/").casefold():
             raise ContractError(f"Unexpected Pages URL: {name}")
 
+    def failed_deployment(self, name, commit):
+        """GitHub's Pages workflow run for this commit, if it finished without deploying.
+
+        The Pages build record can stay 'building' after that workflow fails, for
+        example on a transient 'Failed to get ID Token' timeout, so the run is the truth."""
+        runs = self.api("GET", f"repos/{self.owner}/{name}/actions/runs?head_sha={commit}&per_page=20")
+        for run in (runs or {}).get("workflow_runs", []):
+            if run.get("name") == "pages build and deployment":
+                done = run.get("status") == "completed" and run.get("conclusion") != "success"
+                return run if done else None
+        return None
+
     def wait(self, name, commit):
         # Live builds have no execution deadline. Bound only successful observations
         # that find neither our build nor another queued/running build ahead of it.
+        # A build still live after five minutes is checked against its deployment run;
+        # a failed run is rerun up to three times, then publication stops with its link.
         builds = f"repos/{self.owner}/{name}/pages/builds"
         endpoint = builds + "/latest"
-        observed, ticks, missing = None, 0, 0
+        observed, ticks, missing, reruns = None, 0, 0, 0
 
         def check_source():
             try:
@@ -147,6 +161,18 @@ class GitHubPages:
                     raise ContractError(f"Pages build {name} failed: {value.get('error')}")
                 if state not in {"queued", "building"}:
                     raise BuildObservationError(f"Unknown Pages build status for {name}: {state!r}")
+                if ticks and ticks % 60 == 0:
+                    try:
+                        run = self.failed_deployment(name, commit)
+                    except ContractError as exc:
+                        run = None
+                        self.progress(f"Pages {name}: deployment run not readable ({exc}); still waiting")
+                    if run:
+                        if reruns == 3:
+                            raise ContractError(f"Pages deployment for {name} failed after 3 reruns: {run.get('html_url')}")
+                        reruns += 1
+                        self.progress(f"Pages {name}: GitHub's deployment failed; rerun {reruns} of 3")
+                        self.api("POST", f"repos/{self.owner}/{name}/actions/runs/{run['id']}/rerun-failed-jobs")
             elif active:
                 missing = 0
             else:

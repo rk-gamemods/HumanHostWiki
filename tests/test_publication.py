@@ -376,6 +376,22 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(calls.call_count, 31)
             self.assertTrue(all(c.args == ("GET", path) for c in calls.call_args_list[1:]))
 
+    def test_failed_deployment_behind_a_live_build_is_rerun_then_bounded(self):
+        # GitHub can leave the build record at 'building' after its deployment workflow fails.
+        host = github_pages.GitHubPages("fixture")
+        path = "repos/fixture/wiki/pages/builds/17"
+        building = {"commit": "abc", "status": "building", "url": "https://api.github.com/" + path}
+        failed = {"workflow_runs": [{"id": 9, "name": "pages build and deployment", "status": "completed",
+                                     "conclusion": "failure", "html_url": "https://github.com/run/9"}]}
+        states = [building] * 61 + [failed, None, {**building, "status": "built"}]
+        with patch.object(host, "api", side_effect=states) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            self.assertEqual(host.wait("wiki", "abc")["status"], "built")
+            self.assertEqual(calls.call_args_list[62].args, ("POST", "repos/fixture/wiki/actions/runs/9/rerun-failed-jobs"))
+        states = [building] * 61 + [failed, None] + ([building] * 60 + [failed, None]) * 2 + [building] * 60 + [failed]
+        with patch.object(host, "api", side_effect=states), patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            with self.assertRaisesRegex(ContractError, "failed after 3 reruns: https://github.com/run/9"):
+                host.wait("wiki", "abc")
+
     def test_other_latest_build_does_not_hide_the_target(self):
         host = github_pages.GitHubPages("fixture")
         target = {"commit": "abc", "status": "building", "url": "https://api.github.com/repos/fixture/wiki/pages/builds/17"}

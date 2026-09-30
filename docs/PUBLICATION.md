@@ -95,6 +95,11 @@ inventory before treating the target as unobserved. Twelve consecutive successfu
 checks with no target or earlier live build return an observation failure. This
 bounds missing-job discovery, not the runtime of a queued or running job.
 
+GitHub can leave a Pages build at `building` after its own deployment workflow fails, for
+example on a transient "Failed to get ID Token" timeout. After five minutes of a live build the
+adapter reads the `pages build and deployment` run for the commit. A failed run is rerun up to
+three times; a fourth failure stops publication with the run's link.
+
 An exhausted observation retry, missing build record or unknown build status keeps
 the prepared publication pending. It does not trigger another build or a hub
 rollback. Rerunning reconciles the same commit. An explicitly failed build or a
