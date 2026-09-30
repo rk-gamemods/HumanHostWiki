@@ -49,6 +49,10 @@ kbd { font: .66rem var(--mono); border: 1px solid var(--rule); padding: 0 .35rem
 .edition select { font: .74rem var(--sans); border: 1px solid var(--rule); background: var(--paper); padding: .1rem .3rem; min-width: 0; max-width: min(22rem, 100%); }
 .edition .older { font-weight: 600; color: var(--accent); }
 .edition button { font: .72rem var(--sans); border: 1px solid var(--rule); background: var(--paper); padding: .05rem .5rem; }
+.versions-pick summary { cursor: pointer; color: var(--accent); }
+.versions-pick { min-width: 0; max-width: 100%; }
+.versions-pick label { flex-wrap: wrap; }
+.versions-pick[open] { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: .3rem 1rem; align-items: baseline; }
 
 /* ---------- Shared type ---------- */
 .kicker { font: 600 .78rem var(--sans); text-transform: uppercase; letter-spacing: .14em; color: var(--accent); margin: 0; }

@@ -125,7 +125,7 @@ function fixture(count = 121) {
   assert.equal(subject.nodes.version.children.length, data.records.length);
   console.log("Capture selection, bounded paging, retry and legacy checks passed");
 
-  assert.match(subject.nodes.status.textContent, /Game version unknown/);
+  assert.match(subject.nodes.status.textContent.replaceAll("\u00a0", " "), /Game version unknown/);
   assert.match(subject.nodes.version.children[0].textContent, /Version unknown/);
   const latest = data.records.at(-1);
   latest.version.game_version = "0.8.315";
@@ -134,27 +134,28 @@ function fixture(count = 121) {
       object_id: "globalgamemanagers#1", field: "/bundleVersion", source_sha256: "e".repeat(64)}], counts: {}});
   flat.snapshots[latest.version.snapshot_id] = versionData;
   subject = reader(flat, url => data.files[url]); await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /Game version 0.8.315/);
+  assert.match(subject.nodes.status.textContent.replaceAll("\u00a0", " "), /Game version 0.8.315/);
   assert.match(subject.nodes.status.title, /globalgamemanagers#1\/bundleVersion/);
   assert.match(subject.nodes.version.children[0].textContent, /0.8.315/);
   subject = reader(flat, url => data.files[url], data.records[0].version.snapshot_id); await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /Game version unknown/);
+  assert.match(subject.nodes.status.textContent.replaceAll("\u00a0", " "), /Game version unknown/);
   console.log("Captured application version, provenance and historical unknown passed");
 
   const availability = {status: "observed", checked_at: "2026-09-27T09:00:00+00:00",
     observation: {app_id: "2393970", branch: "public", build_id: data.records.at(-1).version.build_id}};
+  // The top line is the update date, game version and Steam build, and nothing else.
+  const line = () => subject.nodes.status.textContent.replaceAll(" ", " ");
   subject = reader({...flat, availability}, url => data.files[url]); await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /This is the newest public build/);
-  assert.match(subject.nodes.status.textContent, /Values not yet checked in play/);
-  assert.match(subject.nodes.status.textContent, /checked 2026-09-27/);
+  assert.equal(line(), "Updated Sep 27, 2026 · Game version 0.8.315 · Steam build 1120");
   subject = reader({...flat, availability}, url => data.files[url], data.records[0].version.snapshot_id);
   await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /Newest public build is 1120/);
+  assert.equal(line(), "Older version · Game version unknown · Steam build 1000");
   subject = reader({...flat, availability: {...availability, status: "unavailable"}}, url => data.files[url]);
   await subject.context.start();
-  assert.match(subject.nodes.status.textContent, /Newest public build unknown \(Steam check failed 2026-09-27\)/);
-  assert.doesNotMatch(subject.nodes.status.textContent, /This is the newest/);
-  console.log("Availability evidence, historical comparison and unavailable state passed");
+  assert.match(line(), /^Updated Sep 27, 2026 · /);
+  subject = reader(flat, url => data.files[url]); await subject.context.start();
+  assert.equal(line(), "Game version 0.8.315 · Steam build 1120");
+  console.log("Update date, game version and build line passed");
 
   const checked = {status: "passed", title: "Configured limit", text: "<script>literal</script>",
     scope: "selected-data", checks: [], authored_source: {path: "curated/limit.json"},

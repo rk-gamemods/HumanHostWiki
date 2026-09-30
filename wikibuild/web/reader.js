@@ -208,7 +208,7 @@ async function captureBatch(before = null, limit = 50) {
 }
 
 function capturePager(append) {
-  const box = element("div"), more = element("button", "Load more captured versions"), message = element("p", "");
+  const box = element("div"), more = element("button", "Show more versions"), message = element("p", "");
   let before = null, loading = false;
   message.setAttribute("role", "status");
   more.addEventListener("click", async () => {
@@ -295,15 +295,18 @@ function highlight(text, query) {
   return node;
 }
 
+// The top line says only what a player needs: when the wiki was updated, and which game it describes.
+// The update date is the pipeline's last Steam check, the one date every release records.
 function status() {
-  const evidence = config.availability, version = index.game_version ? `Game version ${index.game_version}` : "Game version unknown";
-  let freshness = "Newest public build unknown";
-  if (evidence?.status === "observed") {
-    const observed = evidence.observation, same = (index.steam.branch || "public") === observed.branch && index.steam.build_id === observed.build_id;
-    freshness = same ? `This is the newest ${observed.branch} build (checked ${evidence.checked_at.slice(0, 10)})` : `Newest ${observed.branch} build is ${observed.build_id} (checked ${evidence.checked_at.slice(0, 10)})`;
-  } else if (evidence) freshness += ` (Steam check failed ${evidence.checked_at.slice(0, 10)})`;
+  const checked = Date.parse(config.availability?.checked_at || "");
+  const updated = Number.isNaN(checked) ? null : new Date(checked).toLocaleDateString("en-US", {year: "numeric", month: "short", day: "numeric"});
+  const latest = snapshot === config.default_snapshot;
+  const lead = latest ? (updated ? `Updated ${updated}` : null) : "Older version";
   const node = document.getElementById("status");
-  node.textContent = `${version} · Steam build ${index.steam.build_id} · ${snapshot === config.default_snapshot ? "Latest capture" : "Older capture"} · ${freshness} · Values not yet checked in play`;
+  // No-break spaces keep each part whole when the line wraps on a phone.
+  node.textContent = [lead, `Game version ${index.game_version || "unknown"}`, `Steam build ${index.steam.build_id}`]
+    .filter(Boolean).map(part => part.replaceAll(" ", " ")).join(" · ");
+  if (!latest) document.getElementById("version").closest?.("details")?.setAttribute("open", "");
   const versionEvidence = index.game_version_evidence?.[0];
   node.title = versionEvidence ? `${versionEvidence.source_path} · ${versionEvidence.object_id}${versionEvidence.field} · SHA-256 ${versionEvidence.source_sha256}` : "";
 }
