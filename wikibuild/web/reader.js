@@ -296,9 +296,10 @@ function highlight(text, query) {
 }
 
 // The top line says only what a player needs: when the wiki was updated, and which game it describes.
-// The update date is the pipeline's last Steam check, the one date every release records.
+// The update date is the pipeline's last successful Steam check, the one date every release records.
+// A failed check says nothing about the wiki, so the line then leaves the date out.
 function status() {
-  const checked = Date.parse(config.availability?.checked_at || "");
+  const checked = config.availability?.status === "observed" ? Date.parse(config.availability.checked_at || "") : NaN;
   const updated = Number.isNaN(checked) ? null : new Date(checked).toLocaleDateString("en-US", {year: "numeric", month: "short", day: "numeric"});
   const latest = snapshot === config.default_snapshot;
   const lead = latest ? (updated ? `Updated ${updated}` : null) : "Older version";

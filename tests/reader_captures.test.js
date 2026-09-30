@@ -144,15 +144,22 @@ function fixture(count = 121) {
   const availability = {status: "observed", checked_at: "2026-09-27T09:00:00+00:00",
     observation: {app_id: "2393970", branch: "public", build_id: data.records.at(-1).version.build_id}};
   // The top line is the update date, game version and Steam build, and nothing else.
-  const line = () => subject.nodes.status.textContent.replaceAll(" ", " ");
+  // Dates render in the viewer's timezone, so each case pins one.
+  const line = () => subject.nodes.status.textContent.replaceAll("\u00a0", " ");
+  process.env.TZ = "UTC";
   subject = reader({...flat, availability}, url => data.files[url]); await subject.context.start();
   assert.equal(line(), "Updated Sep 27, 2026 · Game version 0.8.315 · Steam build 1120");
+  process.env.TZ = "Pacific/Honolulu";
+  subject = reader({...flat, availability}, url => data.files[url]); await subject.context.start();
+  assert.equal(line(), "Updated Sep 26, 2026 · Game version 0.8.315 · Steam build 1120");
+  process.env.TZ = "UTC";
   subject = reader({...flat, availability}, url => data.files[url], data.records[0].version.snapshot_id);
   await subject.context.start();
   assert.equal(line(), "Older version · Game version unknown · Steam build 1000");
+  // A failed Steam check is not an update, so no date is claimed.
   subject = reader({...flat, availability: {...availability, status: "unavailable"}}, url => data.files[url]);
   await subject.context.start();
-  assert.match(line(), /^Updated Sep 27, 2026 · /);
+  assert.equal(line(), "Game version 0.8.315 · Steam build 1120");
   subject = reader(flat, url => data.files[url]); await subject.context.start();
   assert.equal(line(), "Game version 0.8.315 · Steam build 1120");
   console.log("Update date, game version and build line passed");
