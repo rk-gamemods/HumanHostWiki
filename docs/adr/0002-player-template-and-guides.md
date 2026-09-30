@@ -203,6 +203,10 @@ The shell in `wikibuild/web/` takes study 11's design:
 - Entry pages open with a player summary card. The game's record follows it, collapsed, as
   "Game file details". The topic of raw assets and configurations is "Game files", so no two
   player-facing things share the name "Technical reference".
+- The line under the header says only when the wiki was updated, the game version and the Steam
+  build. The update date is the pipeline's last Steam check. The user found the earlier line,
+  with capture state, newest-build comparison and verification notes, meaningless to a player
+  (2026-09-29). Older versions sit behind "Other versions".
 - Guide pages are the long reads. A scroll tracker keeps the ring map on the section being
   read.
 - "Report a problem" in the top bar, and a line on every entry, lead to GitHub issue forms in
