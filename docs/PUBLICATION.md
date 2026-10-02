@@ -27,9 +27,18 @@ The `gh-pages` branch uses the exact site subtree as its root, sharing existing 
 objects. `.nojekyll` avoids an additional rendering step. Builds are observed for
 the exact pushed commit, followed by HTTP content-hash checks.
 
+Every external wait has a bound. Each `gh api` call times out after 120 seconds
+and is retried up to four times; each `git push` times out after 600 seconds,
+and the remote ref then decides whether it landed. A Pages build still queued or
+building after 30 minutes, ours or one ahead of it, stops the run with the
+publication left pending. The next run reconciles that commit. On 2026-09-29 a
+run without these bounds waited three days on a build GitHub never finished.
+
 ## Durable state and recovery
 
-The umbrella OS writer lock covers publication. Before the first push, audit new
+The umbrella OS writer lock covers publication. Its holder records its PID, start
+time and command in `.local/writer.lock.owner.json`. A blocked run reports that
+holder, how long it has held the lock and whether it is still running. Before the first push, audit new
 outgoing Git history, including deleted files, for allowed text paths and obvious
 private machine paths/credential markers. This complements selected-input extraction
 and artifact validation; it cannot prove arbitrary authored prose is appropriate.

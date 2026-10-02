@@ -19,9 +19,16 @@ class BuildObservationError(ContractError):
 
 
 class GitHubPages:
+    # Every external wait is bounded. A stalled call or a build GitHub never
+    # finishes becomes a reported failure instead of a process that hangs.
+    API_TIMEOUT = 120
+    PUSH_TIMEOUT = 600
+    BUILD_DEADLINE = 30 * 60
+
     def __init__(self, owner, progress=None):
         self.owner = owner
         self.progress = progress or (lambda message: None)
+        self.clock = time.monotonic
 
     def api(self, method, path, body=None, missing=False, empty=False):
         command = ["gh", "api", "--hostname", "github.com", "--method", method, path,
@@ -31,7 +38,14 @@ class GitHubPages:
             command += ["--input", "-"]
             data = json.dumps(body).encode()
         for attempt in range(4):
-            result = subprocess.run(command, input=data, capture_output=True)
+            try:
+                result = subprocess.run(command, input=data, capture_output=True, timeout=self.API_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                if attempt < 3:
+                    self.progress(f"GitHub call timed out after {self.API_TIMEOUT}s: retry {attempt + 1} for {path}")
+                    time.sleep(2 ** attempt)
+                    continue
+                raise ContractError(f"GitHub {method} {path}: timed out after {self.API_TIMEOUT}s, 4 attempts")
             if result.returncode == 0:
                 return json.loads(result.stdout) if result.stdout.strip() else None
             message = result.stderr.decode(errors="replace")
@@ -73,8 +87,14 @@ class GitHubPages:
         url = f"https://github.com/{self.owner}/{name}.git"
         environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         for attempt in range(3):
-            result = subprocess.run(["git", "-C", str(path), "push", "--porcelain", url,
-                                     f"{commit}:refs/heads/{branch}"], capture_output=True, env=environment)
+            try:
+                result = subprocess.run(["git", "-C", str(path), "push", "--porcelain", url,
+                                         f"{commit}:refs/heads/{branch}"], capture_output=True, env=environment,
+                                        timeout=self.PUSH_TIMEOUT)
+                failure = result.stderr.decode(errors="replace")
+            except subprocess.TimeoutExpired:
+                # The push may still have landed; the remote ref decides.
+                failure = f"git push timed out after {self.PUSH_TIMEOUT}s"
             actual = self.ref(name, branch)
             if actual == commit:
                 return
@@ -83,7 +103,7 @@ class GitHubPages:
             if attempt < 2:
                 self.progress(f"Retrying unconfirmed push: {name}/{branch}")
                 time.sleep(2 ** attempt)
-        raise ContractError(f"Push failed for {name}/{branch}: {result.stderr.decode(errors='replace')[:1200]}")
+        raise ContractError(f"Push failed for {name}/{branch}: {failure[:1200]}")
 
     def configure(self, name):
         endpoint = f"repos/{self.owner}/{name}/pages"
@@ -114,13 +134,16 @@ class GitHubPages:
         return None
 
     def wait(self, name, commit):
-        # Live builds have no execution deadline. Bound only successful observations
-        # that find neither our build nor another queued/running build ahead of it.
-        # A build still live after five minutes is checked against its deployment run;
-        # a failed run is rerun up to three times, then publication stops with its link.
+        # Twelve successful observations that find neither our build nor another
+        # queued/running build ahead of it end the wait. A build still live after five
+        # minutes is checked against its deployment run; a failed run is rerun up to
+        # three times, then publication stops with its link. Any build, ours or one
+        # ahead of it, still live at BUILD_DEADLINE leaves publication pending for the
+        # next run to reconcile; GitHub can leave a build 'building' indefinitely.
         builds = f"repos/{self.owner}/{name}/pages/builds"
         endpoint = builds + "/latest"
         observed, ticks, missing, reruns = None, 0, 0, 0
+        started = self.clock()
 
         def check_source():
             try:
@@ -183,6 +206,10 @@ class GitHubPages:
             if missing >= 12:
                 raise BuildObservationError(
                     f"Pages build {name} at {commit} was not observable after 12 checks; "
+                    "publication remains pending. Rerun to reconcile the same commit.")
+            if self.clock() - started >= self.BUILD_DEADLINE:
+                raise BuildObservationError(
+                    f"Pages build {name} at {commit} was still {state} after {self.BUILD_DEADLINE // 60} minutes; "
                     "publication remains pending. Rerun to reconcile the same commit.")
             observed = state
             ticks += 1

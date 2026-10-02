@@ -3,6 +3,7 @@
 import copy
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import itertools
 import json
 from pathlib import Path
 import subprocess
@@ -443,6 +444,42 @@ class AdapterTests(unittest.TestCase):
                 with self.assertRaises(ContractError) as failure:
                     host.wait("wiki", "abc")
                 self.assertNotIsInstance(failure.exception, github_pages.BuildObservationError)
+
+    def test_live_build_that_never_finishes_stops_at_the_deadline(self):
+        # A run once waited three days on a build GitHub never finished. Our own
+        # build and an earlier build ahead of it must both stop at the deadline.
+        ours = {"commit": "abc", "status": "building"}
+        earlier = {"commit": "older", "status": "building"}
+        for name, value in (("ours", ours), ("earlier", earlier)):
+            with self.subTest(name):
+                host = github_pages.GitHubPages("fixture")
+                clock = itertools.count(0, 5)
+                host.clock = lambda: next(clock)
+                def api(method, path, **kwargs):
+                    return [value] if "per_page=100" in path else value
+                with patch.object(host, "api", side_effect=api), \
+                        patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+                    with self.assertRaisesRegex(github_pages.BuildObservationError, "after 30 minutes"):
+                        host.wait("wiki", "abc")
+
+    def test_hung_github_call_is_retried_then_reported(self):
+        host = github_pages.GitHubPages("fixture")
+        hung = subprocess.TimeoutExpired(["gh"], 1)
+        success = subprocess.CompletedProcess([], 0, b'{"id":1}', b'')
+        with patch.object(github_pages.subprocess, "run", side_effect=[hung, success]) as calls, patch.object(github_pages.time, "sleep"):
+            self.assertEqual(host.repository("wiki"), {"id": 1})
+            self.assertIsNotNone(calls.call_args_list[0].kwargs.get("timeout"))
+        with patch.object(github_pages.subprocess, "run", side_effect=hung), patch.object(github_pages.time, "sleep"):
+            with self.assertRaisesRegex(ContractError, "timed out"):
+                host.repository("wiki")
+
+    def test_hung_push_is_confirmed_by_the_remote_ref(self):
+        host = github_pages.GitHubPages("fixture")
+        hung = subprocess.TimeoutExpired(["git"], 1)
+        with patch.object(github_pages.subprocess, "run", side_effect=hung) as calls, \
+                patch.object(host, "ref", side_effect=["old", "new"]):
+            host.push(".", "wiki", "new", "main", "old")
+            self.assertIsNotNone(calls.call_args_list[0].kwargs.get("timeout"))
 
     def test_empty_remote_response_and_transient_get_retry(self):
         host = github_pages.GitHubPages("fixture")

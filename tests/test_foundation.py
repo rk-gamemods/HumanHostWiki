@@ -260,6 +260,14 @@ class FoundationTests(unittest.TestCase):
         with writer_lock(self.root):
             self.assertTrue((self.root / ".local/writer.lock").exists())
 
+    def test_blocked_writer_names_the_holder(self):
+        # A stuck run once held the lock for three days with no clue who owned it.
+        with writer_lock(self.root):
+            with self.assertRaisesRegex(ContractError, rf"held by PID {os.getpid()} \(running\) since .+ for \d+ min"):
+                with writer_lock(self.root):
+                    self.fail("Second writer acquired lock")
+        self.assertFalse((self.root / ".local/writer.lock.owner.json").exists())
+
     def test_atomic_write_does_not_rewrite_unchanged_file(self):
         path = self.root / "result.json"
         self.assertTrue(write_changed(path, b"{}\n"))
