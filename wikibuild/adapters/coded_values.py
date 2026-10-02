@@ -77,8 +77,11 @@ class Definitions:
                             continue
                         typename = declaration.child_by_field_name('type').text.decode()
                         for variable in declaration.named_children:
-                            if variable.type == 'variable_declarator':
-                                fields[variable.child_by_field_name('name').text.decode()] = typename
+                            # Error recovery can yield a nameless (tuple-pattern) declarator
+                            # without flagging an error; it is not a real field.
+                            name = variable.child_by_field_name('name') if variable.type == 'variable_declarator' else None
+                            if name is not None:
+                                fields[name.text.decode()] = typename
                     self.types[(assembly, qualified)] = {'fields': fields, 'bases': bases,
                         'evidence': {'path': path, 'assembly': assembly, 'type': qualified}}
                     self.collect(body, assembly, path, qualified)

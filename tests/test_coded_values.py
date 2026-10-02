@@ -28,6 +28,14 @@ class CodedValuesTests(unittest.TestCase):
         self.assertIsNone(fields['/active']['enum'])
         self.assertEqual('Shotgun', definitions.enums[('Game', 'World.Base.Kind')]['values'][6])
 
+    def test_nameless_field_declarator_does_not_supply_fields(self):
+        # Build 25675256: error recovery in Terrain.decompiled.cs turned a method
+        # call into a class-level field whose declarator is a tuple pattern with no
+        # name, without marking it as an error. A deconstruction gives the same node.
+        definitions = self.definitions('class Horde_Mgr { public int count; var (x, y) = pair; public bool active; }')
+        fields = definitions.types[('Game', 'Horde_Mgr')]['fields']
+        self.assertEqual({'count': 'int', 'active': 'bool'}, fields)
+
     def subject(self, declaration='None, Rifle = 5, Shotgun'):
         definitions = self.definitions('class Weapon { public enum Kind { ' + declaration + ' } public Kind type; public bool active; }')
         state = {'definitions': definitions, 'fields': {('Game', 'Weapon'): definitions.selected('Game', 'Weapon', {'type': int, 'active': int})},
