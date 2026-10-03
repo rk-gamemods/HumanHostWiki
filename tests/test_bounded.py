@@ -319,6 +319,46 @@ class BoundedRunTests(unittest.TestCase):
                     self.assertTrue(all(process.poll() is not None for process in processes))
 
 
+@unittest.skipIf(os.name == "nt", "Windows waits for the job object instead of the process group")
+class ProcessGroupExitTests(unittest.TestCase):
+    def start_group(self):
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True)
+        self.addCleanup(lambda: (process.poll() is None and process.kill(), process.wait(timeout=10)))
+        return process
+
+    def test_live_group_holds_cleanup_until_its_deadline(self):
+        process = self.start_group()
+        self.assertFalse(bounded._group_exited(process.pid))
+        with self.assertRaises(subprocess.TimeoutExpired):
+            bounded._wait_group(process.pid, time.monotonic() + 0.2)
+
+    def test_unreaped_zombie_member_counts_as_exited(self):
+        process = self.start_group()
+        os.killpg(process.pid, signal.SIGKILL)
+        deadline = time.monotonic() + 10
+        while Path(f"/proc/{process.pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z":
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(0.01)
+        # The zombie still answers killpg(group, 0), so only its state shows it has exited.
+        bounded._wait_group(process.pid, time.monotonic() + 5)
+
+    def test_kill_tree_returns_after_the_whole_group_exits(self):
+        folder = fixture_dir(self, "bounded")
+        pids = Path(folder) / "pids.txt"
+        process = bounded.start([sys.executable, "-c", HOLDS_PIPE, str(pids)], cwd=folder,
+                                stdout=subprocess.DEVNULL)
+        try:
+            deadline = time.monotonic() + 30
+            while not (pids.exists() and len(pids.read_text().splitlines()) == 2):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+            bounded.kill_tree(process)
+            self.assertTrue(bounded._group_exited(process.pid))
+            self.assertTrue(all(not alive(pid) for pid in map(int, pids.read_text().splitlines())))
+        finally:
+            stop_recorded(pids)
+
+
 class UpdateDeadlineTests(unittest.TestCase):
     def test_held_recorder_lock_cannot_block_timeout_exit(self):
         for main_returns in (False, True):
