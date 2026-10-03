@@ -265,17 +265,24 @@ class GitHubPages:
                 time.sleep(min(2 ** attempt, budget()))
         raise ContractError(f"Push failed for {name}/{branch}: {failure[:1200]}")
 
-    def configure(self, name):
+    def configure(self, name, *, defer=False):
         endpoint = f"repos/{self.owner}/{name}/pages"
         value = self.api("GET", endpoint, missing=True)
         if value is None:
-            try:
-                self.api("POST", endpoint, {"build_type": "legacy", "source": {"branch": "gh-pages", "path": "/"}})
-            except ContractError:
-                if self.api("GET", endpoint, missing=True) is None:
-                    raise
-            value = self.api("GET", endpoint)
+            def enable():
+                try:
+                    self.api("POST", endpoint, {"build_type": "legacy", "source": {"branch": "gh-pages", "path": "/"}})
+                except ContractError:
+                    if self.api("GET", endpoint, missing=True) is None:
+                        raise
+                configured = self.api("GET", endpoint)
+                _validate_pages(self.owner, name, configured)
+                return configured
+            # The source branch must exist before Pages can be enabled. The
+            # read-only check happens before pushes; only provisioning is deferred.
+            return enable if defer else enable()
         _validate_pages(self.owner, name, value)
+        return value
 
     def failed_deployment(self, name, commit, *, deadline=None):
         """GitHub's Pages workflow run for this commit, if it finished without deploying.

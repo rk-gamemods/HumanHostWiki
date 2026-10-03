@@ -58,6 +58,21 @@ class PagesStateTests(unittest.TestCase):
                     host.configure("wiki")
                 self.assertEqual([call.args[0] for call in api.call_args_list], ["GET"])
 
+    def test_configure_defers_only_enablement_and_validates_existing_pages_first(self):
+        host = github_pages.GitHubPages("fixture")
+        value = {"source": {"branch": "gh-pages", "path": "/"}, "build_type": "legacy",
+                 "cname": None, "html_url": "https://fixture.github.io/wiki/"}
+        with patch.object(host, "api", side_effect=[None, {}, value]) as api:
+            enable = host.configure("wiki", defer=True)
+            self.assertEqual([call.args[0] for call in api.call_args_list], ["GET"])
+            self.assertEqual(enable(), value)
+            self.assertEqual([call.args[0] for call in api.call_args_list], ["GET", "POST", "GET"])
+        for key, bad in (("cname", "custom.example"), ("html_url", "https://other.example/")):
+            with self.subTest(key=key), patch.object(host, "api", return_value={**value, key: bad}) as api:
+                with self.assertRaisesRegex(ContractError, "Unexpected Pages"):
+                    host.configure("wiki", defer=True)
+                api.assert_called_once_with("GET", "repos/fixture/wiki/pages", missing=True)
+
     def test_api_reserves_worst_case_cleanup_within_the_deadline(self):
         clock, host = Clock(), github_pages.GitHubPages("fixture")
         host.clock = clock

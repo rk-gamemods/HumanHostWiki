@@ -171,7 +171,41 @@ def published(root):
     return load(within(root, f"publications/{identity}.json"))
 
 
-def provision(root, project, host):
+class DestinationValidation:
+    """Validate at first effect and before advertising the coordinated release."""
+    def __init__(self, owner, host, observations):
+        self.owner, self.host = owner, host
+        self.expected = {row["repository"]: row for row in observations}
+        self.checked = set()
+
+    def observe(self, name):
+        actual = github_pages.observe_configuration(self.host, self.owner, name)
+        if name in self.expected and actual != self.expected[name]:
+            raise ContractError(f"Publication destination observation changed: {name}")
+        self.expected[name] = actual
+
+    def before(self, name):
+        if name not in self.checked:
+            self.observe(name)
+            self.checked.add(name)
+
+    def created(self, name, repository):
+        self.expected[name] = github_pages.validate_configuration(self.owner, name, repository, None)
+
+    def configured(self, name, pages):
+        if isinstance(pages, dict) and self.expected[name]["observed"] == "pages-disabled":
+            row = self.expected[name]
+            repository = {"id": row["repository_id"], **row["identity"],
+                          "permissions": {"admin": row["identity"]["admin"]}}
+            self.expected[name] = github_pages.validate_configuration(self.owner, name, repository, pages)
+
+    def promotion(self):
+        for name in sorted(self.expected):
+            self.observe(name)
+            self.checked.add(name)
+
+
+def provision(root, project, host, validation=None):
     identities = {}
     previous = published(root)
     for repo in project["repositories"]:
@@ -192,7 +226,11 @@ def provision(root, project, host):
         if remote is None:
             if intent["repository_id"] is not None:
                 raise ContractError(f"Previously provisioned remote is missing: {full_name}")
+            if validation is not None:
+                validation.before(name)
             remote = host.create(name, description)
+            if validation is not None:
+                validation.created(name, remote)
         if (remote["full_name"].casefold() != full_name.casefold() or remote.get("private") or
                 remote.get("archived") or remote.get("fork") or not remote.get("permissions", {}).get("admin")):
             raise ContractError(f"Unexpected remote identity or permissions: {full_name}")
@@ -217,7 +255,7 @@ def pin(path, commit):
     git(path, "update-ref", f"refs/wiki-publications/{commit}", commit)
 
 
-def prepare(root, project, manifest, host, refs):
+def prepare(root, project, manifest, host, refs, validation=None):
     # Never adopt history that changed after the gate, even if it is our lineage.
     refs.check(host, publish_gate.destinations(root, project, manifest))
     if digest(json_bytes(project)) != manifest["inputs"]["project_sha256"]:
@@ -230,7 +268,7 @@ def prepare(root, project, manifest, host, refs):
     repositories = physical.repositories(project, manifest.get("physical"))
     if {repo["id"] for repo in repositories} != set(manifest["repositories"]):
         raise ContractError("Publication outputs differ from the physical registry")
-    identities = provision(root, {**project, "repositories": repositories}, host)
+    identities = provision(root, {**project, "repositories": repositories}, host, validation)
     plans = {}
     for repo in repositories:
         topic, name = repo["id"], repo["github_name"]
@@ -315,18 +353,25 @@ def repository_row(timing, group, identity):
     return timing[group].setdefault(identity, repository_timing())
 
 
-def deploy(root, plan, host, timing=None, refs=None, journal=None):
+def deploy(root, plan, host, timing=None, refs=None, journal=None, validation=None):
     if refs is None:
         refs = RehearsedRefs([{"repository": plan["name"], "branch": branch, "commit": plan[key]}
                               for branch, key in (("main", "old_main"), ("gh-pages", "old_pages"))])
     path = within(root, plan["path"])
     with measure(timing, "total"):
+        if validation is not None:
+            validation.before(plan["name"])
+        with measure(timing, "configure"):
+            configuration = host.configure(plan["name"], defer=True)
         with measure(timing, "push_main"):
             refs.push(host, path, plan["name"], plan["main"], "main")
         with measure(timing, "push_pages"):
             refs.push(host, path, plan["name"], plan["pages"], "gh-pages")
-        with measure(timing, "configure"):
-            host.configure(plan["name"])
+        if callable(configuration):
+            with measure(timing, "configure"):
+                configuration = configuration()
+        if validation is not None:
+            validation.configured(plan["name"], configuration)
         try:
             with measure(timing, "pages_build"):
                 host.wait(plan["name"], plan["pages"])
@@ -400,7 +445,7 @@ def rollback(root, state, path, host, refs, timing=None):
     save(path, state)
 
 
-def execute(root, state, path, host, workers, refs, timing=None):
+def execute(root, state, path, host, workers, refs, timing=None, validation=None):
     timing = timing if timing is not None else {"repositories": {}, "rollback": {}, "phases": {}}
     journal_lock = Lock()
 
@@ -431,7 +476,7 @@ def execute(root, state, path, host, workers, refs, timing=None):
         errors = []
         with measure(timing["phases"], f"topics-{rank}"), ThreadPoolExecutor(max_workers=workers) as pool:
             pending = {pool.submit(deploy, root, plan, host,
-                       repository_row(timing, "repositories", topic), refs, journal): plan
+                       repository_row(timing, "repositories", topic), refs, journal, validation): plan
                        for topic, plan in topics.items()}
             for future in as_completed(pending):
                 plan = pending[future]
@@ -448,10 +493,12 @@ def execute(root, state, path, host, workers, refs, timing=None):
     if not hub["verified"]:
         state["phase"] = "hub"
         save(path, state)
+        if validation is not None:
+            validation.promotion()
         try:
             row = repository_row(timing, "repositories", state.get("hub_control", "hub"))
             with measure(timing["phases"], "hub"):
-                deploy(root, hub, host, row, refs, journal)
+                deploy(root, hub, host, row, refs, journal, validation)
             hub["verified"] = True
             save(path, state)
         except github_pages.BuildObservationError:
@@ -512,13 +559,8 @@ def _run(root, project, manifest, host, progress, timing, gate):
     refs = RehearsedRefs(gate["rehearsal"]["remote_refs"])
     refs.check(host, publish_gate.destinations(root, project, manifest))
     release.verify(root, manifest)
-    # Validate every destination before provisioning or the first deployment push.
-    expected = {row["repository"]: row for row in gate["rehearsal"].get("destination_observations", [])}
-    for repo in physical.repositories(project, manifest.get("physical")):
-        name = repo["github_name"]
-        observed = github_pages.observe_configuration(host, project["github_owner"], name)
-        if name in expected and observed != expected[name]:
-            raise ContractError(f"Publication destination observation changed: {name}")
+    validation = DestinationValidation(project["github_owner"], host,
+                                       gate["rehearsal"].get("destination_observations", []))
     current = published(root)
     if current and current["release_id"] == manifest["release_id"]:
         def check_current(topic, plan):
@@ -533,6 +575,7 @@ def _run(root, project, manifest, host, progress, timing, gate):
             if host.ref(plan["name"], "main") != plan["main"] or host.ref(plan["name"], "gh-pages") != plan["pages"]:
                 raise ContractError(f"Published branch changed: {plan['name']}")
             with measure(row, "configure"):
+                validation.before(plan["name"])
                 host.configure(plan["name"])
             with measure(row, "verify"):
                 host.verify(plan["base"], health(plan))
@@ -542,9 +585,9 @@ def _run(root, project, manifest, host, progress, timing, gate):
             list(pool.map(check_current, current["repositories"], current["repositories"].values()))
         return current, {"reused": True}
     with measure(timing, "prepare"):
-        state = prepare(root, project, manifest, host, refs)
+        state = prepare(root, project, manifest, host, refs, validation)
     state["gate"] = gate
     save(path, state)
     with measure(timing, "resume"):
-        result = execute(root, state, path, host, workers, refs, timing)
+        result = execute(root, state, path, host, workers, refs, timing, validation)
     return result, {"reused": False}

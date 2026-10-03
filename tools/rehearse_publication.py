@@ -12,7 +12,9 @@ steps from the same starting state; it does not prove GitHub Pages will build.
 import argparse
 from contextlib import contextmanager
 import hashlib
+import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -25,6 +27,55 @@ from wikibuild import bounded, github_pages, manifest as manifests, physical, pu
 from wikibuild.storage import ContractError, within, writer_lock  # noqa: E402
 
 PROTECTED = ("publications", ".local/publication")
+TEMP_RECORD = ".local/publication/rehearsal-temp.json"
+TEMP_MARKER = ".hhwiki-rehearsal.json"
+
+
+def clear_temp_record(root, record):
+    within(root, TEMP_RECORD).unlink()
+    for relative in record["created_dirs"]:
+        directory = within(root, relative)
+        if directory.exists() and not any(directory.iterdir()):
+            directory.rmdir()
+
+
+def recover_abandoned(root, progress):
+    pointer = within(root, TEMP_RECORD)
+    if not pointer.exists():
+        return
+    record = publication.load(pointer)
+    temporary = Path(record["path"])
+    if (not temporary.is_absolute() or temporary.resolve() != temporary
+            or temporary.parent != Path(tempfile.gettempdir()).resolve()
+            or not re.fullmatch(r"hhwiki-rehearsal-[0-9a-f]{32}", temporary.name)
+            or record.get("workspace") != str(root.resolve())
+            or record.get("created_dirs") not in ([], [".local/publication"], [".local/publication", ".local"])):
+        raise ContractError(f"Refusing unowned rehearsal temp path: {temporary}")
+    if record.get("recovery_required"):
+        raise ContractError(f"Rehearsal recovery requires the retained backup at {temporary}")
+    if temporary.exists():
+        marker = temporary / TEMP_MARKER
+        if marker.is_symlink() or not marker.is_file() or publication.load(marker) != {"workspace": record["workspace"], "nonce": record["nonce"]}:
+            raise ContractError(f"Refusing rehearsal temp cleanup without its ownership marker: {temporary}")
+        progress(f"Removing abandoned rehearsal temp root: {temporary}")
+        publication_git.remove_disposable(temporary)
+    clear_temp_record(root, record)
+
+
+@contextmanager
+def isolated_git_environment():
+    saved = {key: value for key, value in os.environ.items() if key.upper().startswith("GIT_")}
+    for key in saved:
+        del os.environ[key]
+    environment = publication_git.disposable_environment()
+    configured = {key: value for key, value in environment.items() if key.startswith("GIT_")}
+    os.environ.update(configured)
+    try:
+        yield
+    finally:
+        for key in configured:
+            os.environ.pop(key, None)
+        os.environ.update(saved)
 
 
 def state_snapshot(root):
@@ -57,10 +108,17 @@ def restore_state(root, backup, before, quarantine):
 
 
 @contextmanager
-def isolated_workspace(root, manifest):
+def isolated_workspace(root, manifest, progress=print):
     # Ordinary temp directories also work on hosts with restrictive mkdtemp ACLs.
-    temporary = Path(tempfile.gettempdir()) / ("hhwiki-rehearsal-" + uuid4().hex)
+    recover_abandoned(root, progress)
+    temporary = Path(tempfile.gettempdir()).resolve() / ("hhwiki-rehearsal-" + uuid4().hex)
     temporary.mkdir()
+    owner_record = {"path": str(temporary), "workspace": str(root.resolve()), "nonce": uuid4().hex,
+                    "created_dirs": [relative for relative in (".local/publication", ".local")
+                                     if not within(root, relative).exists()]}
+    publication.save(temporary / TEMP_MARKER, {"workspace": owner_record["workspace"], "nonce": owner_record["nonce"]})
+    publication.save(within(root, TEMP_RECORD), owner_record)
+    progress(f"Rehearsal temp root: {temporary}")
     engine, backup = temporary / "workspace", temporary / "backup"
     repositories = {}
     keep = False
@@ -92,10 +150,12 @@ def isolated_workspace(root, manifest):
                     raise ContractError(f"Rehearsal changed real repository refs, pins or objects: {path}; evidence retained at {temporary}")
         except BaseException:
             keep = True
+            publication.save(within(root, TEMP_RECORD), {**owner_record, "recovery_required": True})
             raise
         finally:
             if not keep:
                 publication_git.remove_disposable(temporary)
+                clear_temp_record(root, owner_record)
         if restored:
             raise ContractError("Rehearsal changed original publication state; restored from backup")
 
@@ -106,10 +166,17 @@ class RehearsalHost(github_pages.GitHubPages):
         self.paths, self.simulated, self.events = paths, {}, []
         self.observed = {}
         self.created, self.destination_observations = {}, {}
+        self.pages_enabled = {}
 
     def api(self, method, *args, **kwargs):
         if method != "GET":
             raise ContractError(f"Rehearsal forbids GitHub writes: {method}")
+        if args and args[0].endswith("/pages"):
+            name = args[0].split("/")[2]
+            if name in self.pages_enabled:
+                return self.pages_enabled[name]
+            if name in self.created:
+                return None
         return super().api(method, *args, **kwargs)
 
     def repository(self, name):
@@ -151,10 +218,17 @@ class RehearsalHost(github_pages.GitHubPages):
         self.events.append(("push", name, branch, commit))
         self.progress(f"[rehearsal] would push {name}/{branch} {current and current[:7]} -> {commit[:7]}")
 
-    def configure(self, name):
+    def configure(self, name, *, defer=False):
         observation = github_pages.observe_configuration(self, self.owner, name)
         if observation["observed"] == "pages-disabled":
-            self.events.append(("enable-pages", name))
+            def enable():
+                value = {"source": {"branch": "gh-pages", "path": "/"}, "build_type": "legacy",
+                         "cname": None, "html_url": f"https://{self.owner}.github.io/{name}/"}
+                self.pages_enabled[name] = value
+                self.events.append(("enable-pages", name))
+                return value
+            return enable if defer else enable()
+        return self.api("GET", f"repos/{self.owner}/{name}/pages")
 
     def wait(self, name, commit):
         if self.ref(name, "gh-pages") != commit:
@@ -178,6 +252,7 @@ def rehearse(root, project, manifest, progress=print):
     publish_gate.ensure_clean(root)
     with writer_lock(root):
         publish_gate.ensure_clean(root)
+        recover_abandoned(root, progress)
         publication.refuse_pending(root)
         target = manifest["release_id"]
         before = ""
@@ -186,7 +261,7 @@ def rehearse(root, project, manifest, progress=print):
         # Snapshot every destination of the fresh publication.
         destinations = publish_gate.destinations(root, project, manifest)
         release.verify(root, manifest)
-        with isolated_workspace(root, manifest) as engine:
+        with isolated_workspace(root, manifest, progress) as engine, isolated_git_environment():
             paths = {repo["github_name"]: within(engine, manifest["repositories"][repo["id"]]["path"])
                      for repo in physical.repositories(project, manifest.get("physical"))}
             host = RehearsalHost(project["github_owner"], paths, progress)

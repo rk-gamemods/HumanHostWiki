@@ -38,6 +38,10 @@ check before any other work. It reads live GitHub state and
 simulates pushes, builds and verification in an OS-temp workspace. Each child
 repository has a disposable shared clone: existing objects are borrowed read-only,
 and new objects, fetched refs and `refs/wiki-publications/` pins stay in the clone.
+Clone, setup and storage snapshot commands use 120-second bounds with descendant
+cleanup. Clones use an empty template and an empty hooks directory. The isolated
+Git environment ignores system/global configuration, external filters and inherited
+Git routing variables; clone setup retains only the source's committer identity.
 The engine reads copies of provisioning records, publication history and journals;
 every engine write, including publication receipts, goes to the temporary workspace.
 Before deleting that workspace, the runner compares the real children's complete
@@ -46,6 +50,11 @@ output byte-for-byte with their starting values. It also verifies original publi
 state. A defensive restore retains its durable backup and displaced files until equality
 is verified; a failed restore fails loudly and reports the retained backup path.
 Only success after these checks and temporary cleanup writes a hash-checked receipt.
+The runner prints its temporary root and records ownership in
+`.local/publication/rehearsal-temp.json`, with a matching marker in that root.
+Success removes both. The next invocation removes an abandoned recorded root only
+after checking its OS-temp location and ownership marker; it never scans for folders
+to delete. A failed restore retains the record and backup for explicit recovery.
 The receipt records release id,
 workspace commit, publication contract, UTC timestamp and each repository name,
 branch and observed commit SHA (or `null` for an absent branch). It records actual
@@ -53,8 +62,12 @@ remote observations, never simulated branch tips. Each destination also records
 `{"repository": "<name>", "observed": "absent" | "pages-disabled" | "present"}`.
 Existing destinations bind their repository ID, identity, visibility, administrator
 permission and relevant Pages settings. The shared read-only validator checks the
-repository identity, visibility, Pages source, CNAME and `html_url` before any
-provisioning or push in either production or rehearsal.
+repository identity, visibility, Pages source, CNAME and `html_url` at each
+destination's first remote effect in either production or rehearsal. Existing Pages
+settings are checked by `configure()` before pushes to that destination. Enablement
+waits until its source branch exists. Immediately before hub promotion, all destination
+configurations are checked again, allowing only this invocation's confirmed
+provisioning transitions.
 
 A missing repository or disabled Pages site is provisioned only in the local
 simulation. Its observation remains absent or disabled in the receipt. The production

@@ -478,7 +478,7 @@ class PublishGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "differs from rehearsal"):
             publication.deploy(self.root, plan, self.host, refs=publication.RehearsedRefs(self.refs))
         self.assertEqual(self.host.push.call_count, 1)
-        self.host.configure.assert_not_called()
+        self.host.configure.assert_called_once_with("Wiki-hub", defer=True)
 
     def test_failed_push_cannot_adopt_a_matching_unconfirmed_tip(self):
         refs = publication.RehearsedRefs(self.refs)

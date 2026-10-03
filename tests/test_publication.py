@@ -71,11 +71,17 @@ class Host:
             self.interrupt_name = None
             raise KeyboardInterrupt("Interrupted after remote accepted push")
 
-    def configure(self, name):
-        if name not in self.pages:
+    def configure(self, name, *, defer=False):
+        def enable():
             self.pages[name] = {"source": {"branch": "gh-pages", "path": "/"}, "build_type": "legacy",
                                 "cname": None, "html_url": f"https://{self.owner}.github.io/{name}/"}
+            self.events.append(("configure", name))
+            return self.pages[name]
+        if name not in self.pages:
+            return enable if defer else enable()
+        github_pages.validate_configuration(self.owner, name, self.repository(name), self.pages[name])
         self.events.append(("configure", name))
+        return self.pages[name]
 
     def wait(self, name, commit):
         if self.ref(name, "gh-pages") != commit:
@@ -192,7 +198,7 @@ class PublicationTests(unittest.TestCase):
         self.project["official_links"] = [{"title": "Changed", "url": "https://example.invalid/"}]
         self.make_release()
 
-    def test_shared_configuration_rejects_cname_and_url_before_provision_or_push(self):
+    def test_shared_configuration_rejects_cname_and_url_before_destination_push(self):
         self.run_publish()
         self.next_release()
         for key, value, message in (("cname", "other.example", "Pages configuration"),
@@ -200,12 +206,61 @@ class PublicationTests(unittest.TestCase):
             with self.subTest(key=key):
                 old = self.host.pages["Wiki-items"][key]
                 self.host.pages["Wiki-items"][key] = value
-                with patch.object(publication, "provision") as provision, patch.object(self.host, "push") as push:
+                with patch.object(self.host, "push") as push:
                     with self.assertRaisesRegex(ContractError, message):
                         self.run_publish()
-                    provision.assert_not_called()
                     push.assert_not_called()
                 self.host.pages["Wiki-items"][key] = old
+
+    def test_configuration_drift_before_first_destination_push_is_rejected(self):
+        self.run_publish()
+        self.next_release()
+        real_prepare = publication.prepare
+
+        def drift(*args, **kwargs):
+            state = real_prepare(*args, **kwargs)
+            self.host.pages["Wiki-items"]["cname"] = "drift.example"
+            return state
+
+        with patch.object(publication, "prepare", side_effect=drift), \
+                patch.object(self.host, "push", wraps=self.host.push) as push:
+            with self.assertRaisesRegex(ContractError, "Pages configuration"):
+                self.run_publish()
+        self.assertFalse(any(call.args[1] in {"Wiki-items", "Wiki-hub"} for call in push.call_args_list))
+
+    def test_configuration_drift_before_hub_promotion_is_rejected(self):
+        self.run_publish()
+        self.next_release()
+        real_verify = self.host.verify
+
+        def drift(base, *args, **kwargs):
+            result = real_verify(base, *args, **kwargs)
+            if base.endswith("/Wiki-items/"):
+                self.host.pages["Wiki-hub"]["html_url"] = "https://drift.example/"
+            return result
+
+        with patch.object(self.host, "verify", side_effect=drift), \
+                patch.object(self.host, "push", wraps=self.host.push) as push:
+            with self.assertRaisesRegex(ContractError, "Pages URL"):
+                self.run_publish()
+        self.assertFalse(any(call.args[1] == "Wiki-hub" for call in push.call_args_list))
+
+    def test_verified_topic_configuration_drift_blocks_hub_promotion(self):
+        self.run_publish()
+        self.next_release()
+        real_verify = self.host.verify
+
+        def drift(base, *args, **kwargs):
+            result = real_verify(base, *args, **kwargs)
+            if base.endswith("/Wiki-items/"):
+                self.host.repos["Wiki-items"]["private"] = True
+            return result
+
+        with patch.object(self.host, "verify", side_effect=drift), \
+                patch.object(self.host, "push", wraps=self.host.push) as push:
+            with self.assertRaisesRegex(ContractError, "identity or permissions"):
+                self.run_publish()
+        self.assertFalse(any(call.args[1] == "Wiki-hub" for call in push.call_args_list))
 
     def test_production_provisions_missing_repositories_and_enables_disabled_pages(self):
         self.run_publish()
@@ -624,7 +679,7 @@ class TimingTests(unittest.TestCase):
                 self.elapsed += 1 if branch == "main" else 2
                 self.refs[branch] = commit
 
-            def configure(self, name):
+            def configure(self, name, **kwargs):
                 self.elapsed += 3
 
             def wait(self, name, commit):
@@ -671,7 +726,7 @@ class RecoveryBoundaryTests(unittest.TestCase):
                 if self.recovering and mode == "rejected":
                     raise ContractError("successor rejected before push")
 
-            def configure(self, name):
+            def configure(self, name, **kwargs):
                 pass
 
             def wait(self, name, commit, **kwargs):
