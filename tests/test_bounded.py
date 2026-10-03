@@ -399,7 +399,8 @@ class UpdateDeadlineTests(unittest.TestCase):
                 started = time.monotonic()
                 code, _, errors = self.harness(script, cwd=folder)
                 self.assertEqual(code, 124, errors.decode(errors="replace"))
-                self.assertLess(time.monotonic() - started, 3)
+                # The blocked path sleeps 120 s; 10 s proves the exit without timing a loaded runner.
+                self.assertLess(time.monotonic() - started, 10)
                 self.assertIn(b"recorder lock", errors)
                 self.assertIn(b"timing could not be recorded", errors)
                 self.assertIn(b"exceeded its", errors)
