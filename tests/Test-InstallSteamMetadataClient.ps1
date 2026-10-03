@@ -2,10 +2,12 @@
 <# Offline tests of the real installer using a local archive and a small client exe. #>
 $ErrorActionPreference = 'Stop'
 $installer = Join-Path (Split-Path -Parent $PSScriptRoot) 'tools/Install-SteamMetadataClient.ps1'
+. (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools/SteamMetadataClient.Install.ps1')
 $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ('steamcmd-test-' + [guid]::NewGuid().ToString('N'))
 $previousFixture = $env:WIKI_STEAMCMD_FIXTURE
 $cases = 0
 $ownedProcesses = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
+$junctions = [System.Collections.Generic.List[string]]::new()
 
 function Assert-True([bool]$Value, [string]$Message) {
     if (-not $Value) { throw $Message }
@@ -17,7 +19,7 @@ function New-Case([string]$Mode = 'success') {
     Set-Content -LiteralPath (Join-Path $caseRoot 'mode.txt') -Value $Mode
     $script:toolRoot = Join-Path $caseRoot '.local/tools/steamcmd'
     $script:options = @{
-        ToolRoot = $toolRoot
+        WikiRoot = $caseRoot
         Url = $archive
         DownloadTimeoutSec = 2
         DownloadDeadlineSec = 10
@@ -25,6 +27,10 @@ function New-Case([string]$Mode = 'success') {
         Download = {
             param($Url, $Archive, $TimeoutSec)
             if ($TimeoutSec -ne 2) { throw 'Request timeout was not forwarded.' }
+            $stage = Split-Path -Parent $Archive
+            $entries = @(Get-ChildItem -LiteralPath $stage -Force)
+            if ($entries.Count -ne 1 -or $entries[0].Name -ne '.hhwiki-steamcmd-owner.json') { throw 'Ownership receipt must be the first staging file.' }
+            Copy-Item -LiteralPath $entries[0].FullName -Destination (Join-Path $env:WIKI_STEAMCMD_FIXTURE 'download-owner.json')
             Add-Content -LiteralPath (Join-Path $env:WIKI_STEAMCMD_FIXTURE 'downloads.txt') -Value 'download'
             Copy-Item -LiteralPath $Url -Destination $Archive
         }
@@ -37,13 +43,15 @@ function New-Case([string]$Mode = 'success') {
 }
 function Run-Installer([string]$ExpectedError = '') {
     $caught = ''
-    try { & $installer -TestOptions $options | Out-Null } catch { $caught = $_.Exception.Message }
+    $failed = $false
+    try { Install-SteamMetadataClient @options | Out-Null } catch { $failed = $true; $caught = $_.Exception.Message }
     if ($ExpectedError) { Assert-True ($caught.Contains($ExpectedError)) "Expected '$ExpectedError', got '$caught'." }
     else {
-        Assert-True (-not $caught) "Unexpected failure: $caught"
+        Assert-True (-not $failed) "Unexpected failure: $caught"
         Assert-True (Test-Path -LiteralPath (Join-Path $toolRoot '.install-complete') -PathType Leaf) 'Completion marker missing.'
         $settings = Get-Content -Raw -LiteralPath (Join-Path $caseRoot '.local/steamcmd.json') | ConvertFrom-Json
         Assert-True ($settings.executable -eq (Join-Path $toolRoot 'steamcmd.exe')) 'Settings must select the promoted client.'
+        Assert-SteamInstallOwner $caseRoot $toolRoot
     }
     $script:cases++
 }
@@ -103,8 +111,17 @@ class Client {
     $archive = Join-Path $fixture 'bootstrap.zip'
     Compress-Archive -LiteralPath $exe -DestinationPath $archive
 
+    # Binding must fail before the public entrypoint can perform any setup.
+    $rejected = $false
+    try { & $installer -TestOptions @{} } catch { $rejected = $_.Exception.Message.Contains('TestOptions') }
+    Assert-True $rejected 'Production entrypoint still exposes its test seam.'
+    $cases++
+
     New-Case
     Run-Installer
+    $downloadOwner = Get-Content -Raw -LiteralPath (Join-Path $caseRoot 'download-owner.json') | ConvertFrom-Json
+    $finalOwner = Get-Content -Raw -LiteralPath (Join-Path $toolRoot '.hhwiki-steamcmd-owner.json') | ConvertFrom-Json
+    Assert-True ($downloadOwner.id -eq $finalOwner.id) 'Promotion must carry the original ownership receipt.'
     Assert-NoStaging
     $marker = Get-Content -Raw -LiteralPath (Join-Path $toolRoot '.install-complete')
     Run-Installer # repeat must reuse the marked installation, not download again
@@ -117,6 +134,9 @@ class Client {
 
     foreach ($withClient in @($false, $true)) {
         New-Case
+        New-Item -ItemType Directory -Path $toolRoot | Out-Null
+        Write-SteamInstallOwner $caseRoot $toolRoot
+        Set-Content -LiteralPath (Join-Path $toolRoot 'bootstrap-created-file.txt') -Value 'owned partial output'
         New-Item -ItemType Directory -Path (Join-Path $toolRoot 'package'), (Join-Path $toolRoot 'logs') | Out-Null
         Set-Content -LiteralPath (Join-Path $toolRoot 'steamcmd.zip') -Value 'interrupted'
         Set-Content -LiteralPath (Join-Path $toolRoot 'package/steam_cmd_win32.manifest') -Value 'partial'
@@ -124,14 +144,15 @@ class Client {
         if ($withClient) { Set-Content -LiteralPath (Join-Path $toolRoot 'steamcmd.exe') -Value 'partial client' }
         Run-Installer
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $toolRoot 'package/steam_cmd_win32.manifest'))) 'Interrupted contents survived replacement.'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $toolRoot 'bootstrap-created-file.txt'))) 'Owned recovery still depends on a filename allowlist.'
     }
 
-    foreach ($unknown in @('notes.txt', 'logs/notes.txt')) {
+    foreach ($unknown in @('steamcmd.zip', 'notes.txt', 'logs/notes.txt')) {
         New-Case
         New-Item -ItemType Directory -Path (Join-Path $toolRoot 'logs') | Out-Null
         $unknownFile = Join-Path $toolRoot $unknown
         Set-Content -LiteralPath $unknownFile -Value 'preserve me'
-        Run-Installer 'Existing tool directory has no client'
+        Run-Installer 'Unowned SteamCMD directory'
         Assert-True ((Get-Content -LiteralPath $unknownFile) -eq 'preserve me') 'Unknown data was removed.'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $caseRoot 'downloads.txt'))) 'Refused directory started a download.'
     }
@@ -139,9 +160,64 @@ class Client {
     New-Case
     $leftover = Join-Path (Split-Path -Parent $toolRoot) ('steamcmd.staging-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $leftover | Out-Null
+    Write-SteamInstallOwner $caseRoot $leftover
     Set-Content -LiteralPath (Join-Path $leftover 'steamcmd.zip') -Value 'partial'
     Run-Installer
     Assert-NoStaging
+
+    New-Case
+    $leftover = Join-Path (Split-Path -Parent $toolRoot) 'steamcmd.staging-unowned'
+    New-Item -ItemType Directory -Path $leftover | Out-Null
+    Set-Content -LiteralPath (Join-Path $leftover 'steamcmd.zip') -Value 'preserve me'
+    Run-Installer 'Unowned SteamCMD directory'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $leftover 'steamcmd.zip')) -eq 'preserve me') 'Unowned staging was removed.'
+
+    New-Case
+    New-Item -ItemType Directory -Path $toolRoot | Out-Null
+    Set-Content -LiteralPath (Join-Path $toolRoot '.hhwiki-steamcmd-owner.json') -Value '{"owner":"other","id":"not a guid","created_utc":"invalid"}'
+    Run-Installer 'ownership receipt missing or invalid'
+    Assert-True (Test-Path -LiteralPath $toolRoot) 'Invalid receipt was treated as ownership.'
+
+    New-Case
+    $leftover = Join-Path (Split-Path -Parent $toolRoot) 'steamcmd.staging-owned'
+    New-Item -ItemType Directory -Path $leftover | Out-Null
+    Write-SteamInstallOwner $caseRoot $leftover
+    $heldLock = [System.IO.File]::Open((Join-Path (Split-Path -Parent $toolRoot) 'steamcmd.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+    try {
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        Run-Installer 'cannot acquire exclusive lock'
+        Assert-True ($watch.Elapsed.TotalSeconds -lt 2) 'Concurrent installer did not fail fast.'
+        Assert-True (Test-Path -LiteralPath $leftover) 'Cleanup ran without the lock.'
+    } finally { $heldLock.Dispose() }
+    $check = $options.SignatureCheck
+    $options.SignatureCheck = {
+        param($Client)
+        $unexpectedLock = $null
+        try {
+            $unexpectedLock = [System.IO.File]::Open((Join-Path (Split-Path -Parent $toolRoot) 'steamcmd.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+        } catch [System.IO.IOException] { }
+        if ($unexpectedLock) { $unexpectedLock.Dispose(); throw 'Installer released its lock during bootstrap.' }
+        & $check $Client
+    }.GetNewClosure()
+    Run-Installer
+    Assert-NoStaging
+
+    foreach ($relative in @('.local', '.local/tools', '.local/tools/steamcmd')) {
+        New-Case
+        $outside = Join-Path $fixture ([guid]::NewGuid().ToString('N') + ' outside')
+        New-Item -ItemType Directory -Path $outside | Out-Null
+        Set-Content -LiteralPath (Join-Path $outside 'sentinel.txt') -Value 'preserve me'
+        $junction = Join-Path $caseRoot $relative
+        $parent = Split-Path -Parent $junction
+        if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent | Out-Null }
+        New-Item -ItemType Junction -Path $junction -Target $outside | Out-Null
+        $junctions.Add($junction)
+        try {
+            Run-Installer 'junction or symlink'
+            Assert-True (@(Get-ChildItem -LiteralPath $outside).Count -eq 1) 'Linked destination was mutated.'
+            Assert-True ((Get-Content -LiteralPath (Join-Path $outside 'sentinel.txt')) -eq 'preserve me') 'Junction target was modified.'
+        } finally { Remove-Item -LiteralPath $junction }
+    }
 
     foreach ($badSignature in @(
         @{ Status = 'NotSigned'; SignerCertificate = $null },
@@ -201,13 +277,16 @@ class Client {
             $process = Get-Process -Id ([int]$processId) -ErrorAction SilentlyContinue
             if ($process -and $process.Path -and $process.Path.StartsWith($fixture + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
                 $process.Kill($true)
-                $process.WaitForExit()
+                Assert-True ($process.WaitForExit(30000)) "Stand-in process $processId survived cleanup."
                 $process.Dispose()
             }
         }
     }
     foreach ($process in $ownedProcesses) { $process.Dispose() }
     $env:WIKI_STEAMCMD_FIXTURE = $previousFixture
+    foreach ($junction in $junctions) {
+        if (Test-Path -LiteralPath $junction) { Remove-Item -LiteralPath $junction }
+    }
     $resolved = [System.IO.Path]::GetFullPath($fixture)
     $allowed = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
     if (-not $resolved.StartsWith($allowed, [StringComparison]::OrdinalIgnoreCase)) { throw 'Fixture cleanup escaped temp root.' }
