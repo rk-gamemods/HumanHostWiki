@@ -42,10 +42,14 @@ Streaming pipe reads and writes share an elapsed deadline, and every context
 exit reaps its tree, including early exits, exceptions and partial setup failures.
 Whole-tree scans consume streaming records incrementally. Callers with an
 overall deadline reserve `CLEANUP_SECONDS`.
-`tests/test_process_lint.py` resolves import/assignment aliases and rejects
-subprocess, OS, asyncio, multiprocessing and PTY launch routes outside this
-owner; `tools/run_tests.py` is the explicit exception because its isolated
-workers already use jobs/process groups and bounded cleanup.
+`tests/test_process_lint.py` tracks import bindings, permits only the listed
+subprocess exceptions/results/pipe constants, rejects OS and asyncio launch
+access, multiprocessing/PTY imports, prohibited cross-module access and dynamic
+imports, and gives no exemption based on a variable's name. It deliberately
+does not infer module types for parameters, assigned aliases, computed
+attributes or arbitrary factory results. `tools/run_tests.py` is the explicit
+exception because its isolated workers already use jobs/process groups and
+bounded cleanup.
 
 The contract supplies one-line descriptions and exact file/test globs. It covers
 `wiki.py`, `wikibuild/**`, `tools/**` and `tests/**`, including browser assets,

@@ -17,6 +17,50 @@ from wikibuild import (bounded, capacity_inventory, git_transaction, ownership,
 
 
 class GitBoundsTests(unittest.TestCase):
+    def test_lineage_expiry_stops_lookups_inside_one_buffered_block(self):
+        revisions = [f"{number:040x}" for number in range(1, 5)]
+        lookups, pins, timeouts = [], [], []
+        elapsed = 0
+        started = time.monotonic()
+        clock = SimpleNamespace(monotonic=lambda: started + elapsed, sleep=time.sleep)
+
+        def command(argv, **options):
+            nonlocal elapsed
+            args = argv[3:]
+            timeouts.append(options["timeout"])
+            if args[0] == "rev-parse":
+                lookups.append(args[1].removesuffix("^{tree}"))
+                elapsed += min(3, max(0, 5 - elapsed))
+                output = args[1].encode()
+            elif args[0] == "show-ref":
+                pins.append(args[-1].rsplit("/", 1)[-1])
+                output = b""
+            else:
+                self.assertEqual(args[0], "cat-file")
+                output = b""
+            return subprocess.CompletedProcess(argv, 0, output, b"")
+
+        def launch(argv, **options):
+            self.assertEqual(argv[3:], ["rev-list", "--reverse", revisions[-1]])
+            # All revisions fit in one stdout block; advancing the iterator
+            # cannot enforce the deadline between these buffered records.
+            data = "\n".join(revisions).encode() + b"\n"
+            child = self.original([sys.executable, "-c", f"import sys; sys.stdout.buffer.write({data!r})"], **options)
+            self.children.append(child)
+            return child
+
+        with patch.object(publication_git, "GIT_LINEAGE_TIMEOUT", 5), \
+                patch.object(publication_git, "time", clock), \
+                patch.object(bounded, "time", clock), patch.object(bounded, "run", side_effect=command), \
+                patch.object(bounded, "start", side_effect=launch):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                publication_git.owned_lineage(self.root, None, revisions[-1])
+        self.assertEqual(lookups, revisions[:2])
+        self.assertEqual(pins, revisions[:1])
+        self.assertEqual(timeouts, [5, 5, 2, 2])
+        self.assertFalse(storage.process_running(self.children[0].pid))
+        self.assertEqual(bounded._children, set())
+
     def test_long_owned_lineage_has_a_whole_history_budget(self):
         revisions = [f"{number:040x}" for number in range(1, 257)]
         checked = []
@@ -47,7 +91,8 @@ class GitBoundsTests(unittest.TestCase):
             return child
 
         with patch.object(bounded, "run", side_effect=command), \
-                patch.object(bounded, "start", side_effect=launch), patch.object(bounded, "time", clock):
+                patch.object(bounded, "start", side_effect=launch), patch.object(bounded, "time", clock), \
+                patch.object(publication_git, "time", clock):
             self.assertTrue(publication_git.owned_lineage(self.root, None, revisions[-1]))
         self.assertEqual(checked, revisions)
         self.assertGreater(elapsed, publication_git.GIT_TIMEOUT)

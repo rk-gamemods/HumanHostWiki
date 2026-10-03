@@ -1,4 +1,4 @@
-"""Production launches belong to the process owner, including imported aliases."""
+"""Import-based process policy, without inferred assignment or parameter provenance."""
 
 import ast
 from pathlib import Path
@@ -9,158 +9,346 @@ ALLOWLIST = {
     "wikibuild/bounded.py": "Owns registered jobs/groups, deadlines and bounded reaping.",
     "tools/run_tests.py": "Owns isolated worker jobs/groups and bounded interruption cleanup.",
 }
-LAUNCHES = {"run", "Popen", "check_output", "call", "check_call", "getoutput", "getstatusoutput"}
-LAUNCH_ATTRIBUTES = (LAUNCHES - {"run"}) | {"system", "popen"}
-BOUNDED_MODULES = {"bounded", "wikibuild.bounded"}
-PROCESS_TYPES = {"Process", "BaseProcess", "ForkProcess", "SpawnProcess", "ForkServerProcess"}
-MANAGER_TYPES = {"BaseManager", "SyncManager"}
+SAFE = {"TimeoutExpired", "CalledProcessError", "CompletedProcess", "SubprocessError",
+        "PIPE", "DEVNULL", "STDOUT"}
+PROCESS_MODULES = {"subprocess", "pty", "multiprocessing"}
+ASYNC_LAUNCHES = {"create_subprocess_exec", "create_subprocess_shell"}
 
 
-def launch_route(name):
-    if name == "sys.executable":
-        return False  # The interpreter path is a value, despite its exec prefix.
-    base, dot, leaf = name.rpartition(".")
-    # Re-exporting a launch through an owner or another module grants no
-    # ownership to its caller. Unknown objects must not hide launch attributes.
-    if dot and base not in BOUNDED_MODULES and (
-            leaf in LAUNCH_ATTRIBUTES or leaf.startswith(("spawn", "exec", "posix_spawn", "create_subprocess_"))):
-        return True
-    namespaces = base.split(".")
-    if "subprocess" in namespaces and leaf in LAUNCHES:
-        return True
-    if any(module in namespaces for module in ("os", "posix", "nt")) and (
-            leaf in {"system", "popen", "fork", "forkpty"} or
-            leaf.startswith(("spawn", "exec", "posix_spawn"))):
-        return True
-    if "asyncio" in namespaces and leaf in {"subprocess_exec", "subprocess_shell"}:
-        return True
-    module, _, member = name.partition(".")
-    if module == "subprocess":
-        return member in LAUNCHES
-    if module in {"os", "posix", "nt"}:
-        return (member in {"system", "popen", "fork", "forkpty"} or
-                member.startswith(("spawn", "exec", "posix_spawn")))
-    if module == "asyncio":
-        return member.rsplit(".", 1)[-1] in {"create_subprocess_exec", "create_subprocess_shell",
-                                            "subprocess_exec", "subprocess_shell"}
-    if module == "multiprocessing":
-        parts = member.split(".")
-        return (parts[-1] in (PROCESS_TYPES - {"BaseProcess"}) | {"Pool", "Manager", "Popen", "_Popen"} or
-                parts[-1] == "start" and any(p in PROCESS_TYPES | MANAGER_TYPES
-                                             for p in parts[:-1]))
-    return (name in {"pty.spawn", "pty.fork", "concurrent.futures.ProcessPoolExecutor"})
+def os_launch(name):
+    return name in {"system", "popen", "startfile", "fork", "forkpty"} or name.startswith(
+        ("spawn", "exec", "posix_spawn"))
+
+
+def import_bindings(node):
+    if isinstance(node, ast.Import):
+        for item in node.names:
+            yield item.asname or item.name.split(".")[0], (
+                item.name if item.asname else item.name.split(".")[0], None)
+    elif isinstance(node, ast.ImportFrom):
+        module = "." * node.level + (node.module or "")
+        for item in node.names:
+            yield item.asname or item.name, (module, item.name)
+
+
+def scope_nodes(node):
+    """Walk one lexical scope, excluding nested function/class/lambda bodies."""
+    for child in ast.iter_child_nodes(node):
+        yield child
+        if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            yield from scope_nodes(child)
 
 
 def direct_launches(code):
+    """Return violations of the explicit import and cross-module access policy.
+
+    Parameters, assigned aliases, computed attribute names and arbitrary factory
+    results carry no import provenance. A module passed to a parameter is outside
+    this static check; obtaining subprocess by name or .subprocess is still banned.
+    """
     tree = ast.parse(code)
-    aliases, wildcards = {}, set()
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    # Module imports remain visible to functions declared before those imports.
+    module_bindings = {name: provenance for node in scope_nodes(tree)
+                       for name, provenance in import_bindings(node)}
 
-    def bind(name, values):
-        previous = aliases.setdefault(name, set())
-        added = values - previous
-        previous.update(added)
-        return bool(added)
+    class Check(ast.NodeVisitor):
+        def __init__(self):
+            self.scopes = [module_bindings]
+            self.class_scopes = set()
+            self.failures = set()
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
+        def provenance(self, name):
+            for scope in reversed(self.scopes):
+                if name in scope:
+                    return scope[name]
+            return None
+
+        def reject(self, node):
+            self.failures.add(node.lineno)
+
+        def visit_Import(self, node):
             for item in node.names:
-                bind(item.asname or item.name.split(".")[0], {item.name if item.asname else item.name.split(".")[0]})
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                if item.name.split(".")[0] in {"multiprocessing", "pty"}:
+                    self.reject(node)
+            self.scopes[-1].update(import_bindings(node))
+
+        def visit_ImportFrom(self, node):
+            module = "." * node.level + (node.module or "")
+            root = module.split(".")[0]
             for item in node.names:
-                if item.name == "*":
-                    wildcards.add(node.module)
-                else:
-                    bind(item.asname or item.name, {f"{node.module}.{item.name}"})
+                if (root in {"multiprocessing", "pty"} or
+                        root == "subprocess" and item.name not in SAFE or
+                        root == "os" and (item.name == "*" or os_launch(item.name)) or
+                        root == "asyncio" and (item.name == "*" or item.name in ASYNC_LAUNCHES) or
+                        item.name in PROCESS_MODULES):
+                    self.reject(node)
+            self.scopes[-1].update(import_bindings(node))
 
-    def resolve(node):
-        if isinstance(node, ast.Name):
-            return aliases.get(node.id, {node.id}) | {
-                f"{module}.{node.id}" for module in wildcards
-                if launch_route(f"{module}.{node.id}") or node.id in {"get_context", "get_event_loop", "get_running_loop"}}
-        if isinstance(node, ast.Attribute):
-            return {f"{base}.{node.attr}" for base in (resolve(node.value) or {"<expression>"})}
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id == "getattr" and len(node.args) >= 2:
-                attribute = node.args[1]
-                if isinstance(attribute, ast.Constant) and isinstance(attribute.value, str):
-                    return {f"{base}.{attribute.value}" for base in (resolve(node.args[0]) or {"<expression>"})}
-            callees = resolve(node.func)
-            result = set()
-            for name in callees:
-                if name == "multiprocessing.get_context":
-                    result.add("multiprocessing.context")
-                elif name in {"asyncio.get_event_loop", "asyncio.get_running_loop"}:
-                    result.add("asyncio.loop")
-                elif name.startswith("multiprocessing.") and (
-                        name.rsplit(".", 1)[-1] in PROCESS_TYPES | MANAGER_TYPES or name.endswith("Context")):
-                    # Keep process/manager instance types for later .start().
-                    result.add(name)
-            return result
-        return set()
+        def visit_Name(self, node):
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                # Assignments mask imports; they never copy another name's provenance.
+                self.scopes[-1][node.id] = None
+                return
+            binding = self.provenance(node.id)
+            if binding is None:
+                return
+            module, member = binding
+            parent = parents.get(node)
+            attribute = parent.attr if isinstance(parent, ast.Attribute) and parent.value is node else None
+            target = member if member is not None else attribute
+            root = module.split(".")[0]
+            if (root == "subprocess" and target not in SAFE or
+                    root == "os" and target is not None and os_launch(target) or
+                    root == "asyncio" and target in ASYNC_LAUNCHES or
+                    # A from-import of another module's os/asyncio is the same access.
+                    member == "os" and attribute is not None and os_launch(attribute) or
+                    member == "asyncio" and attribute in ASYNC_LAUNCHES):
+                self.reject(node)
 
-    # Resolve module aliases, callable aliases, context factories and instances.
-    # Union rather than overwrite conditional bindings so shadowing cannot hide
-    # a launch. This check intentionally treats ambiguous aliases conservatively.
-    # Cyclic attribute assignments must not make the linter itself unbounded.
-    for _ in range(sum(1 for _ in ast.walk(tree)) + 1):
-        changed = False
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Assign, ast.AnnAssign)):
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                values = resolve(node.value)
-                for target in targets:
-                    if isinstance(target, ast.Name):
-                        changed |= bind(target.id, values)
-            elif isinstance(node, ast.ClassDef):
-                for base in node.bases:
-                    changed |= bind(node.name, resolve(base))
-        if not changed:
-            break
-    # Check accesses as well as calls: handing an exported launcher to another
-    # function or saving it for later must also fail. Report each source line once.
-    return sorted({node.lineno for node in ast.walk(tree)
-                   if isinstance(node, (ast.Attribute, ast.Call)) and
-                   any(launch_route(name) for name in resolve(node.func if isinstance(node, ast.Call) else node))})
+        def visit_Attribute(self, node):
+            if (node.attr in PROCESS_MODULES or
+                    isinstance(node.value, ast.Attribute) and (
+                        node.value.attr == "os" and os_launch(node.attr) or
+                        node.value.attr == "asyncio" and node.attr in ASYNC_LAUNCHES)):
+                self.reject(node)
+            self.generic_visit(node)
+
+        def visit_Call(self, node):
+            dynamic = isinstance(node.func, ast.Name) and node.func.id == "__import__"
+            if isinstance(node.func, ast.Name):
+                dynamic |= self.provenance(node.func.id) == ("importlib", "import_module")
+            elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+                dynamic |= (node.func.attr == "import_module" and
+                            self.provenance(node.func.value.id) == ("importlib", None))
+            if dynamic:
+                argument = node.args[0] if node.args else next(
+                    (item.value for item in node.keywords if item.arg == "name"), None)
+                if (not isinstance(argument, ast.Constant) or not isinstance(argument.value, str) or
+                        argument.value.lstrip(".").split(".")[0] in PROCESS_MODULES):
+                    self.reject(node)
+            self.generic_visit(node)
+
+        def visit_Assign(self, node):
+            self.visit(node.value)
+            for target in node.targets:
+                self.visit(target)
+
+        def visit_AnnAssign(self, node):
+            self.visit(node.annotation)
+            if node.value is not None:
+                self.visit(node.value)
+            self.visit(node.target)
+
+        def visit_FunctionDef(self, node):
+            for expression in [*node.decorator_list, *node.args.defaults,
+                               *[value for value in node.args.kw_defaults if value is not None]]:
+                self.visit(expression)
+            if node.returns is not None:
+                self.visit(node.returns)
+            self.scopes[-1][node.name] = None
+            self.visit_function_body(node, node.body)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_function_body(self, node, body):
+            local = {child.id: None for child in scope_nodes(node)
+                     if isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del))}
+            local.update({name: None for child in scope_nodes(node) for name, _ in import_bindings(child)})
+            arguments = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+            arguments += [arg for arg in (node.args.vararg, node.args.kwarg) if arg is not None]
+            for argument in arguments:
+                if argument.annotation is not None:
+                    self.visit(argument.annotation)
+                local[argument.arg] = None
+            enclosing = self.scopes
+            # Methods/lambdas resolve outer function/module names, not class attributes.
+            self.scopes = [scope for scope in enclosing if id(scope) not in self.class_scopes] + [local]
+            for statement in body:
+                self.visit(statement)
+            self.scopes = enclosing
+
+        def visit_Lambda(self, node):
+            for default in [*node.args.defaults, *[v for v in node.args.kw_defaults if v is not None]]:
+                self.visit(default)
+            self.visit_function_body(node, [node.body])
+
+        def visit_ClassDef(self, node):
+            for expression in [*node.decorator_list, *node.bases, *[v.value for v in node.keywords]]:
+                self.visit(expression)
+            self.scopes[-1][node.name] = None
+            local = {}
+            self.scopes.append(local)
+            self.class_scopes.add(id(local))
+            for statement in node.body:
+                self.visit(statement)
+            self.scopes.pop()
+            self.class_scopes.remove(id(local))
+
+        def visit_ListComp(self, node):
+            self.visit(node.generators[0].iter)
+            enclosing = self.scopes
+            self.scopes = [scope for scope in enclosing if id(scope) not in self.class_scopes] + [{}]
+            for index, generator in enumerate(node.generators):
+                if index:
+                    self.visit(generator.iter)
+                self.visit(generator.target)
+                for condition in generator.ifs:
+                    self.visit(condition)
+            if isinstance(node, ast.DictComp):
+                self.visit(node.key)
+                self.visit(node.value)
+            else:
+                self.visit(node.elt)
+            self.scopes = enclosing
+
+        visit_SetComp = visit_ListComp
+        visit_DictComp = visit_ListComp
+        visit_GeneratorExp = visit_ListComp
+
+    check = Check()
+    check.visit(tree)
+    return sorted(check.failures)
 
 
 class ProcessLintTests(unittest.TestCase):
-    def test_cross_module_and_unknown_bases_cannot_expose_launches(self):
-        fixtures = {
-            "allowlisted module export": 'import tools.run_tests as rt; rt.subprocess.Popen([])',
-            "owner module export": 'from wikibuild import bounded; bounded.subprocess.Popen([])',
-            "which result": 'import shutil; executable = shutil.which("git"); executable.Popen([])',
-            "which expression": 'import shutil; shutil.which("git").Popen([])',
-            "exported run": 'from wikibuild import bounded; bounded.subprocess.run([])',
-            "exported asyncio": 'import tools.run_tests as rt; rt.asyncio.create_subprocess_exec("git")',
-            "exported os": 'from wikibuild import bounded; bounded.os.system("git status")',
-            "exported callable alias": 'import tools.run_tests as rt; launch = rt.subprocess.Popen; launch([])',
-            "uninvoked export": 'import tools.run_tests as rt\nlaunch = rt.subprocess.Popen',
-            "unknown run export": 'def launch(module):\n    module.subprocess.run([])',
-        }
+    def assert_rejected(self, fixtures):
         for name, code in fixtures.items():
             with self.subTest(route=name):
                 self.assertTrue(direct_launches(code), code)
 
-    def test_launch_attributes_on_unknown_bases_are_rejected(self):
-        for member in ("Popen", "check_output", "check_call", "call", "getoutput", "getstatusoutput",
-                       "system", "popen", "spawnv", "execv", "posix_spawn", "create_subprocess_exec",
-                       "create_subprocess_shell"):
-            with self.subTest(member=member):
-                self.assertTrue(direct_launches(f'def launch(module):\n    module.{member}("git")'))
+    def test_subprocess_provenance_rejects_every_unsafe_use(self):
+        self.assert_rejected({
+            "module alias": 'import subprocess as sp; sp.Popen([])',
+            "alias named bounded": 'import subprocess as bounded; bounded.run([])',
+            "from-import alias": 'from subprocess import Popen as P; P([])',
+            "unused unsafe import": 'from subprocess import check_call',
+            "wildcard": 'from subprocess import *',
+            "module passed to parameter": 'import subprocess\ndef f(bounded): bounded.Popen([])\nf(subprocess)',
+            "module assignment": 'import subprocess as sp; alias = sp',
+            "unsafe attribute value": 'import subprocess as sp; launcher = sp.run',
+            "unknown subprocess member": 'import subprocess; subprocess.future_launcher',
+            "unsafe literal getattr": 'import subprocess; getattr(subprocess, "Popen")',
+            "bare module": 'import subprocess; consume(subprocess)',
+            "from-import non-launch utility": 'from subprocess import list2cmdline',
+        })
 
-    def test_owned_primitives_remain_allowed(self):
-        for code in ('from wikibuild import bounded; bounded.run(["git"], timeout=30)',
-                     'import wikibuild.bounded as owner; owner.run(["git"], timeout=30)',
+    def test_all_safe_subprocess_names_are_allowed(self):
+        for name in sorted(SAFE):
+            for code in (f'import subprocess as sp; sp.{name}',
+                         f'from subprocess import {name} as safe; consume(safe)'):
+                with self.subTest(code=code):
+                    self.assertEqual(direct_launches(code), [])
+        self.assertEqual(direct_launches('import subprocess'), [])
+
+    def test_os_provenance_rejects_all_launch_forms(self):
+        members = ("system", "popen", "startfile", "fork", "forkpty", "spawnl", "spawnlp", "spawnle",
+                   "spawnlpe", "spawnv", "spawnvp", "spawnve", "spawnvpe", "execl", "execlp", "execle",
+                   "execlpe", "execv", "execvp", "execve", "execvpe", "posix_spawn", "posix_spawnp")
+        self.assert_rejected({name: f'import os as operating; operating.{name}'
+                              for name in members})
+        self.assert_rejected({
+            "from-import": 'from os import system as execute; execute("git status")',
+            "from-import unused": 'from os import startfile',
+            "wildcard": 'from os import *',
+        })
+
+    def test_asyncio_provenance_rejects_process_creation(self):
+        self.assert_rejected({
+            "module alias exec": 'import asyncio as aio; aio.create_subprocess_exec("git")',
+            "module shell": 'import asyncio; asyncio.create_subprocess_shell("git status")',
+            "from-import alias": 'from asyncio import create_subprocess_exec as launch; launch("git")',
+            "from-import unused": 'from asyncio import create_subprocess_shell',
+            "wildcard": 'from asyncio import *',
+        })
+
+    def test_multiprocessing_and_pty_imports_are_rejected(self):
+        self.assert_rejected({
+            "multiprocessing": 'import multiprocessing',
+            "multiprocessing alias": 'import multiprocessing as bounded',
+            "multiprocessing child": 'import multiprocessing.context as context',
+            "multiprocessing from-import": 'from multiprocessing import Process as P',
+            "multiprocessing child from-import": 'from multiprocessing.managers import BaseManager',
+            "multiprocessing wildcard": 'from multiprocessing import *',
+            "pty": 'import pty',
+            "pty alias": 'import pty as terminal',
+            "pty from-import": 'from pty import fork',
+            "pty wildcard": 'from pty import *',
+        })
+
+    def test_cross_module_access_is_rejected_without_provenance(self):
+        self.assert_rejected({
+            "allowlisted exporter": 'import tools.run_tests as rt; rt.subprocess.Popen([])',
+            "owner exporter": 'from wikibuild import bounded; bounded.subprocess.Popen([])',
+            "parameter obtains module": 'def f(bounded): bounded.Popen([])\nf(client.subprocess)',
+            "unknown exporter": 'client.subprocess',
+            "pty exporter": 'client.pty',
+            "multiprocessing exporter": 'client.multiprocessing',
+            "os exporter": 'client.os.system("git status")',
+            "os factory": 'factory().os.startfile("git")',
+            "asyncio exporter": 'client.asyncio.create_subprocess_exec("git")',
+            "asyncio factory": 'factory().asyncio.create_subprocess_shell("git status")',
+            "parameter named bounded": 'def f(bounded): bounded.subprocess.Popen([])',
+            "from-import exporter": 'from tools.run_tests import subprocess as sp',
+            "from-import os exporter": 'from client import os as operating; operating.system("git status")',
+            "from-import asyncio exporter": 'from client import asyncio as aio; aio.create_subprocess_exec("git")',
+        })
+
+    def test_dynamic_imports_are_rejected(self):
+        self.assert_rejected({
+            "builtin": '__import__("subprocess").run([])',
+            "builtin pty": '__import__("pty")',
+            "builtin multiprocessing": '__import__("multiprocessing.context")',
+            "builtin non-literal": '__import__(module)',
+            "builtin formatted string": '__import__(f"{module}")',
+            "builtin keyword": '__import__(name="subprocess")',
+            "importlib": 'import importlib; importlib.import_module("subprocess")',
+            "importlib alias": 'import importlib as imports; imports.import_module("pty")',
+            "importlib child": 'import importlib; importlib.import_module("multiprocessing.managers")',
+            "importlib non-literal": 'import importlib; importlib.import_module(module)',
+            "importlib from-import": 'from importlib import import_module as load; load("subprocess")',
+            "importlib keyword": 'import importlib; importlib.import_module(name=module)',
+            "importlib unknown arguments": 'import importlib; importlib.import_module(**options)',
+        })
+
+    def test_legitimate_names_and_owned_primitives_are_allowed(self):
+        for code in ('client.call()', 'database.execute()', 'record.execution_status',
+                     'import subprocess; subprocess.TimeoutExpired',
+                     'from wikibuild import bounded; bounded.run(["git"], timeout=30)',
                      'from wikibuild import bounded; bounded.stream(["git"], timeout=600)',
-                     'from wikibuild import bounded; owner = bounded; owner.run(["git"], timeout=30)',
+                     'import wikibuild.bounded as owner; owner.run(["git"], timeout=30)',
                      'from . import bounded; bounded.run(["git"], timeout=30)',
-                     'import shutil; from wikibuild import bounded; executable = shutil.which("git"); bounded.run([executable], timeout=30)',
-                     'import sys; from wikibuild import bounded; bounded.run([sys.executable], timeout=30)'):
+                     'import os; os.replace("a", "b")', 'import os; os.environ',
+                     'import asyncio; asyncio.get_running_loop()',
+                     'import sys; from wikibuild import bounded; bounded.run([sys.executable], timeout=30)',
+                     '__import__("json")', 'import importlib; importlib.import_module("json")',
+                     'text = "subprocess.run([])"'):
             with self.subTest(code=code):
                 self.assertEqual(direct_launches(code), [])
 
-    def test_shell_launch_is_rejected(self):
-        self.assertEqual(len(direct_launches('import os as operating; operating.system("git status")')), 1)
+    def test_parameters_assignments_and_attributes_do_not_gain_provenance(self):
+        # A parameter may carry a module at runtime. Static lint cannot infer
+        # that type: reject its acquisition (covered above), not generic names.
+        for code in ('def f(bounded): bounded.Popen([])',
+                     'import subprocess as bounded\ndef f(bounded): bounded.Popen([])',
+                     'import os; alias = os; alias.system("git status")',
+                     'import os as database; database = client; database.execute()',
+                     'client.Popen([])', 'import shutil; shutil.which("git").Popen([])',
+                     'def f():\n    import os as operating\n    operating = client\n    operating.execute()',
+                     'client = factory()\nclass C:\n    import subprocess as client\n    def f(self): client.call()',
+                     'import subprocess as client\n[client.call() for client in clients]',
+                     'client.execution_status', 'alias = client; alias = alias.child',
+                     'import os; attribute = "system"; getattr(os, attribute)("git status")'):
+            with self.subTest(code=code):
+                self.assertEqual(direct_launches(code), [])
+
+    def test_imports_inside_functions_and_forward_module_imports_are_tracked(self):
+        self.assert_rejected({
+            "local import": 'def f():\n    import subprocess as sp\n    sp.run([])',
+            "local from-import": 'def f():\n    from os import system as launch\n    launch("git status")',
+            "later global import": 'def f(): sp.run([])\nimport subprocess as sp',
+            "parameter rebound by import": 'def f(bounded):\n    import subprocess as bounded\n    bounded.run([])',
+        })
 
     def test_all_production_launches_are_owned(self):
         root = Path(__file__).resolve().parents[1]
@@ -177,81 +365,3 @@ class ProcessLintTests(unittest.TestCase):
                     failures.extend(f"{name}:{line}" for line in calls)
         self.assertEqual(seen, set(ALLOWLIST))
         self.assertEqual(failures, [], "Use bounded.run/stream: " + ", ".join(failures))
-
-    def test_aliases_cannot_bypass_the_rule(self):
-        for code in ("import subprocess; subprocess.run([])",
-                     "import subprocess as sp; sp.Popen([])",
-                     "from subprocess import check_output as output; output([])",
-                     "from subprocess import call; call([])",
-                     "import subprocess as sp; launch = sp.Popen; launch([])"):
-            with self.subTest(code=code):
-                self.assertEqual(len(direct_launches(code)), 1)
-        self.assertEqual(direct_launches('text = "subprocess.run([])"'), [])
-
-    def test_every_launch_route_has_a_negative_fixture(self):
-        fixtures = {
-            "check_call": 'import subprocess as sp; sp.check_call([])',
-            "getoutput": 'from subprocess import getoutput as output; output("git status")',
-            "getstatusoutput": 'import subprocess; subprocess.getstatusoutput("git status")',
-            "mixed aliases": 'import subprocess as sp; from subprocess import Popen as P; P([]); sp.run([])',
-            "module assignment": 'import subprocess as sp; alias = sp; launch = alias.Popen; launch([])',
-            "wildcard subprocess": 'from subprocess import *; check_call([])',
-            "wildcard os": 'from os import *; system("git status")',
-            "os.system": 'import os; os.system("git status")',
-            "os.popen": 'from os import popen as pipe; pipe("git status")',
-            "os.spawnl": 'import os; os.spawnl(0, "git", "git")',
-            "os.spawnlp": 'import os; os.spawnlp(0, "git", "git")',
-            "os.spawnle": 'import os; os.spawnle(0, "git", "git", {})',
-            "os.spawnlpe": 'import os; os.spawnlpe(0, "git", "git", {})',
-            "os.spawnv": 'import os; os.spawnv(0, "git", [])',
-            "os.spawnvp": 'import os; os.spawnvp(0, "git", [])',
-            "os.spawnve": 'import os; os.spawnve(0, "git", [], {})',
-            "os.spawnvpe": 'import os; os.spawnvpe(0, "git", [], {})',
-            "os.execl": 'import os; os.execl("git", "git")',
-            "os.execlp": 'import os; os.execlp("git", "git")',
-            "os.execle": 'import os; os.execle("git", "git", {})',
-            "os.execlpe": 'import os; os.execlpe("git", "git", {})',
-            "os.execv": 'import os; os.execv("git", [])',
-            "os.execvp": 'import os; os.execvp("git", [])',
-            "os.execve": 'import os; os.execve("git", [], {})',
-            "os.execvpe": 'import os; os.execvpe("git", [], {})',
-            "os.posix_spawn": 'import os; os.posix_spawn("git", [], {})',
-            "os.posix_spawnp": 'from os import posix_spawnp as spawn; spawn("git", [], {})',
-            "os.fork": 'import os; os.fork()',
-            "os.forkpty": 'import os; os.forkpty()',
-            "asyncio exec": 'import asyncio as aio; aio.create_subprocess_exec("git")',
-            "asyncio shell": 'from asyncio import create_subprocess_shell as launch; launch("git status")',
-            "asyncio submodule": 'from asyncio import subprocess as processes; processes.create_subprocess_exec("git")',
-            "wildcard asyncio": 'from asyncio import *; create_subprocess_exec("git")',
-            "asyncio loop": 'import asyncio; loop = asyncio.get_running_loop(); loop.subprocess_exec(None, "git")',
-            "multiprocessing Process": 'from multiprocessing import Process as P; p = P(); p.start()',
-            "multiprocessing Pool": 'import multiprocessing as mp; mp.Pool()',
-            "multiprocessing Manager": 'import multiprocessing as mp; mp.Manager()',
-            "multiprocessing context": 'import multiprocessing as mp; ctx = mp.get_context("spawn"); ctx.Process().start()',
-            "multiprocessing SpawnProcess": 'from multiprocessing.context import SpawnProcess as P; P().start()',
-            "multiprocessing ForkProcess": 'from multiprocessing.context import ForkProcess as P; P().start()',
-            "multiprocessing ForkServerProcess": 'from multiprocessing.context import ForkServerProcess as P; P().start()',
-            "multiprocessing SpawnContext": 'from multiprocessing.context import SpawnContext as C; ctx = C(); ctx.Process().start()',
-            "multiprocessing Popen": 'from multiprocessing.popen_spawn_win32 import Popen as P; P(None)',
-            "wildcard multiprocessing": 'from multiprocessing import *; Process().start()',
-            "manager start": 'from multiprocessing.managers import BaseManager as M; manager = M(); manager.start()',
-            "derived manager": 'from multiprocessing.managers import BaseManager\nclass M(BaseManager): pass\nm = M(); m.start()',
-            "process executor": 'from concurrent.futures import ProcessPoolExecutor as E; E()',
-            "pty.spawn": 'import pty as terminal; terminal.spawn(["git"])',
-            "pty.fork": 'from pty import fork as child; child()',
-            "wildcard pty": 'from pty import *; spawn(["git"])',
-            "literal getattr": 'import subprocess as sp; launch = getattr(sp, "Popen"); launch([])',
-        }
-        for name, code in fixtures.items():
-            with self.subTest(route=name):
-                self.assertTrue(direct_launches(code), code)
-
-    def test_non_launch_operations_remain_allowed(self):
-        self.assertEqual(direct_launches('import os; os.replace("a", "b")'), [])
-        self.assertEqual(direct_launches('import subprocess; subprocess.CompletedProcess([], 0)'), [])
-        self.assertEqual(direct_launches('from concurrent.futures import ThreadPoolExecutor; ThreadPoolExecutor()'), [])
-        self.assertEqual(direct_launches('import asyncio; asyncio.get_running_loop()'), [])
-
-    def test_alias_cycles_finish_and_still_reject_a_launch(self):
-        self.assertTrue(direct_launches('import subprocess as sp; sp = sp.namespace; sp.Popen([])'))
-        self.assertTrue(direct_launches('import multiprocessing as mp; p = mp.Process(); p = p.start()'))

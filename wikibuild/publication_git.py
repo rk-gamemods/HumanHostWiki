@@ -1,5 +1,6 @@
 """Prepare Pages trees in existing Git object storage without a second checkout."""
 
+from contextlib import closing
 import hashlib
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 
 from . import bounded
 from .git_transaction import command
@@ -15,7 +17,7 @@ from .storage import ContractError, git, git_records
 
 # Individual local lineage lookups retain their existing plumbing allowance.
 GIT_TIMEOUT = 120
-# A lineage stream remains open while every commit receives its ownership lookup.
+# The shared lineage budget includes enumeration and every commit's ownership lookup.
 GIT_LINEAGE_TIMEOUT = 600
 # A public audit consumes every blob in the newly exported history.
 GIT_AUDIT_TIMEOUT = 1800
@@ -143,24 +145,36 @@ def owned_lineage(path, base, head):
     tree already on that line (a byte-identical restore). Anything else stays refused."""
     if not head:
         return False
+    deadline = time.monotonic() + GIT_LINEAGE_TIMEOUT
+
+    def remaining():
+        budget = deadline - time.monotonic()
+        if budget <= 0:
+            raise subprocess.TimeoutExpired(["git", "-C", str(path), "rev-list", "--reverse", head],
+                                            GIT_LINEAGE_TIMEOUT)
+        return budget
 
     def succeeds(*args):
         try:
-            return bounded.run(["git", "-C", str(path), *args], timeout=GIT_TIMEOUT).returncode == 0
+            return bounded.run(["git", "-C", str(path), *args],
+                               timeout=min(GIT_TIMEOUT, remaining())).returncode == 0
         except subprocess.TimeoutExpired:
             return False
 
     if not succeeds("cat-file", "-e", head + "^{commit}") or (base and not succeeds("merge-base", "--is-ancestor", base, head)):
         return False
     # Without a completed baseline, the lineage must start at a pinned root.
-    trees = {bounded_git(path, "rev-parse", base + "^{tree}")} if base else set()
-    for raw_revision in git_records(path, "rev-list", "--reverse", head, *(["^" + base] if base else []),
-                                    separator=b"\n", timeout=GIT_LINEAGE_TIMEOUT):
-        revision = raw_revision.decode()
-        tree = bounded_git(path, "rev-parse", revision + "^{tree}")
-        if tree not in trees and not succeeds("show-ref", "--verify", "--quiet", "refs/wiki-publications/" + revision):
-            return False
-        trees.add(tree)
+    trees = {bounded_git(path, "rev-parse", base + "^{tree}",
+                         timeout=min(GIT_TIMEOUT, remaining()))} if base else set()
+    with closing(git_records(path, "rev-list", "--reverse", head, *(["^" + base] if base else []),
+                             separator=b"\n", timeout=remaining())) as revisions:
+        for raw_revision in revisions:
+            revision = raw_revision.decode()
+            tree = bounded_git(path, "rev-parse", revision + "^{tree}",
+                               timeout=min(GIT_TIMEOUT, remaining()))
+            if tree not in trees and not succeeds("show-ref", "--verify", "--quiet", "refs/wiki-publications/" + revision):
+                return False
+            trees.add(tree)
     return True
 
 
@@ -177,9 +191,10 @@ def released_lineage(path, base, head, release):
         return False
 
 
-def bounded_git(path, *arguments):
+def bounded_git(path, *arguments, timeout=None):
     try:
-        result = bounded.run(["git", "-C", str(path), *arguments], timeout=GIT_TIMEOUT)
+        result = bounded.run(["git", "-C", str(path), *arguments],
+                             timeout=GIT_TIMEOUT if timeout is None else timeout)
     except subprocess.TimeoutExpired:
         raise ContractError("Publication lineage check timed out") from None
     if result.returncode:
