@@ -1,5 +1,6 @@
 """Prepare Pages trees in existing Git object storage without a second checkout."""
 
+from contextlib import closing
 import hashlib
 import os
 from pathlib import Path
@@ -8,10 +9,18 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 
 from . import bounded
 from .git_transaction import command
-from .storage import ContractError, git
+from .storage import ContractError, git, git_records
+
+# Individual local lineage lookups retain their existing plumbing allowance.
+GIT_TIMEOUT = 120
+# The shared lineage budget includes enumeration and every commit's ownership lookup.
+GIT_LINEAGE_TIMEOUT = 600
+# A public audit consumes every blob in the newly exported history.
+GIT_AUDIT_TIMEOUT = 1800
 
 
 def disposable_environment(*, identity=False):
@@ -136,22 +145,36 @@ def owned_lineage(path, base, head):
     tree already on that line (a byte-identical restore). Anything else stays refused."""
     if not head:
         return False
+    deadline = time.monotonic() + GIT_LINEAGE_TIMEOUT
+
+    def remaining():
+        budget = deadline - time.monotonic()
+        if budget <= 0:
+            raise subprocess.TimeoutExpired(["git", "-C", str(path), "rev-list", "--reverse", head],
+                                            GIT_LINEAGE_TIMEOUT)
+        return budget
 
     def succeeds(*args):
         try:
-            return bounded.run(["git", "-C", str(path), *args], timeout=120).returncode == 0
+            return bounded.run(["git", "-C", str(path), *args],
+                               timeout=min(GIT_TIMEOUT, remaining())).returncode == 0
         except subprocess.TimeoutExpired:
             return False
 
     if not succeeds("cat-file", "-e", head + "^{commit}") or (base and not succeeds("merge-base", "--is-ancestor", base, head)):
         return False
     # Without a completed baseline, the lineage must start at a pinned root.
-    trees = {bounded_git(path, "rev-parse", base + "^{tree}")} if base else set()
-    for revision in reversed(bounded_git(path, "rev-list", head, *(["^" + base] if base else [])).splitlines()):
-        tree = bounded_git(path, "rev-parse", revision + "^{tree}")
-        if tree not in trees and not succeeds("show-ref", "--verify", "--quiet", "refs/wiki-publications/" + revision):
-            return False
-        trees.add(tree)
+    trees = {bounded_git(path, "rev-parse", base + "^{tree}",
+                         timeout=min(GIT_TIMEOUT, remaining()))} if base else set()
+    with closing(git_records(path, "rev-list", "--reverse", head, *(["^" + base] if base else []),
+                             separator=b"\n", timeout=remaining())) as revisions:
+        for raw_revision in revisions:
+            revision = raw_revision.decode()
+            tree = bounded_git(path, "rev-parse", revision + "^{tree}",
+                               timeout=min(GIT_TIMEOUT, remaining()))
+            if tree not in trees and not succeeds("show-ref", "--verify", "--quiet", "refs/wiki-publications/" + revision):
+                return False
+            trees.add(tree)
     return True
 
 
@@ -162,15 +185,16 @@ def released_lineage(path, base, head, release):
         return False
     try:
         return all(bounded.run(["git", "-C", str(path), "merge-base", "--is-ancestor", older, newer],
-                               timeout=120).returncode == 0 for older, newer in
+                               timeout=GIT_TIMEOUT).returncode == 0 for older, newer in
                    (*([(base, head)] if base else []), (head, release)))
     except subprocess.TimeoutExpired:
         return False
 
 
-def bounded_git(path, *arguments):
+def bounded_git(path, *arguments, timeout=None):
     try:
-        result = bounded.run(["git", "-C", str(path), *arguments], timeout=120)
+        result = bounded.run(["git", "-C", str(path), *arguments],
+                             timeout=GIT_TIMEOUT if timeout is None else timeout)
     except subprocess.TimeoutExpired:
         raise ContractError("Publication lineage check timed out") from None
     if result.returncode:
@@ -189,13 +213,16 @@ def unavailable(path):
 def audit(path, head, baseline=None):
     """Scan newly exported history, including deleted blobs, before the first push."""
     if baseline and baseline != head:
-        check = subprocess.run(["git", "-C", str(path), "merge-base", "--is-ancestor", baseline, head], capture_output=True)
+        check = bounded.run(["git", "-C", str(path), "merge-base", "--is-ancestor", baseline, head], timeout=GIT_TIMEOUT)
         if check.returncode:
             raise ContractError("Remote main is not an ancestor of the selected release")
-    revisions = git(path, "rev-list", head, *(["^" + baseline] if baseline else [])).splitlines()
+    revisions = 0
     blobs = {}
-    for revision in revisions:
-        for row in command(path, "ls-tree", "-rz", revision).split(b"\0"):
+    for raw_revision in git_records(path, "rev-list", head, *(["^" + baseline] if baseline else []),
+                                    separator=b"\n", timeout=GIT_AUDIT_TIMEOUT):
+        revisions += 1
+        revision = raw_revision.decode()
+        for row in git_records(path, "--literal-pathspecs", "ls-tree", "-rz", revision, timeout=GIT_AUDIT_TIMEOUT):
             if not row:
                 continue
             meta, raw_name = row.split(b"\t", 1)
@@ -216,9 +243,9 @@ def audit(path, head, baseline=None):
             if oid.decode() not in blobs or not (font and name.endswith(".woff2")):
                 blobs[oid.decode()] = name
     # One streaming Git process; only a small block is resident per blob.
-    process = subprocess.Popen(["git", "-C", str(path), "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     private = re.compile(rb"(?i)([A-Z]:[/\\]{1,2}Users[/\\]{1,2}|/home/[^/ ]+/|gh[pousr]_[A-Za-z0-9]{30}|github_pat_[A-Za-z0-9_]{30}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY)")
-    try:
+    with bounded.stream(["git", "-C", str(path), "cat-file", "--batch"],
+                        timeout=GIT_AUDIT_TIMEOUT, stdin=subprocess.PIPE) as process:
         for oid, name in blobs.items():
             process.stdin.write((oid + "\n").encode())
             process.stdin.flush()
@@ -247,12 +274,4 @@ def audit(path, head, baseline=None):
         process.stdin.close()
         if process.wait():
             raise ContractError("Git public history audit failed")
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait()
-        process.stdout.close()
-        process.stderr.close()
-        if not process.stdin.closed:
-            process.stdin.close()
-    return {"commits": len(revisions), "blobs": len(blobs)}
+    return {"commits": revisions, "blobs": len(blobs)}

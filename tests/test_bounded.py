@@ -49,7 +49,179 @@ def stop_recorded(path):
                     raise
 
 
+class BoundedConstructionTests(unittest.TestCase):
+    def test_every_post_launch_construction_and_worker_start_is_guarded(self):
+        thread = bounded.threading.Thread
+        cases = {
+            "run": [(bounded, "_Capture", n) for n in (1, 2)] +
+                   [(bounded.threading, "Thread", n) for n in (1, 2, 3)] +
+                   [(thread, "start", n) for n in (1, 2, 3)],
+            "stream": [(bounded, "_Streaming", 1), (bounded, "_Capture", 1)] +
+                      [(bounded.threading, "Event", n) for n in (1, 2)] +
+                      [(bounded, "_DeadlinePipe", n) for n in (1, 2)] +
+                      [(bounded.queue, "Queue", n) for n in (1, 2)] +
+                      [(bounded.threading, "Thread", n) for n in (1, 2, 3, 4)] +
+                      [(thread, "start", n) for n in (1, 2, 3, 4)],
+        }
+        for mode, steps in cases.items():
+            for owner, name, occurrence in steps:
+                for exception in (RuntimeError, KeyboardInterrupt):
+                    with self.subTest(mode=mode, step=name, occurrence=occurrence, exception=exception):
+                        children = []
+                        original_start = bounded.start
+                        original_step = getattr(owner, name)
+                        calls = 0
+
+                        def launch(*args, **kwargs):
+                            child = original_start(*args, **kwargs)
+                            children.append(child)
+                            return child
+
+                        def fail_once(*args, **kwargs):
+                            nonlocal calls
+                            calls += 1
+                            if calls == occurrence:
+                                raise exception("injected construction failure")
+                            return original_step(*args, **kwargs)
+
+                        try:
+                            with patch.object(bounded, "start", new=launch), patch.object(owner, name, new=fail_once):
+                                with self.assertRaisesRegex(exception, "injected construction failure"):
+                                    command = [sys.executable, "-c", "import time; time.sleep(120)"]
+                                    if mode == "run":
+                                        bounded.run(command, timeout=2, input=b"input")
+                                    else:
+                                        with bounded.stream(command, timeout=2, stdin=subprocess.PIPE):
+                                            self.fail("Must not yield after setup failure")
+                            self.assertEqual(len(children), 1)
+                            self.assertFalse(alive(children[0].pid))
+                            self.assertEqual(bounded._children, set())
+                            self.assertTrue(all(pipe.closed for pipe in (children[0].stdin, children[0].stdout, children[0].stderr)))
+                        finally:
+                            for child in children:
+                                bounded.kill_tree(child)
+                                for pipe in (child.stdin, child.stdout, child.stderr):
+                                    pipe.close()
+
+
+class BoundedStreamTests(unittest.TestCase):
+    def test_records_cross_read_boundaries_and_preserve_embedded_newlines(self):
+        payload = b"a" * 70000 + b"\0line\nname\0"
+        command = [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'a' * 70000 + b'\\0line\\nname\\0')"]
+        with patch.object(bounded, "MAX_CAPTURE", 10):
+            with bounded.stream(command, timeout=10) as child:
+                self.assertEqual(list(child.stdout.records()), payload.split(b"\0")[:-1])
+                self.assertEqual(child.wait(), 0)
+
+    def test_unterminated_records_fail_closed(self):
+        command = [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'partial')"]
+        with self.assertRaisesRegex(subprocess.SubprocessError, "Unterminated output record"):
+            with bounded.stream(command, timeout=10) as child:
+                list(child.stdout.records())
+        self.assertFalse(alive(child.process.pid))
+
+    def test_post_launch_session_failure_reaps_child(self):
+        children = []
+        original = bounded.start
+        def launch(*args, **kwargs):
+            child = original(*args, **kwargs)
+            children.append(child)
+            self.addCleanup(bounded.kill_tree, child)
+            return child
+        with patch.object(bounded, "start", side_effect=launch), \
+                patch.object(bounded, "_Streaming", side_effect=KeyboardInterrupt("setup")):
+            with self.assertRaises(KeyboardInterrupt):
+                with bounded.stream([sys.executable, "-c", "import time; time.sleep(120)"], timeout=2):
+                    self.fail("Must not reach consumer")
+        self.assertEqual(len(children), 1)
+        self.assertFalse(alive(children[0].pid))
+        self.assertEqual(bounded._children, set())
+
+    def test_stalled_reader_reaps_the_entire_tree_at_deadline(self):
+        folder = fixture_dir(self, "stream")
+        pids = folder / "pids"
+        self.addCleanup(stop_recorded, pids)
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            with bounded.stream([sys.executable, "-c", HOLDS_PIPE, str(pids)], timeout=1) as child:
+                child.stdout.readline()
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertTrue(pids.exists())
+        self.assertTrue(all(not alive(int(pid)) for pid in pids.read_text().splitlines()))
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+    def test_stderr_flood_is_drained_and_capped(self):
+        with patch.object(bounded, "MAX_CAPTURE", 1000):
+            with bounded.stream([sys.executable, "-c",
+                                 "import sys; sys.stderr.buffer.write(b'e' * (4 << 20)); "
+                                 "sys.stderr.flush(); print('ok', flush=True)"], timeout=10) as child:
+                self.assertEqual(child.stdout.read(), b"ok\r\n" if os.name == "nt" else b"ok\n")
+                self.assertEqual(child.wait(), 0)
+                self.assertEqual(child.stderr, b"e" * 1000)
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+    def test_early_exit_reaps_without_waiting_for_the_deadline(self):
+        started = time.monotonic()
+        with bounded.stream([sys.executable, "-c", "import time; print('ready', flush=True); time.sleep(120)"],
+                            timeout=60) as child:
+            self.assertEqual(child.stdout.readline().strip(), b"ready")
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertFalse(alive(child.process.pid))
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+    def test_consumer_exception_preserved_after_cleanup(self):
+        with self.assertRaisesRegex(ValueError, "consumer"):
+            with bounded.stream([sys.executable, "-c", "import time; time.sleep(120)"], timeout=60) as child:
+                raise ValueError("consumer")
+        self.assertFalse(alive(child.process.pid))
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+    def test_stalled_input_write_is_also_bounded(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            with bounded.stream([sys.executable, "-c", "import time; time.sleep(120)"],
+                                timeout=1, stdin=subprocess.PIPE) as child:
+                child.stdin.write(b"x" * (8 << 20))
+                child.stdin.flush()
+        self.assertFalse(alive(child.process.pid))
+
+    def test_deadline_kills_child_even_while_consumer_is_idle(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            with bounded.stream([sys.executable, "-c", "import time; time.sleep(120)"], timeout=0.5) as child:
+                time.sleep(1)
+                self.assertFalse(alive(child.process.pid))
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+
 class BoundedRunTests(unittest.TestCase):
+    def test_capture_overflow_never_returns_partial_stdout(self):
+        command = [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'x' * 101)"]
+        with patch.object(bounded, "MAX_CAPTURE", 100):
+            with self.assertRaises(subprocess.SubprocessError) as raised:
+                bounded.run(command, timeout=10)
+        self.assertIn(str(command), str(raised.exception))
+        self.assertIsInstance(raised.exception, bounded.OutputLimitExceeded)
+        self.assertEqual(raised.exception.pipe, "stdout")
+
+    def test_stderr_capture_overflow_also_fails_closed(self):
+        command = [sys.executable, "-c", "import sys; sys.stderr.buffer.write(b'e' * 101)"]
+        with patch.object(bounded, "MAX_CAPTURE", 100):
+            with self.assertRaises(bounded.OutputLimitExceeded) as raised:
+                bounded.run(command, timeout=10)
+        self.assertEqual(raised.exception.pipe, "stderr")
+        self.assertEqual(raised.exception.command, command)
+
+    def test_exact_capture_limit_is_complete(self):
+        with patch.object(bounded, "MAX_CAPTURE", 100):
+            result = bounded.run([sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'x' * 100)"], timeout=10)
+        self.assertEqual(result.stdout, b"x" * 100)
+
+    def test_overflow_is_reported_even_when_the_writer_then_stalls(self):
+        command = [sys.executable, "-c", "import sys,time; sys.stdout.buffer.write(b'x' * 101); sys.stdout.flush(); time.sleep(120)"]
+        with patch.object(bounded, "MAX_CAPTURE", 100):
+            with self.assertRaises(bounded.OutputLimitExceeded):
+                bounded.run(command, timeout=0.5)
+        self.assertEqual(bounded._children, set())
+
     def test_parent_exit_does_not_leave_a_descendant_holding_the_pipe(self):
         folder = fixture_dir(self, "bounded")
         pids = Path(folder) / "pids.txt"
@@ -252,6 +424,7 @@ class BoundedRunTests(unittest.TestCase):
         def launch(*args, **kwargs):
             process = original(*args, **kwargs)
             processes.append(process)
+            self.addCleanup(bounded.kill_tree, process)
             return process
         folder = fixture_dir(self, "bounded")
         sentinel = Path(folder) / "must-not-exist"
@@ -261,6 +434,8 @@ class BoundedRunTests(unittest.TestCase):
                 bounded.run([sys.executable, "-c", f"from pathlib import Path; Path({str(sentinel)!r}).touch()"], timeout=2)
         self.assertEqual(len(processes), 1)
         self.assertFalse(alive(processes[0].pid))
+        self.assertNotIn(processes[0]._wiki_owned, bounded._children)
+        self.assertTrue(processes[0]._wiki_owned.done)
         self.assertFalse(sentinel.exists())
 
     def test_child_that_never_reads_input_cannot_block_the_write(self):
@@ -269,10 +444,10 @@ class BoundedRunTests(unittest.TestCase):
             bounded.run([sys.executable, "-c", "import time; time.sleep(120)"], timeout=2, input=b"x" * (8 << 20))
         self.assertLess(time.monotonic() - started, 30)
 
-    def test_orphan_output_is_capped(self):
+    def test_orphan_output_overflow_is_reported(self):
         with patch.object(bounded, "MAX_CAPTURE", 1000):
-            result = bounded.run([sys.executable, "-c", "import sys; sys.stdout.write('y' * 100000)"], timeout=60)
-        self.assertEqual(len(result.stdout), 1000)
+            with self.assertRaises(bounded.OutputLimitExceeded):
+                bounded.run([sys.executable, "-c", "import sys; sys.stdout.write('y' * 100000)"], timeout=60)
 
     @unittest.skipUnless(os.name == "nt", "The SteamCMD stand-ins are Windows batch files")
     def test_stalled_steamcmd_reports_unavailable_metadata(self):

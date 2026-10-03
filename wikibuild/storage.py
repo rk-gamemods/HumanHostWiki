@@ -6,10 +6,17 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
+import subprocess
 import threading
 import uuid
+
+from . import bounded
+
+# Local plumbing should finish quickly.
+GIT_TIMEOUT = 30
+# Checkout, tree and retained-history scans may cover large generated trees.
+GIT_TREE_TIMEOUT = 600
 
 _writer_owners = {}
 _writer_owners_lock = threading.RLock()
@@ -75,10 +82,23 @@ def write_changed(path, data):
 
 
 def git(path, *arguments):
-    result = subprocess.run(["git", "-C", str(path), *arguments], capture_output=True, check=False)
+    timeout = GIT_TREE_TIMEOUT if arguments and arguments[0] in {
+        "status", "ls-tree", "rev-list", "diff", "write-tree", "read-tree"} else GIT_TIMEOUT
+    result = bounded.run(["git", "-C", str(path), *arguments], timeout=timeout)
     if result.returncode:
         raise ContractError(result.stderr.decode("utf-8", errors="replace").strip())
     return result.stdout.decode("utf-8").strip()
+
+
+def git_records(path, *arguments, separator=b"\0", timeout=None, checked=False):
+    """Consume whole-tree/history records without a captured-output size limit."""
+    with bounded.stream(["git", "-C", str(path), *arguments],
+                        timeout=GIT_TREE_TIMEOUT if timeout is None else timeout) as child:
+        yield from child.stdout.records(separator)
+        if child.wait():
+            if checked:
+                raise subprocess.CalledProcessError(child.returncode, child.process.args, stderr=child.stderr)
+            raise ContractError(child.stderr.decode("utf-8", errors="replace").strip())
 
 
 def process_running(pid):

@@ -10,7 +10,16 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import subprocess
+import sys
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wikibuild import bounded
+
+# Selected tree scans can traverse the complete catalog path set.
+GIT_TREE_TIMEOUT = 600
+# Raw conservation checks consume full catalog shards.
+GIT_STREAM_TIMEOUT = 1800
 
 
 # Captured UI/UI.decompiled.cs: DynamicToolTipSet.ToolTipTiles. Every member
@@ -28,17 +37,12 @@ MINEABLE_ADDRESSES = "Catalog/addressables.jsonl"
 
 
 def raw_records(source, commit, path):
-    process = subprocess.Popen(["git", "-C", str(source), "show", f"{commit}:{path}"],
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
+    with bounded.stream(["git", "-C", str(source), "show", f"{commit}:{path}"],
+                        timeout=GIT_STREAM_TIMEOUT) as process:
         for line in process.stdout:
             yield json.loads(line), hashlib.sha256(line).hexdigest()
-    finally:
-        process.stdout.close()
-        error = process.stderr.read().decode("utf-8", errors="replace")
-        process.stderr.close()
         if process.wait():
-            raise ValueError(f"Raw source read failed: {path}: {error}")
+            raise ValueError(f"Raw source read failed: {path}: {process.stderr.decode('utf-8', errors='replace')}")
 
 
 def at(value, path):
@@ -167,9 +171,13 @@ def pinned_objects(source, commit, identities):
         paths["Catalog/objects/" + shard.replace("::", "/") + ".jsonl"].add(identity)
     if not paths:
         return {}
-    listed = subprocess.check_output(["git", "-C", str(source), "ls-tree", "-r", "--name-only", "-z",
-                                      commit, "--", *sorted(paths)])
-    available = set(listed.decode("utf-8").rstrip("\0").split("\0"))
+    command = ["git", "-C", str(source), "ls-tree", "-r", "--name-only", "-z", commit, "--", *sorted(paths)]
+    with bounded.stream(command, timeout=GIT_TREE_TIMEOUT) as child:
+        available = {name.decode("utf-8") for name in child.stdout.records()}
+        if child.wait():
+            # Match the previous checked command's failure type.
+            import subprocess
+            raise subprocess.CalledProcessError(child.returncode, command, stderr=child.stderr)
     objects = {}
     for path, wanted in sorted(paths.items()):
         # A catalog reference to an uncaptured object cannot establish a link.

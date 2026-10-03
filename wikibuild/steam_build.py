@@ -2,7 +2,6 @@
 
 import json
 import hashlib
-import os
 import queue
 import re
 import subprocess
@@ -92,8 +91,7 @@ def fetch(executable, app_id, branch, progress=None):
     output = bytearray()
     process = bounded.start([str(executable), "+login", "anonymous", "+app_info_update", "1",
                                 "+app_info_print", app_id, "+quit"], cwd=executable.parent,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     # A daemon thread reads, so a stalled login, or a descendant that keeps the pipe
     # open after SteamCMD exits, can only delay this function until the deadline.
     # The pipe is never closed under a blocked reader, which can deadlock on Windows.

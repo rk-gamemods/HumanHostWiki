@@ -2,6 +2,8 @@
 
 import os
 import ctypes
+from contextlib import contextmanager
+import queue
 import signal
 import subprocess
 import threading
@@ -229,7 +231,11 @@ def start(command, **options):
             expires = time.monotonic() + REAP_SECONDS
             if process is not None:
                 owned.process = process
-                _terminate_suspended(process)
+                # An unassigned job cannot kill its suspended parent. Without
+                # a job, _finish_tree does this once; double TerminateProcess
+                # can report access denied while the first kill is completing.
+                if owned.job is not None:
+                    _terminate_suspended(process)
             _finish_tree(owned, expires)
         except BaseException as exc:
             child = process.pid if process is not None else "launch pending"
@@ -300,11 +306,33 @@ def terminate_all():
     return errors
 
 
+class OutputLimitExceeded(subprocess.SubprocessError):
+    """A captured result is incomplete and must never be used as evidence."""
+    def __init__(self, command, pipe, limit):
+        self.command, self.pipe, self.limit = command, pipe, limit
+        super().__init__(f"Command {command!r} exceeded its {pipe} capture limit of {limit} bytes")
+
+
+class _Capture:
+    def __init__(self):
+        self.data = bytearray()
+        self.limit = MAX_CAPTURE
+        self.overflow = False
+
+    def append(self, chunk):
+        remaining = max(0, self.limit - len(self.data))
+        if len(chunk) > remaining:
+            self.overflow = True
+        self.data.extend(chunk[:remaining])
+
+    def __bytes__(self):
+        return bytes(self.data)
+
+
 def _collect(stream, sink):
     try:
         while chunk := stream.read1(65536):
-            if len(sink) < MAX_CAPTURE:
-                sink.extend(chunk[:MAX_CAPTURE - len(sink)])
+            sink.append(chunk)
     except (OSError, ValueError):
         pass
     finally:
@@ -323,6 +351,26 @@ def _feed(stream, data):
             pass
 
 
+def _cleanup_pipes(process, workers):
+    """Reap the tree and close even pipes whose worker construction failed."""
+    try:
+        kill_tree(process)
+    finally:
+        drained = time.monotonic() + DRAIN_SECONDS
+        for _, worker in workers:
+            if worker.ident is not None:
+                worker.join(max(0.0, drained - time.monotonic()))
+        active = {pipe for pipe, worker in workers if worker.is_alive()}
+        # Never close a pipe underneath a blocked worker's buffered-I/O lock.
+        for pipe in (process.stdin, process.stdout, process.stderr):
+            if pipe is not None and pipe not in active:
+                try:
+                    pipe.close()
+                except (OSError, ValueError):
+                    pass
+    return any(worker.is_alive() for _, worker in workers)
+
+
 def run(command, timeout, *, input=None, env=None, cwd=None):
     """After launch, capture an owned tree within timeout + CLEANUP_SECONDS.
 
@@ -334,11 +382,13 @@ def run(command, timeout, *, input=None, env=None, cwd=None):
     subprocess.run cannot promise that on Windows: it writes stdin before its timeout
     starts, and after a timeout it drains pipes that a descendant (git-remote-https
     under git push) may hold open forever."""
-    process = start(command, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=cwd)
-    stdout, stderr = bytearray(), bytearray()
+    process = None
+    timeout_error = None
     workers = []
     try:
+        process = start(command, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=cwd)
+        stdout, stderr = _Capture(), _Capture()
         pipes = [(process.stdout, _collect, stdout), (process.stderr, _collect, stderr)]
         if input is not None:
             pipes.append((process.stdin, _feed, input))
@@ -346,26 +396,190 @@ def run(command, timeout, *, input=None, env=None, cwd=None):
             worker = threading.Thread(target=action, args=(stream, value), daemon=True)
             workers.append((stream, worker))
             worker.start()
-        process.wait(timeout=timeout)
-    finally:
         try:
-            kill_tree(process)
-        finally:
-            drained = time.monotonic() + DRAIN_SECONDS
-            for _, worker in workers:
-                if worker.ident is not None:
-                    worker.join(max(0.0, drained - time.monotonic()))
-            active = {stream for stream, worker in workers if worker.is_alive()}
-            # Never close a pipe underneath a blocked reader/writer. Unstarted
-            # and finished workers leave no buffered-I/O lock to wait for.
-            for stream in (process.stdin, process.stdout, process.stderr):
-                if stream is not None and stream not in active:
-                    try:
-                        stream.close()
-                    except (OSError, ValueError):
-                        pass
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            timeout_error = exc
+    finally:
+        if process is not None:
+            incomplete = _cleanup_pipes(process, workers)
     # Still-open pipes mean a descendant holds them: the output is incomplete. Abandon
     # the daemon readers; MAX_CAPTURE bounds what they keep.
-    if any(worker.is_alive() for _, worker in workers):
+    for name, capture in (("stdout", stdout), ("stderr", stderr)):
+        if capture.overflow:
+            raise OutputLimitExceeded(command, name, capture.limit)
+    if timeout_error is not None:
+        raise timeout_error
+    if incomplete:
         raise subprocess.TimeoutExpired(command, timeout)
     return subprocess.CompletedProcess(command, process.returncode, bytes(stdout), bytes(stderr))
+
+
+class _DeadlinePipe:
+    """One I/O worker per pipe; no buffered-I/O lock can trap the caller."""
+    def __init__(self, pipe, owner):
+        self.pipe, self.owner = pipe, owner
+        self.requests = queue.Queue()
+        self.closed = False
+        self.worker = threading.Thread(target=self._serve, daemon=True)
+
+    def _serve(self):
+        try:
+            while True:
+                request = self.requests.get()
+                if request is None:
+                    return
+                method, args, done, result = request
+                try:
+                    result.append((True, getattr(self.pipe, method)(*args)))
+                except BaseException as exc:
+                    result.append((False, exc))
+                finally:
+                    done.set()
+                if method == "close":
+                    return
+        finally:
+            self.pipe.close()
+
+    def _call(self, method, *args):
+        self.owner.remaining()
+        if self.closed:
+            raise ValueError("I/O operation on closed pipe")
+        done, result = threading.Event(), []
+        self.requests.put((method, args, done, result))
+        if not done.wait(self.owner.remaining()):
+            raise subprocess.TimeoutExpired(self.owner.command, self.owner.timeout)
+        self.owner.remaining()
+        success, value = result[0]
+        if not success:
+            raise value
+        return value
+
+    def read(self, size=-1):
+        return self._call("read", size)
+
+    def readline(self, size=-1):
+        return self._call("readline", size)
+
+    def records(self, separator=b"\0"):
+        """Consume terminated binary records without capturing the whole output."""
+        if len(separator) != 1:
+            raise ValueError("Stream separator must be one byte")
+        pending = b""
+        while block := self.read(65536):
+            records = (pending + block).split(separator)
+            pending = records.pop()
+            yield from records
+        if pending:
+            raise subprocess.SubprocessError(f"Unterminated output record from {self.owner.command!r}")
+
+    def write(self, data):
+        return self._call("write", data)
+
+    def flush(self):
+        return self._call("flush")
+
+    def close(self):
+        if not self.closed:
+            self._call("close")
+            self.closed = True
+
+    def fileno(self):
+        # Allows an owned pipeline to pass this pipe directly to another child.
+        return self.pipe.fileno()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self.readline()
+        if not line:
+            raise StopIteration
+        return line
+
+
+class _Streaming:
+    def __init__(self, process, command, timeout):
+        self.process, self.command, self.timeout = process, command, timeout
+        self.expires = time.monotonic() + timeout
+        self.stdout = self.stdin = None
+        self.errors = _Capture()
+        self.error_worker = None
+        self.expired, self.cancel = threading.Event(), threading.Event()
+        self.cleanup_error = None
+
+    def remaining(self):
+        remaining = self.expires - time.monotonic()
+        if self.expired.is_set() or remaining <= 0:
+            raise subprocess.TimeoutExpired(self.command, self.timeout)
+        return remaining
+
+    @property
+    def stderr(self):
+        return bytes(self.errors)
+
+    @property
+    def returncode(self):
+        return self.process.returncode
+
+    def wait(self):
+        code = self.process.wait(timeout=self.remaining())
+        self.error_worker.join(self.remaining())
+        self.remaining()
+        if self.error_worker.is_alive():
+            raise subprocess.TimeoutExpired(self.command, self.timeout)
+        return code
+
+    def _watch(self):
+        if not self.cancel.wait(max(0.0, self.expires - time.monotonic())):
+            self.expired.set()
+            try:
+                kill_tree(self.process)
+            except BaseException as exc:
+                self.cleanup_error = exc
+
+
+@contextmanager
+def stream(command, timeout, *, stdin=subprocess.DEVNULL, env=None, cwd=None):
+    """Yield owned binary stdout/stdin with deadline I/O and capped concurrent stderr.
+
+    The elapsed deadline starts after launch and includes caller consumption.
+    Exit, including early exit and exceptions, kills and reaps the entire tree.
+    As with run, callers must reserve CLEANUP_SECONDS beyond the command bound.
+    stdin may be PIPE for batch requests or another owned stream for a pipeline.
+    """
+    process = session = watcher = None
+    workers, pipes = [], []
+    try:
+        process = start(command, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=cwd)
+        session = _Streaming(process, command, timeout)
+        watcher = threading.Thread(target=session._watch, daemon=True)
+        session.stdout = _DeadlinePipe(process.stdout, session)
+        pipes.append(session.stdout)
+        workers.append((process.stdout, session.stdout.worker))
+        session.stdout.worker.start()
+        if process.stdin is not None:
+            session.stdin = _DeadlinePipe(process.stdin, session)
+            pipes.append(session.stdin)
+            workers.append((process.stdin, session.stdin.worker))
+            session.stdin.worker.start()
+        session.error_worker = threading.Thread(target=_collect, args=(process.stderr, session.errors), daemon=True)
+        workers.append((process.stderr, session.error_worker))
+        session.error_worker.start()
+        workers.append((None, watcher))
+        watcher.start()
+        yield session
+    finally:
+        elapsed = False
+        if session is not None:
+            elapsed = time.monotonic() >= session.expires
+            session.cancel.set()
+        for pipe in pipes:
+            pipe.closed = True
+            pipe.requests.put(None)
+        if process is not None:
+            incomplete = _cleanup_pipes(process, workers)
+            if session is not None and session.cleanup_error is not None:
+                raise session.cleanup_error
+            if elapsed or (session is not None and session.expired.is_set()) or incomplete:
+                raise subprocess.TimeoutExpired(command, timeout)
