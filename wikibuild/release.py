@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 from . import extraction, git_transaction, physical, reader, release_output, release_partitions, release_prepare, workspace
+from . import staging
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 OWNER_FILE = release_output.OWNER_FILE
@@ -138,7 +139,7 @@ def verify(root, value, *, check_checkout=True, reviewed_project=None):
 
 
 def resume(root, journal):
-    stage = within(root, journal["stage"])
+    stage = staging.child(Path(root) / ".local/rs", Path(root) / journal["stage"])
     for entry in journal.get("new_repositories", []):
         release_partitions.install(root, entry)
     for repo in physical.repositories(journal["project"], journal["result"].get("physical")):
@@ -164,10 +165,14 @@ def run(root, project, candidate):
     if pending.exists():
         pointer = json.loads(pending.read_text(encoding="utf-8"))
         if not pointer["complete"]:
-            data = within(root, pointer["stage"] + "/plan.json").read_bytes()
+            stage = staging.child(Path(root) / ".local/rs", Path(root) / pointer["stage"])
+            data = staging.regular(stage / "plan.json").read_bytes()
             if digest(data) != pointer["sha256"]:
                 raise ContractError("Pending release journal was modified")
             journal = json.loads(data)
+            stage = staging.child(Path(root) / ".local/rs", Path(root) / journal["stage"])
+            if (stage / staging.OWNER).exists():
+                staging.finish(stage, "release", "completed")
             resume(root, journal)
     manifest = reader.verify(Path(candidate["path"]), candidate["candidate_id"])
     templates = reader.issue_templates(root)
@@ -189,19 +194,26 @@ def run(root, project, candidate):
     inventory = capacity_inventory.read(root, project)
     previous = publication.published(root)
     prepared, outputs = release_prepare.prepare(root, project, candidate, release_id, inventory, previous, templates)
-    stage = within(root, prepared["stage"])
-    if contract() != inputs["contract"]:
-        raise ContractError("Release rules changed during preparation")
-    reader.verify(Path(candidate["path"]), candidate["candidate_id"])
-    if reader.issue_templates(root) != templates:
-        raise ContractError("Issue template inputs changed during release preparation")
-    result = {"schema_version": 1, "release_id": release_id, "inputs": inputs,
-              "reader_candidate": candidate["candidate_id"], "versions": manifest["versions"],
-              "routes": manifest["inputs"]["bases"], **outputs,
-              "status": "git-release-committed", "publication": "not-published",
-              "validation": {"reader_artifacts": "passed", "gameplay_verification": "not-performed", "coverage": "partial"}}
-    result["manifest_sha256"] = digest(json_bytes(result))
-    journal = {**prepared, "project": project, "result": result}
-    immutable(stage / "plan.json", journal)
-    write_changed(pending, json_bytes({"stage": journal["stage"], "sha256": digest(json_bytes(journal)), "complete": False}))
+    stage = staging.child(Path(root) / ".local/rs", Path(root) / prepared["stage"])
+    try:
+        if contract() != inputs["contract"]:
+            raise ContractError("Release rules changed during preparation")
+        reader.verify(Path(candidate["path"]), candidate["candidate_id"])
+        if reader.issue_templates(root) != templates:
+            raise ContractError("Issue template inputs changed during release preparation")
+        result = {"schema_version": 1, "release_id": release_id, "inputs": inputs,
+                  "reader_candidate": candidate["candidate_id"], "versions": manifest["versions"],
+                  "routes": manifest["inputs"]["bases"], **outputs,
+                  "status": "git-release-committed", "publication": "not-published",
+                  "validation": {"reader_artifacts": "passed", "gameplay_verification": "not-performed", "coverage": "partial"}}
+        result["manifest_sha256"] = digest(json_bytes(result))
+        journal = {**prepared, "project": project, "result": result}
+        immutable(stage / "plan.json", journal)
+        write_changed(pending, json_bytes({"stage": journal["stage"], "sha256": digest(json_bytes(journal)), "complete": False}))
+    except Exception:
+        staging.finish(stage, "release", "abandoned")
+        staging.retire(stage.parent, "release", current=stage)
+        raise
+    staging.finish(stage, "release", "completed")
+    staging.retire(stage.parent, "release", current=stage)
     return resume(root, journal), {"reused": False}

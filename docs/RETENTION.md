@@ -19,8 +19,8 @@ A pending release transaction prevents cleanup. Missing release receipts,
 modified payloads, invalid paths and protected files remain available for
 investigation. The cleaner never overrides protection. Unknown files, journals,
 Git preparation indexes and path lists are retained. Only exact payload paths
-declared in a validated journal are candidates for removal; there is no recursive
-directory deletion.
+declared in a validated journal are candidates for committed-payload removal;
+this compaction never removes directories.
 
 An interruption after some unlinks is safe to retry: committed copies remain,
 and already absent staging files need no action. Completion records under
@@ -31,7 +31,26 @@ or generate new public commits. The operator report lists any cleanup issues
 after the wiki content report. `.local/releases/retention/report.json` retains
 their current reasons separately from content exceptions.
 
-Failed preparation attempts without committed release receipts remain retained.
+Release, reader, extraction and history staging attempts carry `attempt.json`
+with their stage, attempt ID, creation time in UTC and state. Under the writer
+lock, retry marks stale `materializing` attempts `abandoned`; cleanup keeps only
+the most recent owned failed attempt of each stage for diagnosis and retires
+every older one, even without a completed attempt. Current and completed
+directories stay available. A crash leaves `materializing`; ordinary failures
+and rollover proposals become `abandoned`.
+Unknown or invalid ownership, including malformed JSON, is reported and preserved.
+Retirement validates the literal stage root and its direct children before any
+resolution, rejects symlinks and reparse points throughout the deletion tree,
+and processes at most 100,000 entries per inventory or deletion tree. Files are
+unlinked first; read-only protection is cleared only on single-link files. A
+protected shared file that cannot be unlinked keeps its attempt and is reported.
+Ownership records contain exactly `schema_version` (integer 1), `stage`,
+`attempt_id`, `created_utc` and `state` (strings). Readers and writers reject
+extra fields and non-scalar values. Reads and encoded writes are capped at
+4 KiB; an oversized terminal write preserves the existing record.
+Reader ownership stays outside promoted
+candidate payloads; release ownership completes once the recovery journal is saved.
+
 Extraction caches, identity model caches, test fixtures and old diagnostic indexes
 are outside this cleaner's scope. Their retention policies remain unfinished;
 removing them requires their own recovery and ownership proof.
@@ -76,7 +95,7 @@ An interruption leaves a complete original or a complete shared file. Temporary
 links live under `.local/reader-retention/links/`; retry accepts a leftover only if
 it is still a hard link to the selected verified source inode. Unknown temporaries,
 protected files and filesystems without hard-link support are preserved and
-reported. File protection is never overridden. No recursive deletion occurs.
+reported. File sharing never overrides protection or recursively deletes candidates.
 
 The completion receipt binds the compactor version and every candidate manifest
 hash. An unchanged repeat reads only metadata, with no payload scan or replacement.
@@ -95,4 +114,4 @@ The benchmark runs the normal wiki update, hashes actual candidate files before
 and after independently of the compactor, and measures an immediate cleanup repeat.
 It writes ignored evidence and the final operator report under `.local/`. Reported
 unique-inode bytes are file lengths, not filesystem allocation or free-disk space.
-Failed reader staging and retention of unique obsolete cache content remain open.
+Retention of unique obsolete cache content remains open.

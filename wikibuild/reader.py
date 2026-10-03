@@ -5,10 +5,10 @@ import json
 import os
 from pathlib import Path
 import re
-import uuid
 from urllib.parse import urlsplit
 
 from . import availability, curation, external_links, extraction, game_text, guide_queries, guides, history, model, packs, pages, presentation, snapshots
+from . import staging
 from .exceptions import Exceptions
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
@@ -577,14 +577,16 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
               "external_articles": external_links.configured(root, project),
               "curation": checked["run_id"] if checked else None}
     candidate_id = digest(json_bytes(inputs))
-    cache_root = Path(cache_root).resolve() if cache_root else within(root, ".local")
-    if not cache_root.is_relative_to(within(root, ".local")):
+    local_root = staging.regular(Path(root) / ".local")
+    cache_root = staging.regular(cache_root) if cache_root else local_root
+    if not cache_root.is_relative_to(local_root):
         raise ContractError("Reader cache must remain inside the owning .local directory")
     destination = candidate_path(cache_root, candidate_id)
     pointer = within(cache_root, "reader-latest.json")
     if destination.exists():
         manifest = verify(destination, candidate_id)
         write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
+        staging.retire(cache_root / "reader-stage", "reader")
         return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"], "reused": True, "curation": curated}
     prior, prior_path = None, None
     if pointer.exists():
@@ -594,156 +596,157 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         if {k: v for k, v in prior["inputs"].items() if k not in {"availability", "external_articles"}} != {
                 k: v for k, v in inputs.items() if k not in {"availability", "external_articles"}}:
             prior = None
-    stage = within(cache_root, f"reader-stage/{uuid.uuid4().hex}")
-    stage.mkdir(parents=True)
-    files = {}
+    with staging.attempt(cache_root / "reader-stage", "reader") as owned:
+        stage = owned / "p"
+        stage.mkdir()
+        files = {}
 
-    def output(name, data):
-        record = {"sha256": digest(data), "bytes": len(data)}
-        if name in files:
-            if files[name] != record:
-                raise ContractError(f"Reader output collision: {name}")
-            return
-        # The directory is private, new staging. Its final rename is the atomic
-        # boundary; per-file temporary suffixes add I/O and exceed Windows paths.
-        target = within(stage, name)
-        if os.name == "nt" and max(len(str(target)), len(str(within(destination, name)))) >= 260:
-            raise ContractError("Reader output exceeds Windows path capacity; use a shorter wiki checkout path")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if prior and prior["files"].get(name) == record:
-            os.link(within(prior_path, name), target)
+        def output(name, data):
+            record = {"sha256": digest(data), "bytes": len(data)}
+            if name in files:
+                if files[name] != record:
+                    raise ContractError(f"Reader output collision: {name}")
+                return
+            # The directory is private, new staging. Its final rename is the atomic
+            # boundary; per-file temporary suffixes add I/O and exceed Windows paths.
+            target = within(stage, name)
+            if os.name == "nt" and max(len(str(target)), len(str(within(destination, name)))) >= 260:
+                raise ContractError("Reader output exceeds Windows path capacity; use a shorter wiki checkout path")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if prior and prior["files"].get(name) == record:
+                os.link(within(prior_path, name), target)
+                files[name] = record
+                return
+            with target.open("xb") as stream:
+                stream.write(data)
             files[name] = record
-            return
-        with target.open("xb") as stream:
-            stream.write(data)
-        files[name] = record
 
-    if prior:
-        # Observation changes never revisit models or duplicate immutable packs.
-        # Hard links are safe because candidates are immutable and verified before
-        # reuse. New controls are written separately, never through shared inodes.
-        configs, article_packs = {}, set()
-        articles_changed = prior["inputs"].get("external_articles") != inputs["external_articles"]
+        if prior:
+            # Observation changes never revisit models or duplicate immutable packs.
+            # Hard links are safe because candidates are immutable and verified before
+            # reuse. New controls are written separately, never through shared inodes.
+            configs, article_packs = {}, set()
+            articles_changed = prior["inputs"].get("external_articles") != inputs["external_articles"]
+            for repo in project["repositories"]:
+                topic = repo["id"]
+                configs[topic] = json.loads(within(prior_path, f"{topic}/reader.json").read_bytes())
+                if articles_changed:
+                    article_packs.update(f"{topic}/{ref['path']}" for ref in (configs[topic].get("external_articles") or {}).get("entries", []))
+            # A shared content-addressed leaf must survive if gameplay also uses it.
+            for name in prior["files"]:
+                if article_packs and "/snapshots/" in name:
+                    topic = name.split("/", 1)[0]
+                    saved_index = json.loads(within(prior_path, name).read_bytes())
+                    for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player", "guides"):
+                        article_packs.difference_update(f"{topic}/{ref['path']}" for ref in saved_index.get(kind, []))
+            for name, record in prior["files"].items():
+                source = within(prior_path, name)
+                if name.endswith("/reader.json") or name in article_packs:
+                    continue
+                elif "/reference/" in name:
+                    output(name, source.read_bytes().replace(("release=" + prior["candidate_id"]).encode(),
+                                                             ("release=" + candidate_id).encode()))
+                else:
+                    target = within(stage, name)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    os.link(source, target)
+                    files[name] = record
+            views = (external_views(stage, project, inputs["external_articles"], runs, max_pack_bytes, output)
+                     if articles_changed else {topic: config.get("external_articles") for topic, config in configs.items()})
+            for topic, config in configs.items():
+                config.update(candidate_id=candidate_id, availability=inputs["availability"], external_articles=views.get(topic))
+                output(f"{topic}/reader.json", packs.compact(config))
+            manifest = {**prior, "candidate_id": candidate_id, "inputs": inputs, "files": files,
+                        "total_bytes": sum(record["bytes"] for record in files.values())}
+            write_changed(stage / "candidate.json", json_bytes(manifest))
+            verify(stage, candidate_id)
+            if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
+                    or digest(registry_path.read_bytes()) != inputs["presentation"]
+                    or hub_inputs(root)[1] != hub_digests
+                    or external_links.configured(root, project) != inputs["external_articles"]):
+                raise ContractError("Reader inputs changed during observation projection")
+            curation.ensure_definitions(root, project, checked)
+            os.rename(stage, destination)
+            write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
+            return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"],
+                    "reused": False, "projection_reused": True, "curation": curated}
+
+        projected, current_groups = {}, None
+        all_groups = {repo["id"]: set() for repo in project["repositories"]}
+        known = {repo["id"]: {"semantics": {}, "provenance": {}, "cards": {}, "player": {}} for repo in project["repositories"]}
+        for index in range(len(runs) - 1, -1, -1):
+            run = runs[index]
+            # Revalidate pinned artifacts, even if a caller supplied the run.
+            extraction.artifact(root, run["state"])
+            extraction.artifact(root, run["models"])
+            version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known,
+                                               checked["snapshots"].get(run["snapshot_id"]) if checked else None,
+                                               registry=registry, site=site, captured_runs=runs[index:])
+            projected[run["snapshot_id"]] = version
+            for topic, kinds in groups.items():
+                all_groups[topic].update(kinds)
+            if run is runs[0]:
+                current_groups = groups
+        projected = [projected[run["snapshot_id"]] for run in runs]
+        views = external_views(stage, project, inputs["external_articles"], runs, max_pack_bytes, output)
+        web = Path(__file__).parent / "web"
+        font_files = {file.name: (file.read_bytes() if file.suffix == ".woff2" else
+                                 file.read_bytes().replace(b"\r\n", b"\n"))
+                      for file in sorted((web / "fonts").iterdir()) if file.is_file()}
+        font_metadata = {name: {"sha256": digest(data), "bytes": len(data)} for name, data in font_files.items()}
+        font_path = "fonts/" + digest(json_bytes(font_metadata)) + "/"
+        fonts = {"base": bases["hub"] + font_path, "files": font_metadata}
+        for name, data in font_files.items():
+            output("hub/" + font_path + name, data)
+        topics = [{"id": repo["id"], "title": repo["title"], "base": bases[repo["id"]], "coverage": repo["coverage"]}
+                  for repo in project["repositories"]]
         for repo in project["repositories"]:
             topic = repo["id"]
-            configs[topic] = json.loads(within(prior_path, f"{topic}/reader.json").read_bytes())
-            if articles_changed:
-                article_packs.update(f"{topic}/{ref['path']}" for ref in (configs[topic].get("external_articles") or {}).get("entries", []))
-        # A shared content-addressed leaf must survive if gameplay also uses it.
-        for name in prior["files"]:
-            if article_packs and "/snapshots/" in name:
-                topic = name.split("/", 1)[0]
-                saved_index = json.loads(within(prior_path, name).read_bytes())
-                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player", "guides"):
-                    article_packs.difference_update(f"{topic}/{ref['path']}" for ref in saved_index.get(kind, []))
-        for name, record in prior["files"].items():
-            source = within(prior_path, name)
-            if name.endswith("/reader.json") or name in article_packs:
-                continue
-            elif "/reference/" in name:
-                output(name, source.read_bytes().replace(("release=" + prior["candidate_id"]).encode(),
-                                                         ("release=" + candidate_id).encode()))
-            else:
-                target = within(stage, name)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                os.link(source, target)
-                files[name] = record
-        views = (external_views(stage, project, inputs["external_articles"], runs, max_pack_bytes, output)
-                 if articles_changed else {topic: config.get("external_articles") for topic, config in configs.items()})
-        for topic, config in configs.items():
-            config.update(candidate_id=candidate_id, availability=inputs["availability"], external_articles=views.get(topic))
-            output(f"{topic}/reader.json", packs.compact(config))
-        manifest = {**prior, "candidate_id": candidate_id, "inputs": inputs, "files": files,
-                    "total_bytes": sum(record["bytes"] for record in files.values())}
+            for file in sorted(web.iterdir()):
+                if file.is_file():
+                    output(f"{topic}/{file.name}", file.read_bytes().replace(b"\r\n", b"\n"))
+            output(f"{topic}/.nojekyll", b"")
+            content = pages.shell(repo["title"], bases[topic], project.get("project", "Unofficial game reference"),
+                                  fonts_base=fonts["base"])
+            output(f"{topic}/index.html", content)
+            output(f"{topic}/404.html", content)
+            output(f"{topic}/reader.json", packs.compact({"schema_version": 1, "candidate_id": candidate_id,
+                   "project": project.get("project", "Unofficial game reference"),
+                   "features": ["shard-directories-v1", "paged-captures-v1", "entrypoint-rollover-v1"],
+                   "availability": inputs["availability"],
+                   "fonts": fonts,
+                   # Every site needs the design data (colours, the report link); only the hub draws relationships.
+                   "site": site,
+                   **({"relationships": project.get("relationships", [])} if topic == "hub" else {}),
+                   "external_articles": views.get(topic),
+                   "topic": topic, "topics": topics, "versions": projected, "default_snapshot": projected[0]["snapshot_id"],
+                   "official_links": project["official_links"], "publication": "local-candidate"}))
+            for kind in sorted(all_groups[topic]):
+                output(f"{topic}/groups/{kind}/index.html", content)
+            for kind, records in current_groups[topic].items():
+                ordered = sorted(records, key=lambda row: (row["name"].casefold(), row["entity_key"]))
+                for offset in range(0, len(ordered), 100):
+                    output(f"{topic}/reference/{kind}/{offset // 100 + 1:04d}.md",
+                           pages.markdown(kind, ordered[offset:offset + 100], projected[0]["snapshot_id"], candidate_id, bases[topic]))
+        current = projected[0]["snapshot_id"]
+        hub_index = json.loads((stage / "hub/snapshots" / (current + ".json")).read_bytes())
+        for ref in hub_index["guides"]:
+            pack = json.loads((stage / "hub" / ref["path"]).read_bytes())
+            markdown = guides.render_markdown(pack["document"], lambda key: pages.entry(
+                bases[pack["links"][key]["topic"]], key, current, candidate_id))
+            output(f"hub/reference/guides/{ref['id']}.md", markdown.encode("utf-8"))
+        manifest = {"schema_version": 1, "candidate_id": candidate_id, "inputs": inputs,
+                    "versions": projected, "files": files, "total_bytes": sum(record["bytes"] for record in files.values()),
+                    "status": "validated-reader-candidate", "wiki_release": "not-created"}
         write_changed(stage / "candidate.json", json_bytes(manifest))
         verify(stage, candidate_id)
         if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
                 or digest(registry_path.read_bytes()) != inputs["presentation"]
                 or hub_inputs(root)[1] != hub_digests
                 or external_links.configured(root, project) != inputs["external_articles"]):
-            raise ContractError("Reader inputs changed during observation projection")
+            raise ContractError("Reader inputs changed during generation")
         curation.ensure_definitions(root, project, checked)
+        destination.parent.mkdir(parents=True, exist_ok=True)
         os.rename(stage, destination)
         write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
-        return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"],
-                "reused": False, "projection_reused": True, "curation": curated}
-
-    projected, current_groups = {}, None
-    all_groups = {repo["id"]: set() for repo in project["repositories"]}
-    known = {repo["id"]: {"semantics": {}, "provenance": {}, "cards": {}, "player": {}} for repo in project["repositories"]}
-    for index in range(len(runs) - 1, -1, -1):
-        run = runs[index]
-        # Revalidate pinned artifacts, even if a caller supplied the run.
-        extraction.artifact(root, run["state"])
-        extraction.artifact(root, run["models"])
-        version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known,
-                                           checked["snapshots"].get(run["snapshot_id"]) if checked else None,
-                                           registry=registry, site=site, captured_runs=runs[index:])
-        projected[run["snapshot_id"]] = version
-        for topic, kinds in groups.items():
-            all_groups[topic].update(kinds)
-        if run is runs[0]:
-            current_groups = groups
-    projected = [projected[run["snapshot_id"]] for run in runs]
-    views = external_views(stage, project, inputs["external_articles"], runs, max_pack_bytes, output)
-    web = Path(__file__).parent / "web"
-    font_files = {file.name: (file.read_bytes() if file.suffix == ".woff2" else
-                             file.read_bytes().replace(b"\r\n", b"\n"))
-                  for file in sorted((web / "fonts").iterdir()) if file.is_file()}
-    font_metadata = {name: {"sha256": digest(data), "bytes": len(data)} for name, data in font_files.items()}
-    font_path = "fonts/" + digest(json_bytes(font_metadata)) + "/"
-    fonts = {"base": bases["hub"] + font_path, "files": font_metadata}
-    for name, data in font_files.items():
-        output("hub/" + font_path + name, data)
-    topics = [{"id": repo["id"], "title": repo["title"], "base": bases[repo["id"]], "coverage": repo["coverage"]}
-              for repo in project["repositories"]]
-    for repo in project["repositories"]:
-        topic = repo["id"]
-        for file in sorted(web.iterdir()):
-            if file.is_file():
-                output(f"{topic}/{file.name}", file.read_bytes().replace(b"\r\n", b"\n"))
-        output(f"{topic}/.nojekyll", b"")
-        content = pages.shell(repo["title"], bases[topic], project.get("project", "Unofficial game reference"),
-                              fonts_base=fonts["base"])
-        output(f"{topic}/index.html", content)
-        output(f"{topic}/404.html", content)
-        output(f"{topic}/reader.json", packs.compact({"schema_version": 1, "candidate_id": candidate_id,
-               "project": project.get("project", "Unofficial game reference"),
-               "features": ["shard-directories-v1", "paged-captures-v1", "entrypoint-rollover-v1"],
-               "availability": inputs["availability"],
-               "fonts": fonts,
-               # Every site needs the design data (colours, the report link); only the hub draws relationships.
-               "site": site,
-               **({"relationships": project.get("relationships", [])} if topic == "hub" else {}),
-               "external_articles": views.get(topic),
-               "topic": topic, "topics": topics, "versions": projected, "default_snapshot": projected[0]["snapshot_id"],
-               "official_links": project["official_links"], "publication": "local-candidate"}))
-        for kind in sorted(all_groups[topic]):
-            output(f"{topic}/groups/{kind}/index.html", content)
-        for kind, records in current_groups[topic].items():
-            ordered = sorted(records, key=lambda row: (row["name"].casefold(), row["entity_key"]))
-            for offset in range(0, len(ordered), 100):
-                output(f"{topic}/reference/{kind}/{offset // 100 + 1:04d}.md",
-                       pages.markdown(kind, ordered[offset:offset + 100], projected[0]["snapshot_id"], candidate_id, bases[topic]))
-    current = projected[0]["snapshot_id"]
-    hub_index = json.loads((stage / "hub/snapshots" / (current + ".json")).read_bytes())
-    for ref in hub_index["guides"]:
-        pack = json.loads((stage / "hub" / ref["path"]).read_bytes())
-        markdown = guides.render_markdown(pack["document"], lambda key: pages.entry(
-            bases[pack["links"][key]["topic"]], key, current, candidate_id))
-        output(f"hub/reference/guides/{ref['id']}.md", markdown.encode("utf-8"))
-    manifest = {"schema_version": 1, "candidate_id": candidate_id, "inputs": inputs,
-                "versions": projected, "files": files, "total_bytes": sum(record["bytes"] for record in files.values()),
-                "status": "validated-reader-candidate", "wiki_release": "not-created"}
-    write_changed(stage / "candidate.json", json_bytes(manifest))
-    verify(stage, candidate_id)
-    if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
-            or digest(registry_path.read_bytes()) != inputs["presentation"]
-            or hub_inputs(root)[1] != hub_digests
-            or external_links.configured(root, project) != inputs["external_articles"]):
-        raise ContractError("Reader inputs changed during generation")
-    curation.ensure_definitions(root, project, checked)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    os.rename(stage, destination)
-    write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
-    return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"], "reused": False, "curation": curated}
+        return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"], "reused": False, "curation": curated}

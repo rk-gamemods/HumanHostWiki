@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 
-from . import bounded, git_transaction, release
+from . import bounded, git_transaction, release, staging
 from .storage import ContractError, digest, git_records, json_bytes, within, write_changed
 
 
@@ -19,7 +19,7 @@ def regular(root, name):
     relative = PurePosixPath(name)
     if relative.is_absolute() or ".." in relative.parts or "\\" in name or ":" in name:
         raise ContractError(f"Invalid staging path: {name}")
-    literal = Path(root).resolve() / relative
+    literal = staging.regular(Path(root) / relative)
     resolved = within(root, name)
     if literal != resolved or literal.is_symlink():
         raise ContractError(f"Redirected staging path: {name}")
@@ -125,6 +125,10 @@ def run(root):
         # release receipt was saved immediately before an interruption.
         if pending and pending.get("complete") is not True:
             raise ContractError("Release transaction remains pending; staging retained")
+        retired = staging.retire(folder, "release")
+        summary["retained"].extend(retired["retained"])
+        if retired["removed"]:
+            summary["reused"] = False
         stages = sorted(folder.iterdir())
     except (OSError, ValueError) as exc:
         summary["retained"].append({"stage": ".local/rs", "reason": str(exc)})
@@ -134,6 +138,8 @@ def run(root):
             summary["retained"].append({"stage": stage.name, "reason": "Unknown staging entry preserved"})
             continue
         try:
+            if (stage / staging.OWNER).exists() and staging.record(stage, "release")[0]["state"] != "completed":
+                continue
             compact(root, stage, summary)
         except (OSError, ValueError, KeyError, TypeError) as exc:
             summary["retained"].append({"stage": stage.name, "reason": str(exc)})

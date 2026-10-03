@@ -1,6 +1,8 @@
 """Filesystem transaction tests; real-source rehearsal complements the mock catalog."""
 
 import json
+import os
+import subprocess
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -13,6 +15,123 @@ from wikibuild.storage import ContractError, json_bytes, writer_lock
 
 
 class HistoryTests(unittest.TestCase):
+    def test_native_nested_extra_ownership_is_unrecognized_and_kept(self):
+        from wikibuild import staging
+        unknown = self.root / ".local/history/staging" / ("f" * 32)
+        unknown.mkdir(parents=True)
+        value = {"schema_version": 1, "stage": "history", "attempt_id": unknown.name,
+                 "created_utc": "2026-01-01T00:00:00+00:00", "state": "materializing"}
+        data = (json.dumps(value, separators=(",", ":")).encode()[:-1]
+                + b',"extra":' + b"[" * 500 + b"0" + b"]" * 500 + b"}")
+        self.assertLess(len(data), staging.MAX_RECORD_BYTES)
+        self.assertIsInstance(json.loads(data)["extra"], list)  # Native decoder, no substitutions.
+        marker = unknown / staging.OWNER
+        marker.write_bytes(data)
+        self.run_history()
+        self.assertEqual(marker.stat().st_size, len(data))
+        self.assertEqual(marker.read_bytes(), data)
+        with self.assertRaisesRegex(ContractError, "Unrecognized staging ownership record"):
+            staging.record(unknown, "history")
+        report = json.loads(unknown.parent.with_name(unknown.parent.name + "-retention.json").read_bytes())
+        self.assertTrue(any(row["stage"] == unknown.name and "Unrecognized staging ownership record" in row["reason"]
+                            for row in report["retained"]))
+        completed = [path for path in unknown.parent.iterdir() if path != unknown
+                     and staging.record(path, "history")[0]["state"] == "completed"]
+        self.assertTrue(completed)
+        self.assertTrue(all((path / staging.OWNER).stat().st_size <= staging.MAX_RECORD_BYTES for path in completed))
+
+    def test_redirected_staging_root_is_refused_without_touching_target(self):
+        from wikibuild import staging
+        folder = self.root / ".local/history/staging"
+        outside = self.root / "unrelated"
+        outside.mkdir()
+        for index in range(2):
+            victim = outside / (str(index) * 32)
+            victim.mkdir()
+            (victim / staging.OWNER).write_bytes(json_bytes({
+                "schema_version": 1, "stage": "history", "attempt_id": victim.name,
+                "created_utc": f"2026-01-0{index + 1}T00:00:00+00:00", "state": "abandoned"}))
+            (victim / "payload").write_bytes(b"outside the literal stage root")
+        before = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            result = subprocess.run(["cmd", "/c", "mklink", "/J", str(folder), str(outside)],
+                                    capture_output=True, text=True)
+            if result.returncode:
+                self.skipTest("Cannot create staging root junction: " + result.stderr)
+            self.addCleanup(folder.rmdir)
+        else:
+            try:
+                folder.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"Cannot create staging root symlink: {exc}")
+            self.addCleanup(folder.unlink)
+        with self.assertRaisesRegex(ContractError, "Redirected staging path"):
+            self.run_history()
+        after = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+        report = json.loads(folder.with_name(folder.name + "-retention.json").read_bytes())
+        self.assertTrue(any("Redirected staging path" in row["reason"] for row in report["retained"]))
+
+
+    def test_owned_staging_crash_and_prepared_reuse_keep_only_newest_failure(self):
+        from wikibuild import staging
+        with patch.object(history, "write_row", side_effect=SystemExit("materialization crash")):
+            with self.assertRaises(SystemExit):
+                self.run_history()
+        folder = self.root / ".local/history/staging"
+        failed = next(folder.iterdir())
+        self.assertEqual(staging.record(failed, "history")[0]["state"], "materializing")
+        self.assertTrue((failed / "models.jsonl").exists())
+        unknown = folder / "unknown"
+        unknown.mkdir()
+        result, _ = self.run_history()
+        self.assertEqual(staging.record(failed, "history")[0]["state"], "abandoned")
+        completed = next(path for path in folder.iterdir() if (path / staging.OWNER).exists()
+                         and staging.record(path, "history")[0]["state"] == "completed")
+        self.assertEqual(staging.record(completed, "history")[0]["state"], "completed")
+        self.assertTrue(unknown.exists())
+        self.set_input([observation(value=2)], build="200")
+        original = history.write_changed
+        def fail_pointer(path, data):
+            if path == self.root / "identity/latest.json":
+                raise OSError("pointer interrupted")
+            return original(path, data)
+        with patch.object(history, "write_changed", side_effect=fail_pointer):
+            with self.assertRaises(OSError):
+                self.run_history()
+        abandoned = [path for path in folder.iterdir() if path != unknown
+                     and staging.record(path, "history")[0]["state"] == "abandoned"]
+        self.assertEqual(len(abandoned), 1)
+        recovered, metrics = self.run_history()
+        self.assertTrue(metrics["reused"])
+        self.assertTrue(all(staging.record(path, "history")[0]["state"] == "abandoned" for path in abandoned))
+        self.assertFalse(failed.exists())
+        self.assertTrue(completed.exists())
+        self.assertEqual(recovered["parent_run"], result["run_id"])
+
+    def test_consecutive_materialization_failures_leave_exactly_one_retained(self):
+        from wikibuild import staging
+        folder = self.root / ".local/history/staging"
+        original = history.write_row
+        def fail(*args):
+            original(*args)
+            raise OSError("materialization failed")
+        previous = None
+        for _ in range(5):
+            with patch.object(history, "write_row", side_effect=fail):
+                with self.assertRaisesRegex(OSError, "materialization failed"):
+                    self.run_history()
+            failures = list(folder.iterdir())
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(staging.record(failures[0], "history")[0]["state"], "abandoned")
+            self.assertTrue((failures[0] / "models.jsonl").stat().st_size)
+            if previous is not None:
+                self.assertFalse(previous.exists())
+            previous = failures[0]
+        self.run_history()
+        self.assertTrue(previous.exists())
+
     def setUp(self):
         self.root = fixture_dir(self, "history")
         self.source = self.root / "source"

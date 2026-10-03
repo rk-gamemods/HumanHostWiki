@@ -13,6 +13,7 @@
       "paths": [
         "wikibuild/__init__.py",
         "wikibuild/storage.py",
+        "wikibuild/staging.py",
         "wikibuild/exceptions.py",
         "wikibuild/packs.py",
         "wikibuild/shard_index.py",
