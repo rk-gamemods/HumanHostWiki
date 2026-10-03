@@ -125,6 +125,55 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before})
         self.assertTrue(all(names == ("reader.json",) for _, names in self.host.verified[-3:]))
 
+    def abandon_partial_publication(self):
+        # 2026-09-29: a publication pushed most topics, stalled, and was abandoned unpromoted.
+        first, _ = self.run_publish()
+        self.next_release()
+        self.host.fail_name = "Wiki-items"
+        with self.assertRaisesRegex(ContractError, "Topic publication failed"):
+            self.run_publish()
+        (self.root / ".local/publication/pending.json").unlink()
+        return first
+
+    def test_next_release_adopts_an_abandoned_publication(self):
+        first = self.abandon_partial_publication()
+        self.assertNotEqual(self.host.ref("Wiki-loot", "gh-pages"), first["repositories"]["loot"]["pages"])
+        self.assertNotEqual(self.host.ref("Wiki-loot", "main"), first["repositories"]["loot"]["main"])
+        # A byte-identical restore made directly on the remote, as done for World on 2026-10-02.
+        path = self.host.paths["Wiki-items"]
+        moved = self.host.ref("Wiki-items", "gh-pages")
+        restore = publication_git.commit(path, git(path, "rev-parse", first["repositories"]["items"]["pages"] + "^{tree}"),
+                                         moved, "Restore the served build")
+        self.host.refs[("Wiki-items", "gh-pages")] = restore
+        self.next_release()
+        result, _ = self.run_publish()
+        self.assertEqual(result["status"], "published")
+        self.assertEqual(result["release_id"], self.manifest["release_id"])
+        for topic in ("loot", "items"):
+            plan = result["repositories"][topic]
+            self.assertEqual(self.host.ref(plan["name"], "gh-pages"), plan["pages"])
+
+    def test_remote_main_is_adopted_only_on_this_workspaces_release_history(self):
+        first, _ = self.run_publish()
+        path, base = self.host.paths["Wiki-loot"], first["repositories"]["loot"]["main"]
+        other = publication_git.unavailable(path)[0]
+        abandoned = publication_git.commit(path, other, base, "Abandoned release")
+        selected = publication_git.commit(path, git(path, "rev-parse", base + "^{tree}"), abandoned, "Selected release")
+        foreign = publication_git.commit(path, other, base, "Someone else's main")
+        self.assertTrue(publication_git.released_lineage(path, base, abandoned, selected))
+        self.assertFalse(publication_git.released_lineage(path, base, foreign, selected))
+        self.assertFalse(publication_git.released_lineage(path, selected, abandoned, selected))
+
+    def test_foreign_commit_on_a_published_branch_is_still_refused(self):
+        first, _ = self.run_publish()
+        path = self.host.paths["Wiki-loot"]
+        foreign_tree = publication_git.unavailable(path)[0]
+        foreign = publication_git.commit(path, foreign_tree, first["repositories"]["loot"]["pages"], "Someone else's change")
+        self.host.refs[("Wiki-loot", "gh-pages")] = foreign
+        self.next_release()
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch: Wiki-loot"):
+            self.run_publish()
+
     def test_topic_failure_preserves_hub_and_independent_success_then_resumes(self):
         first, _ = self.run_publish()
         before = (self.root / "publications/latest.json").read_bytes()

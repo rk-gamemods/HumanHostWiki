@@ -15,6 +15,38 @@ def commit(path, tree, parent, message):
     return command(path, *args, data=(message + "\n").encode()).decode().strip()
 
 
+def owned_lineage(path, base, head):
+    """True when `head` fast-forwards `base` only through commits this workspace published.
+
+    An abandoned publication leaves its pushed commits on the remote branch. Each commit
+    after `base` must be pinned under refs/wiki-publications/ (pushed from here) or carry a
+    tree already on that line (a byte-identical restore). Anything else stays refused."""
+    if not base or not head:
+        return False
+
+    def succeeds(*args):
+        return subprocess.run(["git", "-C", str(path), *args], capture_output=True).returncode == 0
+
+    if not succeeds("cat-file", "-e", head + "^{commit}") or not succeeds("merge-base", "--is-ancestor", base, head):
+        return False
+    trees = {git(path, "rev-parse", base + "^{tree}")}
+    for revision in reversed(git(path, "rev-list", head, "^" + base).splitlines()):
+        tree = git(path, "rev-parse", revision + "^{tree}")
+        if tree not in trees and not succeeds("show-ref", "--verify", "--quiet", "refs/wiki-publications/" + revision):
+            return False
+        trees.add(tree)
+    return True
+
+
+def released_lineage(path, base, head, release):
+    """True when remote main `head` lies on this workspace's own release history:
+    it descends from the last published `base` and the selected `release` descends from it."""
+    if not base or not head:
+        return False
+    return all(subprocess.run(["git", "-C", str(path), "merge-base", "--is-ancestor", older, newer],
+                              capture_output=True).returncode == 0 for older, newer in ((base, head), (head, release)))
+
+
 def unavailable(path):
     data = b"<!doctype html><html lang=en><meta charset=utf-8><title>Unofficial game reference</title><h1>Unofficial game reference</h1><p>Not affiliated with or endorsed by Virtual Matrix Studio.</p><p>No validated public release is available. Publication is being retried.</p></html>\n"
     blob = command(path, "hash-object", "-w", "--stdin", data=data).decode().strip()

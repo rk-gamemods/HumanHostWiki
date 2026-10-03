@@ -82,6 +82,18 @@ class GitHubPages:
         result = self.api("GET", f"repos/{self.owner}/{name}/git/ref/heads/{branch}", missing=True, empty=True)
         return result["object"]["sha"] if result else None
 
+    def fetch(self, path, name, branch):
+        """Copy a remote branch tip into local object storage (read-only on GitHub)."""
+        url = f"https://github.com/{self.owner}/{name}.git"
+        environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        try:
+            result = bounded.run(["git", "-C", str(path), "fetch", "--no-tags", "--quiet", url,
+                                  f"+refs/heads/{branch}:refs/wiki-remote/{branch}"], timeout=self.PUSH_TIMEOUT, env=environment)
+        except subprocess.TimeoutExpired:
+            raise ContractError(f"git fetch timed out after {self.PUSH_TIMEOUT}s: {name}/{branch}") from None
+        if result.returncode:
+            raise ContractError(f"Fetch failed for {name}/{branch}: {result.stderr.decode(errors='replace')[:1200]}")
+
     def push(self, path, name, commit, branch, expected):
         current = self.ref(name, branch)
         if current == commit:

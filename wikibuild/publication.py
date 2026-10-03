@@ -99,9 +99,15 @@ def prepare(root, project, manifest, host):
         path = within(root, record["path"])
         old_main, old_pages = host.ref(name, "main"), host.ref(name, "gh-pages")
         prior = previous["repositories"].get(topic) if previous else None
-        if old_main not in {None, record["commit"], prior["main"] if prior else None}:
+        if prior and old_pages not in {None, prior["pages"]} and hasattr(host, "fetch"):
+            host.fetch(path, name, "gh-pages")  # A restore made on the remote is not local yet.
+        # An abandoned publication may have advanced main and gh-pages past the last
+        # receipt. Adopt only history this workspace published; refuse anything else.
+        abandoned_main = bool(prior) and publication_git.released_lineage(path, prior["main"], old_main, record["commit"])
+        if old_main not in {None, record["commit"], prior["main"] if prior else None} and not abandoned_main:
             raise ContractError(f"Unexpected remote main: {name}")
-        if old_pages != (prior["pages"] if prior else None):
+        if old_pages != (prior["pages"] if prior else None) and not (
+                prior and publication_git.owned_lineage(path, prior["pages"], old_pages)):
             raise ContractError(f"Unexpected remote Pages branch: {name}")
         tree = git(path, "rev-parse", record["commit"] + ":site")
         if "pages" in record:
