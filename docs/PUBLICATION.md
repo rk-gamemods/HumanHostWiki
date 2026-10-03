@@ -82,8 +82,9 @@ deadline, so a descendant holding a pipe cannot outlast it. Each `gh api` call
 times out after 120 seconds. A GET is retried up to four times; a POST is not
 repeated after a timeout or 5xx, because it may have taken effect, and its caller
 reconciles instead. Each `git push` times out after 600 seconds, and the remote
-ref then decides whether it landed. A Pages build still queued or building after
-30 minutes, ours or one ahead of it, stops the run with the publication left
+ref then decides whether it landed. Build observations and their API retries share
+an elapsed deadline. A Pages build for the pushed commit still unfinished after
+30 minutes stops the run with the publication left
 pending. The operator must abandon the journal before rehearsing a fresh run.
 SteamCMD's metadata check stops
 after 300 seconds and is reported as unavailable. As a backstop for any wait
@@ -91,6 +92,22 @@ without its own bound, `wiki.py update` and `publish` stop themselves after four
 hours; the OS then releases the writer lock. Local update stages recover on the
 next run; failed publications must be abandoned. On 2026-09-29 a run without these bounds waited three days on a
 build GitHub never finished.
+
+## Stuck Pages builds
+
+Only the pushed commit's Pages build and newest workflow attempt determine its
+state. A workflow queued, waiting or pending with no started job is
+`queued-not-started`; unrelated old queued runs are ignored. After five continuous
+minutes in that state, publication journals one successor commit with the stuck
+commit as its parent and exactly the same tree, then pushes with a lease expecting
+the stuck SHA. The confirmed transition becomes this invocation's expected ref.
+It waits for the successor within the original 30-minute deadline and verifies
+the same file hashes. Runs are never cancelled or deleted.
+
+Each repository gets one successor attempt per invocation. If the successor also
+stays queued, publication fails and preserves the transition in the journal.
+The operator must run `py -3 wiki.py abandon-publication`, then rehearse a fresh
+run later. Missing builds and unknown observations do not trigger recovery.
 
 ## Durable state and abandonment
 
@@ -173,13 +190,13 @@ py -3 -m unittest discover -s tests -p test_publication.py -v
 `publish` selects an explicit local release; it never falls back to the latest
 pointer. Review and merge workspace changes, wait for CI, then rehearse and publish.
 On a publication failure, abandon the local journal, rehearse the selected release
-against current live state, then publish afresh. A queued
-or running build is polled without restarting it, up to the 30-minute build deadline.
+against current live state, then publish afresh. A running build is polled up to
+the 30-minute build deadline; never-started jobs use the recovery described above.
 Once GitHub returns a build identity, subsequent reads address that build. If the
 latest record belongs to another commit, the adapter checks the recent build
 inventory before treating the target as unobserved. Twelve consecutive successful
-checks with no target or earlier live build return an observation failure. This
-bounds missing-job discovery, not the runtime of a queued or running job.
+checks with no target build or matching workflow return an observation failure.
+Unrelated live builds do not extend this discovery window.
 
 GitHub can leave a Pages build at `building` after its own deployment workflow fails, for
 example on a transient "Failed to get ID Token" timeout. After five minutes of a live build the

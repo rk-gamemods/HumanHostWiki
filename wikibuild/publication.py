@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+from threading import Lock
 from time import perf_counter
 
 from . import entrypoints, github_pages, ownership, physical, publication_git, publish_gate, release
@@ -276,7 +277,7 @@ def repository_timing():
     return dict.fromkeys(("push_main", "push_pages", "configure", "pages_build", "verify", "total"), 0.0)
 
 
-def deploy(root, plan, host, timing=None, refs=None):
+def deploy(root, plan, host, timing=None, refs=None, journal=None):
     if refs is None:
         refs = RehearsedRefs([{"repository": plan["name"], "branch": branch, "commit": plan[key]}
                               for branch, key in (("main", "old_main"), ("gh-pages", "old_pages"))])
@@ -288,8 +289,50 @@ def deploy(root, plan, host, timing=None, refs=None):
             refs.push(host, path, plan["name"], plan["pages"], "gh-pages")
         with measure(timing, "configure"):
             host.configure(plan["name"])
-        with measure(timing, "pages_build"):
-            host.wait(plan["name"], plan["pages"])
+        try:
+            with measure(timing, "pages_build"):
+                host.wait(plan["name"], plan["pages"])
+        except github_pages.QueuedPagesError as exc:
+            if plan.get("recovery") or journal is None:
+                raise github_pages.BuildObservationError(
+                    f"Pages {plan['name']} remains queued-not-started; no further successor attempt is allowed. "
+                    "Abandon the publication journal and rehearse a fresh run later.") from exc
+            stuck = plan["pages"]
+            if refs.observe(host, plan["name"], "gh-pages") != stuck:
+                raise ContractError(f"Pages recovery source changed: {plan['name']}")
+            tree = git(path, "rev-parse", stuck + "^{tree}")
+            if tree != plan["tree"]:
+                raise ContractError(f"Pages recovery tree differs: {plan['name']}")
+            successor = publication_git.commit(path, tree, stuck, "Recover never-started Pages build")
+            pin(path, successor)
+            transition = {"stuck": stuck, "successor": successor, "status": "prepared"}
+            # Persist our exact transition before any remote effect. A failed run
+            # never reloads this journal to resume a recovery.
+            journal(plan, transition)
+            with measure(timing, "push_pages"):
+                expected = refs.observe(host, plan["name"], "gh-pages")
+                if expected != stuck:
+                    raise ContractError(f"Pages recovery source changed: {plan['name']}")
+                try:
+                    host.push(path, plan["name"], successor, "gh-pages", stuck)
+                except Exception:
+                    # Only this already-journaled, attempted successor may be
+                    # confirmed after a lost push response.
+                    if host.ref(plan["name"], "gh-pages") != successor:
+                        raise
+                if host.ref(plan["name"], "gh-pages") != successor:
+                    raise ContractError(f"Pages successor push was not confirmed: {plan['name']}")
+                key = (plan["name"], "gh-pages")
+                refs.expected[key] = refs.confirmed[key] = successor
+            journal(plan, {**transition, "status": "confirmed"})
+            try:
+                with measure(timing, "pages_build"):
+                    host.wait(plan["name"], successor, deadline=exc.deadline)
+            except github_pages.QueuedPagesError as successor_error:
+                raise github_pages.BuildObservationError(
+                    f"Pages successor {successor} for {plan['name']} is also queued-not-started; "
+                    "the single recovery attempt is exhausted. Abandon the publication journal "
+                    "and rehearse a fresh run later.") from successor_error
         with measure(timing, "verify"):
             host.verify(plan["base"], plan["checks"])
 
@@ -334,6 +377,13 @@ def rollback(root, state, path, host, refs, timing=None):
 
 def execute(root, state, path, host, workers, refs, timing=None):
     timing = timing if timing is not None else {"repositories": {}, "rollback": {}, "phases": {}}
+    journal_lock = Lock()
+
+    def journal(plan, transition):
+        with journal_lock:
+            plan["recovery"] = transition
+            plan["pages"] = transition["successor"]
+            save(path, state)
 
     def restore():
         identity = state.get("hub_control", "hub")
@@ -356,14 +406,15 @@ def execute(root, state, path, host, workers, refs, timing=None):
         errors = []
         with measure(timing["phases"], f"topics-{rank}"), ThreadPoolExecutor(max_workers=workers) as pool:
             pending = {pool.submit(deploy, root, plan, host,
-                       timing["repositories"].setdefault(topic, repository_timing()), refs): plan
+                       timing["repositories"].setdefault(topic, repository_timing()), refs, journal): plan
                        for topic, plan in topics.items()}
             for future in as_completed(pending):
                 plan = pending[future]
                 try:
                     future.result()
-                    plan["verified"] = True
-                    save(path, state)
+                    with journal_lock:
+                        plan["verified"] = True
+                        save(path, state)
                 except Exception as exc:
                     errors.append(f"{plan['name']}: {exc}")
         if errors:
@@ -375,7 +426,7 @@ def execute(root, state, path, host, workers, refs, timing=None):
         try:
             row = timing["repositories"].setdefault(state.get("hub_control", "hub"), repository_timing())
             with measure(timing["phases"], "hub"):
-                deploy(root, hub, host, row, refs)
+                deploy(root, hub, host, row, refs, journal)
             hub["verified"] = True
             save(path, state)
         except github_pages.BuildObservationError:
