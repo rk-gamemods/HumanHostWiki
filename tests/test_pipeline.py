@@ -1,6 +1,9 @@
 """Run the actual local stages against a small committed source fixture."""
 
 import json
+import io
+import itertools
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -43,6 +46,104 @@ class PipelineTests(unittest.TestCase):
         self.fixture.item["fields"].update(fields)
         self.fixture.put(items_loot.INPUTS[0], [self.fixture.item])
         self.fixture.commit()
+
+    def test_timings_are_append_only_and_do_not_change_run_or_request_identity(self):
+        first = self.run_pipeline()
+        stages = {"register", "availability", "external-articles", "normalize", "identity", "project",
+                  "verify", "release", "publish", "retention", "reader-retention", "promote"}
+        self.assertEqual(set(first["timings"]), stages)
+        self.assertTrue(all(seconds >= 0 for seconds in first["timings"].values()))
+        self.assertGreaterEqual(first["total_seconds"], sum(first["timings"].values()))
+        saved = pipeline.read(self.root, first["run_id"])
+        self.assertNotIn("timings", saved)
+        self.assertNotIn("timing", json.dumps(saved))
+        request_path = self.root / f".local/pipeline/requests/{saved['request_key']}.json"
+        request = request_path.read_bytes()
+        files = list((self.root / ".local/pipeline/timings").glob("*.json"))
+        before = files[0].read_bytes()
+        with patch.object(pipeline, "perf_counter", side_effect=itertools.count(0, 1)):
+            second = self.run_pipeline()
+        self.assertEqual(first["run_id"], second["run_id"])
+        self.assertNotEqual(first["timings"], second["timings"])
+        self.assertEqual(request_path.read_bytes(), request)
+        self.assertEqual(files[0].read_bytes(), before)
+        files = list((self.root / ".local/pipeline/timings").glob("*.json"))
+        self.assertEqual(len(files), 2)
+        for path in files:
+            timing = json.loads(path.read_text())
+            self.assertTrue(path.name.endswith("-git-release-ready.json"))
+            self.assertEqual(set(timing["stages"]), stages)
+            self.assertLessEqual(timing["started_utc"], timing["finished_utc"])
+            self.assertIsNone(timing["failed_stage"])
+            self.assertIn("publication", timing)
+
+    def test_failure_has_partial_timings_and_innermost_repository_location(self):
+        def fail_reader(*args, **kwargs):
+            raise RuntimeError("reader fault")
+
+        with patch.object(pipeline.reader, "build", side_effect=fail_reader):
+            with self.assertRaises(ContractError) as raised:
+                self.run_pipeline()
+        stages = {"register", "availability", "external-articles", "normalize", "identity", "project"}
+        self.assertEqual(set(raised.exception.timings), stages)
+        self.assertTrue(all(seconds >= 0 for seconds in raised.exception.timings.values()))
+        failure = json.loads(next((self.root / ".local/pipeline/failures").glob("*.json")).read_text())
+        self.assertEqual(failure["error"]["location"], {"path": "tests/test_pipeline.py", "function": "fail_reader",
+                                                       "line": fail_reader.__code__.co_firstlineno + 1})
+        self.assertNotIn("timings", failure)
+        timing = json.loads(next((self.root / ".local/pipeline/timings").glob("*-execution-failure.json")).read_text())
+        self.assertEqual(timing["stages"], raised.exception.timings)
+        self.assertEqual(timing["failed_stage"], "project")
+        self.assertGreaterEqual(timing["total_seconds"], sum(timing["stages"].values()))
+
+    def test_timing_write_failure_does_not_change_success_or_execution_failure(self):
+        original = Path.open
+
+        def protected(path, *args, **kwargs):
+            if args and args[0] == "xb" and path.parent.name == "timings":
+                raise OSError("protected timing directory")
+            return original(path, *args, **kwargs)
+
+        stderr = io.StringIO()
+        with patch.object(Path, "open", protected), patch.object(pipeline.sys, "stderr", stderr):
+            result = self.run_pipeline()
+            self.assertEqual(result["status"], "git-release-ready")
+            with patch.object(pipeline.reader, "build", side_effect=RuntimeError("reader fault")):
+                with self.assertRaisesRegex(ContractError, "stage project failed"):
+                    self.run_pipeline()
+        self.assertEqual(stderr.getvalue().count("Wiki timing could not be saved"), 2)
+
+    def test_failed_publication_breakdown_reaches_timing_file_without_changing_receipt(self):
+        failure = ContractError("publication fault")
+        failure.publication_timing = {"repositories": {"items": {"push_main": 1.0}}, "resume": 1.0}
+        with patch.object(pipeline.publication, "run", side_effect=failure):
+            with self.assertRaisesRegex(ContractError, "stage publish failed") as raised:
+                self.run_pipeline()
+        timing = json.loads(next((self.root / ".local/pipeline/timings").glob("*-execution-failure.json")).read_text())
+        self.assertEqual(timing["publication"], failure.publication_timing)
+        self.assertEqual(raised.exception.metrics["publish"]["timing"], timing["publication"])
+        self.assertIn("publish", raised.exception.timings)
+        receipt = json.loads(next((self.root / ".local/pipeline/failures").glob("*.json")).read_text())
+        self.assertNotIn("publication_timing", receipt)
+
+    def test_operator_time_section_preserves_existing_text_and_labels_parallel_sums(self):
+        result = self.run_pipeline()
+        legacy = dict(result)
+        legacy.pop("timings")
+        original = pipeline.operator_report(self.root, legacy)
+        result["metrics"]["publish"]["timing"] = {
+            "repositories": {"items": {"push_main": 2, "push_pages": 3, "configure": 1,
+                                        "pages_build": 8, "verify": 4, "total": 18}},
+            "phases": {"topics-1": 18}, "prepare": 2, "resume": 18}
+        text = pipeline.operator_report(self.root, result)
+        self.assertTrue(text.startswith(original + "\nTime\n"))
+        for stage in result["timings"]:
+            self.assertIn(f"- {stage}:", text)
+        for label in ("Upload (pushes)", "GitHub Pages processing", "Public verification", "Other publish work"):
+            self.assertIn(label, text)
+        self.assertIn("slowest repository: items, 8.00 s", text)
+        self.assertIn("parallel phases: 18.00 s wall-clock", text)
+        self.assertIn("when parallel workers overlap", text)
 
     def test_supported_update_completes_with_unknown_content(self):
         self.modify(MaxStack=19, NewUnparsedFeature="DO NOT EXPORT")

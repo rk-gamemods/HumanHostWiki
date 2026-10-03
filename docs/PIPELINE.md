@@ -48,6 +48,11 @@ Operational receipts live under `.local/pipeline/`:
 - `failures/<hash>.json` identifies the failing stage, completed stages, typed
   error and content exceptions collected before failure. It cannot advance success.
 
+Each invocation appends `.local/pipeline/timings/<UTC timestamp>-<status>.json`
+with UTC start/finish, total and stage seconds, the failed stage if any, and
+publication timings; these mutable operational files never enter content hashes.
+Timing write failures are reported to stderr and do not change the update outcome.
+
 Each invocation revalidates stage artifacts before reuse. A completed request
 produces identical result bytes and leaves pointer timestamps unchanged. An older
 request cannot rewind later successful work. Changed or unknown outputs are
@@ -67,6 +72,12 @@ issues are recorded separately from content exceptions and do not undo completed
 publication. Pending release transactions remain untouched.
 
 ## Operator report
+
+The final Time section shows total and stage wall-clock seconds, publication
+upload, Pages processing, public verification and other work, and the slowest
+repository for each category.
+It reports parallel phase wall-clock separately because summed repository seconds
+can exceed elapsed time when workers overlap.
 
 The `external-articles` stage records bounded community-wiki checks as a versioned
 input. Its configured source and routes are owned by [EXTERNAL_LINKS.md](EXTERNAL_LINKS.md).
