@@ -13,6 +13,64 @@ from wikibuild.storage import ContractError, json_bytes, writer_lock
 
 
 class HistoryTests(unittest.TestCase):
+    def test_owned_staging_crash_and_prepared_reuse_keep_only_newest_failure(self):
+        from wikibuild import staging
+        with patch.object(history, "write_row", side_effect=SystemExit("materialization crash")):
+            with self.assertRaises(SystemExit):
+                self.run_history()
+        folder = self.root / ".local/history/staging"
+        failed = next(folder.iterdir())
+        self.assertEqual(staging.record(failed, "history")[0]["state"], "materializing")
+        self.assertTrue((failed / "models.jsonl").exists())
+        unknown = folder / "unknown"
+        unknown.mkdir()
+        result, _ = self.run_history()
+        self.assertEqual(staging.record(failed, "history")[0]["state"], "abandoned")
+        completed = next(path for path in folder.iterdir() if (path / staging.OWNER).exists()
+                         and staging.record(path, "history")[0]["state"] == "completed")
+        self.assertEqual(staging.record(completed, "history")[0]["state"], "completed")
+        self.assertTrue(unknown.exists())
+        self.set_input([observation(value=2)], build="200")
+        original = history.write_changed
+        def fail_pointer(path, data):
+            if path == self.root / "identity/latest.json":
+                raise OSError("pointer interrupted")
+            return original(path, data)
+        with patch.object(history, "write_changed", side_effect=fail_pointer):
+            with self.assertRaises(OSError):
+                self.run_history()
+        abandoned = [path for path in folder.iterdir() if path != unknown
+                     and staging.record(path, "history")[0]["state"] == "abandoned"]
+        self.assertEqual(len(abandoned), 1)
+        recovered, metrics = self.run_history()
+        self.assertTrue(metrics["reused"])
+        self.assertTrue(all(staging.record(path, "history")[0]["state"] == "abandoned" for path in abandoned))
+        self.assertFalse(failed.exists())
+        self.assertTrue(completed.exists())
+        self.assertEqual(recovered["parent_run"], result["run_id"])
+
+    def test_consecutive_materialization_failures_leave_exactly_one_retained(self):
+        from wikibuild import staging
+        folder = self.root / ".local/history/staging"
+        original = history.write_row
+        def fail(*args):
+            original(*args)
+            raise OSError("materialization failed")
+        previous = None
+        for _ in range(5):
+            with patch.object(history, "write_row", side_effect=fail):
+                with self.assertRaisesRegex(OSError, "materialization failed"):
+                    self.run_history()
+            failures = list(folder.iterdir())
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(staging.record(failures[0], "history")[0]["state"], "abandoned")
+            self.assertTrue((failures[0] / "models.jsonl").stat().st_size)
+            if previous is not None:
+                self.assertFalse(previous.exists())
+            previous = failures[0]
+        self.run_history()
+        self.assertTrue(previous.exists())
+
     def setUp(self):
         self.root = fixture_dir(self, "history")
         self.source = self.root / "source"

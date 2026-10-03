@@ -22,6 +22,55 @@ def install_guide(fixture):
 
 
 class ReaderTests(unittest.TestCase):
+    def test_owned_staging_crash_is_retained_and_candidate_has_no_metadata(self):
+        from wikibuild import staging
+        original = reader.project_snapshot
+        def crash(*args, **kwargs):
+            original(*args, **kwargs)
+            raise SystemExit("materialization crash")
+        with patch.object(reader, "project_snapshot", side_effect=crash):
+            with self.assertRaises(SystemExit):
+                self.build()
+        folder = self.root / ".local/reader-stage"
+        failed = next(folder.iterdir())
+        self.assertEqual(staging.record(failed, "reader")[0]["state"], "materializing")
+        self.assertTrue(any((failed / "p").rglob("*.json")))
+        unknown = folder / "unknown"
+        unknown.mkdir()
+        site, result = self.build()
+        self.assertEqual(staging.record(failed, "reader")[0]["state"], "abandoned")
+        self.assertFalse((site / staging.OWNER).exists())
+        reader.verify(site, result["candidate_id"])
+        completed = next(path for path in folder.iterdir() if (path / staging.OWNER).exists()
+                         and staging.record(path, "reader")[0]["state"] == "completed")
+        self.assertEqual(staging.record(completed, "reader")[0]["state"], "completed")
+        self.assertEqual(list(completed.iterdir()), [completed / staging.OWNER])
+        self.assertTrue(unknown.exists())
+        self.assertEqual(self.build()[1]["candidate_id"], result["candidate_id"])
+        self.assertTrue(completed.exists())
+
+    def test_consecutive_materialization_failures_leave_exactly_one_retained(self):
+        from wikibuild import staging
+        folder = self.root / ".local/reader-stage"
+        original = reader.project_snapshot
+        def fail(*args, **kwargs):
+            original(*args, **kwargs)
+            raise OSError("materialization failed")
+        previous = None
+        for _ in range(5):
+            with patch.object(reader, "project_snapshot", side_effect=fail):
+                with self.assertRaisesRegex(OSError, "materialization failed"):
+                    self.build()
+            failures = list(folder.iterdir())
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(staging.record(failures[0], "reader")[0]["state"], "abandoned")
+            self.assertTrue(any((failures[0] / "p").rglob("*.json")))
+            if previous is not None:
+                self.assertFalse(previous.exists())
+            previous = failures[0]
+        self.build()
+        self.assertTrue(previous.exists())
+
     def setUp(self):
         self.root = fixture_dir(self, "reader")
         self.registry_path = self.root / "presentation/fields.json"

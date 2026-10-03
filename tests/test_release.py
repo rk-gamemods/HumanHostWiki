@@ -63,6 +63,93 @@ def copy_children(root, project):
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_owned_preparation_crash_keeps_one_diagnostic_after_recovery(self):
+        from wikibuild import release_output, staging
+        original = release_output.Writer.add
+        def crash(writer, *args, **kwargs):
+            original(writer, *args, **kwargs)
+            raise SystemExit("preparation crash")
+        with patch.object(release_output.Writer, "add", crash):
+            with self.assertRaises(SystemExit):
+                self.run_release()
+        folder = self.root / ".local/rs"
+        failed = next(folder.iterdir())
+        self.assertEqual(staging.record(failed, "release")[0]["state"], "materializing")
+        self.assertTrue(any(path.is_file() and path.name != staging.OWNER for path in failed.rglob("*")))
+        unknown = folder / "unknown"
+        unknown.mkdir()
+        result, _ = self.run_release()
+        self.assertEqual(staging.record(failed, "release")[0]["state"], "abandoned")
+        completed = next(path for path in folder.iterdir() if (path / staging.OWNER).exists()
+                         and staging.record(path, "release")[0]["state"] == "completed")
+        self.assertEqual(staging.record(completed, "release")[0]["state"], "completed")
+        self.assertTrue((completed / "plan.json").exists())
+        self.assertTrue(unknown.exists())
+        self.assertEqual(self.run_release()[0], result)
+        self.assertTrue(completed.exists())
+
+    def test_post_preparation_failure_abandons_before_pending_journal(self):
+        from wikibuild import staging
+        original = reader.verify
+        def fail_validation(*args, **kwargs):
+            folder = self.root / ".local/rs"
+            if folder.exists() and any((path / staging.OWNER).exists() for path in folder.iterdir()):
+                raise SystemExit("post preparation crash")
+            return original(*args, **kwargs)
+        with patch.object(reader, "verify", side_effect=fail_validation):
+            with self.assertRaises(SystemExit):
+                self.run_release()
+        folder = self.root / ".local/rs"
+        failed = next(folder.iterdir())
+        self.assertEqual(staging.record(failed, "release")[0]["state"], "materializing")
+        self.assertFalse((self.root / ".local/releases/pending.json").exists())
+        self.run_release()
+        self.assertEqual(staging.record(failed, "release")[0]["state"], "abandoned")
+
+    def test_consecutive_preparation_failures_leave_exactly_one_retained(self):
+        from wikibuild import release_output, staging
+        original = release_output.Writer.add
+        def fail(writer, *args, **kwargs):
+            original(writer, *args, **kwargs)
+            raise OSError("preparation failed")
+        folder = self.root / ".local/rs"
+        previous = None
+        for _ in range(5):
+            with patch.object(release_output.Writer, "add", fail):
+                with self.assertRaisesRegex(OSError, "preparation failed"):
+                    self.run_release()
+            failures = list(folder.iterdir())
+            self.assertEqual(len(failures), 1)
+            if previous is not None:
+                self.assertFalse(previous.exists())
+            previous = failures[0]
+        failures = list(folder.iterdir())
+        self.assertTrue(all(staging.record(path, "release")[0]["state"] == "abandoned" for path in failures))
+        self.run_release()
+        self.assertTrue(all(path.exists() for path in failures))
+
+    def test_consecutive_post_preparation_failures_leave_exactly_one_retained(self):
+        from wikibuild import staging
+        original = reader.verify
+        folder = self.root / ".local/rs"
+        def fail(*args, **kwargs):
+            if folder.exists() and any(staging.record(path, "release")[0]["state"] == "materializing"
+                                       for path in folder.iterdir()):
+                raise OSError("post preparation failed")
+            return original(*args, **kwargs)
+        previous = None
+        for _ in range(5):
+            with patch.object(reader, "verify", side_effect=fail):
+                with self.assertRaisesRegex(OSError, "post preparation failed"):
+                    self.run_release()
+            failures = list(folder.iterdir())
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(staging.record(failures[0], "release")[0]["state"], "abandoned")
+            if previous is not None:
+                self.assertFalse(previous.exists())
+            previous = failures[0]
+
+
     def setUp(self, *, build_candidate=True):
         global _RELEASE_TEMPLATE, _PREPARED_TEMPLATE
         prepared = {'test_failure_after_ref_update_is_detected_as_completed_on_retry',

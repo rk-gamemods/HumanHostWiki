@@ -7,6 +7,7 @@ from pathlib import Path
 import uuid
 
 from . import extraction, identity, model
+from . import staging as staging_attempts
 from .exceptions import Exceptions
 from .source import Source
 from .storage import ContractError, digest, json_bytes, within, write_changed
@@ -139,6 +140,7 @@ def run(root, source, receipt, extracted):
         source_bytes = restore_models(root, source, observations, extracted, prepared)
         extraction.ensure_source(source, receipt["source_commit"])
         write_changed(pointer, json_bytes({"run_id": prepared["run_id"]}))
+        staging_attempts.retire(within(root, ".local/history/staging"), "history")
         return prepared, {"reused": True, "source_bytes_read": source_bytes}
 
     run_id = identity.fingerprint([request_key, parent_id])
@@ -159,74 +161,72 @@ def run(root, source, receipt, extracted):
     supersessions = identity.reviewed_supersessions(descriptors, old, assignments, receipt["snapshot_id"], reviewed["mappings"])
     indexes = model.targets_index(model.rows(observations), assignments)
     issues, states, counts = Exceptions(), {}, Counter()
-    staging = within(root, ".local/history/staging/" + uuid.uuid4().hex)
-    staging.mkdir(parents=True)
-    with (staging / "models.jsonl").open("wb") as stream:
-        for row in model.rows(observations):
-            key = row["observation_key"]
-            entity = assignments[key]
-            projected = model.project(row, entity, indexes, metadata, extracted["dependencies"], issues)
-            prior = old.get(entity)
-            changed = not prior or prior["revision_id"] != projected["revision_id"]
-            counts["new" if not prior else "changed" if changed else "unchanged"] += 1
-            decision = decisions[key]
-            if decision["status"] == "ambiguous":
-                counts["ambiguous"] += 1
-                issues.add("ambiguous-identity", row["topic"], row["kind"],
-                           "Identity candidates are unresolved; this observation retains a separate wiki key.", row["source_id"])
-            states[entity] = {"entity_key": entity, "descriptor": descriptors[key], "revision_id": projected["revision_id"],
-                              "status": "present", "first_seen": prior["first_seen"] if prior else receipt["snapshot_id"],
-                              "last_seen": receipt["snapshot_id"], "last_changed": receipt["snapshot_id"] if changed else prior["last_changed"],
-                              "last_data_checked": receipt["snapshot_id"], "last_verified": None, "decision": decision}
-            projected["snapshot_id"] = receipt["snapshot_id"]
-            projected["identity_decision"] = decision
-            write_row(stream, projected)
-    ambiguous_old = {candidate for decision in decisions.values() if decision["status"] == "ambiguous" for candidate in decision["candidates"]}
-    current_by_observation = {state["descriptor"]["observation_key"]: entity for entity, state in states.items()}
-    for entity, state in old.items():
-        if entity in states:
-            continue
-        if state["status"] == "superseded":
-            states[entity] = state
-            continue
-        observation = state["descriptor"]["observation_key"]
-        replacement = supersessions.get(entity) or current_by_observation.get(observation)
-        if entity in supersessions or (replacement and decisions[observation]["status"] == "reviewed"):
-            status = "superseded"
-        elif entity in ambiguous_old:
-            status = "unresolved"
-        else:
-            status = model.absent_status(state, extracted["supported_kinds"], metadata)
-        states[entity] = {**state, "status": status,
-                          **({"superseded_by": replacement} if status == "superseded" else {})}
-        if status == "unresolved":
-            descriptor = state["descriptor"]
-            issues.add("unresolved-observation", descriptor["topic"], descriptor["kind"],
-                       "A prior observation is absent but its source object remains; review the extraction or identity change.",
-                       descriptor["source_id"])
-        if status != state["status"]:
-            counts[status] += 1
-    with (staging / "state.jsonl").open("wb") as stream:
-        for entity in sorted(states):
-            write_row(stream, states[entity])
-    result = {"schema_version": 1, "run_id": run_id, "request_key": request_key, "parent_run": parent_id,
-              "snapshot_id": receipt["snapshot_id"], "source_commit": receipt["source_commit"],
-              "extraction_run": extracted["run_id"], "contract_sha256": contract_hash,
-              "input_identity": {"steam": receipt["steam"], "inventory": receipt["input_inventory_git_blob"]},
-              "corrections_sha256": identity.fingerprint(reviewed),
-              "change_origin": ("initial" if not previous else "game-input-change" if not unchanged_inputs else
-                                "identity-correction" if previous.get("corrections_sha256") != identity.fingerprint(reviewed) else "extractor-correction"),
-              "state": install(root, staging / "state.jsonl", "identity/states"),
-              "models": install(root, staging / "models.jsonl", ".local/history/objects"),
-              "counts": dict(sorted(counts.items())), "exceptions": issues.report(),
-              "verification": "selected-data-only; gameplay and pages not verified", "wiki_release": "not-created"}
-    extraction.ensure_source(source, receipt["source_commit"])
-    extraction.artifact(root, extracted["records"])
-    if contract() != contract_hash or corrections(root) != reviewed:
-        raise ContractError("Identity rules changed during generation; previous pointer preserved")
-    immutable(within(root, f"identity/runs/{run_id}.json"), json_bytes(result))
-    read(root, run_id)
-    immutable(request_path, json_bytes({"run_id": run_id}))
-    write_changed(pointer, json_bytes({"run_id": run_id}))
-    staging.rmdir()
-    return result, {"reused": False, "source_bytes_read": source_bytes}
+    with staging_attempts.attempt(within(root, ".local/history/staging"), "history") as staging:
+        with (staging / "models.jsonl").open("wb") as stream:
+            for row in model.rows(observations):
+                key = row["observation_key"]
+                entity = assignments[key]
+                projected = model.project(row, entity, indexes, metadata, extracted["dependencies"], issues)
+                prior = old.get(entity)
+                changed = not prior or prior["revision_id"] != projected["revision_id"]
+                counts["new" if not prior else "changed" if changed else "unchanged"] += 1
+                decision = decisions[key]
+                if decision["status"] == "ambiguous":
+                    counts["ambiguous"] += 1
+                    issues.add("ambiguous-identity", row["topic"], row["kind"],
+                               "Identity candidates are unresolved; this observation retains a separate wiki key.", row["source_id"])
+                states[entity] = {"entity_key": entity, "descriptor": descriptors[key], "revision_id": projected["revision_id"],
+                                  "status": "present", "first_seen": prior["first_seen"] if prior else receipt["snapshot_id"],
+                                  "last_seen": receipt["snapshot_id"], "last_changed": receipt["snapshot_id"] if changed else prior["last_changed"],
+                                  "last_data_checked": receipt["snapshot_id"], "last_verified": None, "decision": decision}
+                projected["snapshot_id"] = receipt["snapshot_id"]
+                projected["identity_decision"] = decision
+                write_row(stream, projected)
+        ambiguous_old = {candidate for decision in decisions.values() if decision["status"] == "ambiguous" for candidate in decision["candidates"]}
+        current_by_observation = {state["descriptor"]["observation_key"]: entity for entity, state in states.items()}
+        for entity, state in old.items():
+            if entity in states:
+                continue
+            if state["status"] == "superseded":
+                states[entity] = state
+                continue
+            observation = state["descriptor"]["observation_key"]
+            replacement = supersessions.get(entity) or current_by_observation.get(observation)
+            if entity in supersessions or (replacement and decisions[observation]["status"] == "reviewed"):
+                status = "superseded"
+            elif entity in ambiguous_old:
+                status = "unresolved"
+            else:
+                status = model.absent_status(state, extracted["supported_kinds"], metadata)
+            states[entity] = {**state, "status": status,
+                              **({"superseded_by": replacement} if status == "superseded" else {})}
+            if status == "unresolved":
+                descriptor = state["descriptor"]
+                issues.add("unresolved-observation", descriptor["topic"], descriptor["kind"],
+                           "A prior observation is absent but its source object remains; review the extraction or identity change.",
+                           descriptor["source_id"])
+            if status != state["status"]:
+                counts[status] += 1
+        with (staging / "state.jsonl").open("wb") as stream:
+            for entity in sorted(states):
+                write_row(stream, states[entity])
+        result = {"schema_version": 1, "run_id": run_id, "request_key": request_key, "parent_run": parent_id,
+                  "snapshot_id": receipt["snapshot_id"], "source_commit": receipt["source_commit"],
+                  "extraction_run": extracted["run_id"], "contract_sha256": contract_hash,
+                  "input_identity": {"steam": receipt["steam"], "inventory": receipt["input_inventory_git_blob"]},
+                  "corrections_sha256": identity.fingerprint(reviewed),
+                  "change_origin": ("initial" if not previous else "game-input-change" if not unchanged_inputs else
+                                    "identity-correction" if previous.get("corrections_sha256") != identity.fingerprint(reviewed) else "extractor-correction"),
+                  "state": install(root, staging / "state.jsonl", "identity/states"),
+                  "models": install(root, staging / "models.jsonl", ".local/history/objects"),
+                  "counts": dict(sorted(counts.items())), "exceptions": issues.report(),
+                  "verification": "selected-data-only; gameplay and pages not verified", "wiki_release": "not-created"}
+        extraction.ensure_source(source, receipt["source_commit"])
+        extraction.artifact(root, extracted["records"])
+        if contract() != contract_hash or corrections(root) != reviewed:
+            raise ContractError("Identity rules changed during generation; previous pointer preserved")
+        immutable(within(root, f"identity/runs/{run_id}.json"), json_bytes(result))
+        read(root, run_id)
+        immutable(request_path, json_bytes({"run_id": run_id}))
+        write_changed(pointer, json_bytes({"run_id": run_id}))
+        return result, {"reused": False, "source_bytes_read": source_bytes}

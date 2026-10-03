@@ -23,6 +23,46 @@ PROJECT.pop("external_articles", None)  # Article integration tests inject their
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_owned_staging_crash_keeps_one_diagnostic_after_success(self):
+        from wikibuild import staging
+        with patch.object(extraction, "store_file", side_effect=SystemExit("materialization crash")):
+            with self.assertRaises(SystemExit):
+                self.extract()
+        folder = self.wiki / ".local/extractions/staging"
+        failed = next(path for path in folder.iterdir() if path.is_dir())
+        self.assertEqual(staging.record(failed, "extraction")[0]["state"], "materializing")
+        self.assertTrue((failed / "records.jsonl").exists())
+        unknown = folder / "unknown"
+        unknown.mkdir()
+        result, _ = self.extract()
+        self.assertEqual(staging.record(failed, "extraction")[0]["state"], "abandoned")
+        completed = next(path for path in folder.iterdir() if (path / staging.OWNER).exists()
+                         and staging.record(path, "extraction")[0]["state"] == "completed")
+        self.assertEqual(staging.record(completed, "extraction")[0]["state"], "completed")
+        self.assertTrue(unknown.exists())
+        report = json.loads(folder.with_name("staging-retention.json").read_bytes())
+        self.assertTrue(any(row["stage"] == "unknown" for row in report["retained"]))
+        self.assertEqual(self.extract()[0], result)
+        self.assertTrue(completed.exists())
+
+    def test_consecutive_materialization_failures_leave_exactly_one_retained(self):
+        from wikibuild import staging
+        folder = self.wiki / ".local/extractions/staging"
+        previous = None
+        for _ in range(5):
+            with patch.object(extraction, "store_file", side_effect=OSError("materialization failed")):
+                with self.assertRaisesRegex(OSError, "materialization failed"):
+                    self.extract()
+            failures = list(folder.iterdir())
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(staging.record(failures[0], "extraction")[0]["state"], "abandoned")
+            self.assertTrue((failures[0] / "records.jsonl").stat().st_size)
+            if previous is not None:
+                self.assertFalse(previous.exists())
+            previous = failures[0]
+        self.extract()
+        self.assertTrue(previous.exists())
+
     def setUp(self):
         self.work = fixture_dir(self, "extract")
         self.wiki = self.work / "wiki"
