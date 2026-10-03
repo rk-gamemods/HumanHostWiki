@@ -92,7 +92,7 @@ def run(root, project, source, receipt):
         result = read(root, run_id)
         ensure_source(source, revision)
         write_changed(pointer_path, json_bytes({"run_id": run_id}))
-        staging_attempts.retire(within(root, ".local/extractions/staging"), "extraction")
+        staging_attempts.retire(Path(root) / ".local/extractions/staging", "extraction")
         return result, {"reused": True, "source_bytes_read": 0}
 
     previous = None
@@ -101,7 +101,7 @@ def run(root, project, source, receipt):
         previous = read(root, pointer["run_id"])
     issues = Exceptions()
     owners = {kind: repo["id"] for repo in project["repositories"] for kind in repo["owns"]}
-    with staging_attempts.attempt(within(root, ".local/extractions/staging"), "extraction") as staging:
+    with staging_attempts.attempt(Path(root) / ".local/extractions/staging", "extraction") as staging:
         with Source(source, revision) as inputs:
             inputs.item_names = {}
             if previous and previous["contract_sha256"] == contract_hash and dependencies_match(inputs, previous["dependencies"]):

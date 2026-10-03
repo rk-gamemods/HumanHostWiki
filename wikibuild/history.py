@@ -140,7 +140,7 @@ def run(root, source, receipt, extracted):
         source_bytes = restore_models(root, source, observations, extracted, prepared)
         extraction.ensure_source(source, receipt["source_commit"])
         write_changed(pointer, json_bytes({"run_id": prepared["run_id"]}))
-        staging_attempts.retire(within(root, ".local/history/staging"), "history")
+        staging_attempts.retire(Path(root) / ".local/history/staging", "history")
         return prepared, {"reused": True, "source_bytes_read": source_bytes}
 
     run_id = identity.fingerprint([request_key, parent_id])
@@ -161,7 +161,7 @@ def run(root, source, receipt, extracted):
     supersessions = identity.reviewed_supersessions(descriptors, old, assignments, receipt["snapshot_id"], reviewed["mappings"])
     indexes = model.targets_index(model.rows(observations), assignments)
     issues, states, counts = Exceptions(), {}, Counter()
-    with staging_attempts.attempt(within(root, ".local/history/staging"), "history") as staging:
+    with staging_attempts.attempt(Path(root) / ".local/history/staging", "history") as staging:
         with (staging / "models.jsonl").open("wb") as stream:
             for row in model.rows(observations):
                 key = row["observation_key"]

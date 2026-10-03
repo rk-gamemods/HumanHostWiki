@@ -2,6 +2,8 @@
 
 import copy
 import json
+import os
+import subprocess
 from pathlib import Path
 import shutil
 import unittest
@@ -63,6 +65,40 @@ def copy_children(root, project):
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_redirected_staging_root_is_refused_without_touching_target(self):
+        from wikibuild import staging
+        folder = self.root / ".local/rs"
+        outside = self.root / "unrelated"
+        outside.mkdir()
+        for index in range(2):
+            victim = outside / (str(index) * 32)
+            victim.mkdir()
+            (victim / staging.OWNER).write_bytes(json_bytes({
+                "schema_version": 1, "stage": "release", "attempt_id": victim.name,
+                "created_utc": f"2026-01-0{index + 1}T00:00:00+00:00", "state": "abandoned"}))
+            (victim / "payload").write_bytes(b"outside the literal stage root")
+        before = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            result = subprocess.run(["cmd", "/c", "mklink", "/J", str(folder), str(outside)],
+                                    capture_output=True, text=True)
+            if result.returncode:
+                self.skipTest("Cannot create staging root junction: " + result.stderr)
+            self.addCleanup(folder.rmdir)
+        else:
+            try:
+                folder.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"Cannot create staging root symlink: {exc}")
+            self.addCleanup(folder.unlink)
+        with self.assertRaisesRegex(ContractError, "Redirected staging path"):
+            self.run_release()
+        after = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+        report = json.loads(folder.with_name(folder.name + "-retention.json").read_bytes())
+        self.assertTrue(any("Redirected staging path" in row["reason"] for row in report["retained"]))
+
+
     def test_owned_preparation_crash_keeps_one_diagnostic_after_recovery(self):
         from wikibuild import release_output, staging
         original = release_output.Writer.add

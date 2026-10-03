@@ -1,6 +1,9 @@
 """Two-snapshot public-reader contracts, using real pack/file transactions."""
 
 import json
+import os
+import stat
+import subprocess
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -22,6 +25,76 @@ def install_guide(fixture):
 
 
 class ReaderTests(unittest.TestCase):
+    def test_retiring_failed_projection_preserves_read_only_completed_hardlink(self):
+        from wikibuild import staging
+        site, result = self.build()
+        source = site / "items/reader.js"
+        data = source.read_bytes()
+        source.chmod(stat.S_IREAD)
+        original = reader.write_changed
+
+        def fail_manifest(path, content):
+            if path.name == "candidate.json":
+                raise OSError("projection failed")
+            return original(path, content)
+
+        with patch.object(reader.availability, "latest", return_value={"fixture": "changed"}), \
+                patch.object(reader, "write_changed", side_effect=fail_manifest):
+            with self.assertRaisesRegex(OSError, "projection failed"):
+                self.build()
+        folder = self.root / ".local/reader-stage"
+        failed = next(path for path in folder.iterdir()
+                      if staging.record(path, "reader")[0]["state"] == "abandoned")
+        shared = failed / "p/items/reader.js"
+        self.assertTrue(os.path.samefile(source, shared))
+        self.assertGreaterEqual(shared.stat().st_nlink, 2)
+        with self.assertRaisesRegex(OSError, "new failure"):
+            with staging.attempt(folder, "reader"):
+                raise OSError("new failure")
+        self.assertEqual(source.read_bytes(), data)
+        self.assertFalse(source.stat().st_mode & stat.S_IWRITE)
+        reader.verify(site, result["candidate_id"])
+        if failed.exists():
+            self.assertTrue(shared.exists())
+            self.assertTrue((failed / staging.OWNER).exists())
+            report = json.loads(folder.with_name("reader-stage-retention.json").read_bytes())
+            self.assertTrue(any(row["stage"] == failed.name and "multiply linked" in row["reason"]
+                                for row in report["retained"]))
+
+    def test_redirected_staging_root_is_refused_without_touching_target(self):
+        from wikibuild import staging
+        folder = self.root / ".local/reader-stage"
+        outside = self.root / "unrelated"
+        outside.mkdir()
+        for index in range(2):
+            victim = outside / (str(index) * 32)
+            victim.mkdir()
+            (victim / staging.OWNER).write_bytes(json_bytes({
+                "schema_version": 1, "stage": "reader", "attempt_id": victim.name,
+                "created_utc": f"2026-01-0{index + 1}T00:00:00+00:00", "state": "abandoned"}))
+            (victim / "payload").write_bytes(b"outside the literal stage root")
+        before = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            result = subprocess.run(["cmd", "/c", "mklink", "/J", str(folder), str(outside)],
+                                    capture_output=True, text=True)
+            if result.returncode:
+                self.skipTest("Cannot create staging root junction: " + result.stderr)
+            self.addCleanup(folder.rmdir)
+        else:
+            try:
+                folder.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"Cannot create staging root symlink: {exc}")
+            self.addCleanup(folder.unlink)
+        with self.assertRaisesRegex(ContractError, "Redirected staging path"):
+            self.build()
+        after = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+        report = json.loads(folder.with_name(folder.name + "-retention.json").read_bytes())
+        self.assertTrue(any("Redirected staging path" in row["reason"] for row in report["retained"]))
+
+
     def test_owned_staging_crash_is_retained_and_candidate_has_no_metadata(self):
         from wikibuild import staging
         original = reader.project_snapshot

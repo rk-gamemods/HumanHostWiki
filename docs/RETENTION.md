@@ -38,9 +38,12 @@ the most recent owned failed attempt of each stage for diagnosis and retires
 every older one, even without a completed attempt. Current and completed
 directories stay available. A crash leaves `materializing`; ordinary failures
 and rollover proposals become `abandoned`.
-Unknown or invalid ownership is reported and preserved. Retirement checks the
-whole deletion tree, rejects redirects, clears read-only attributes on owned
-entries and processes at most 100,000 entries per inventory or deletion tree.
+Unknown or invalid ownership, including malformed JSON, is reported and preserved.
+Retirement validates the literal stage root and its direct children before any
+resolution, rejects symlinks and reparse points throughout the deletion tree,
+and processes at most 100,000 entries per inventory or deletion tree. Files are
+unlinked first; read-only protection is cleared only on single-link files. A
+protected shared file that cannot be unlinked keeps its attempt and is reported.
 Ownership reads are capped at 4 KiB. Reader ownership stays outside promoted
 candidate payloads; release ownership completes once the recovery journal is saved.
 

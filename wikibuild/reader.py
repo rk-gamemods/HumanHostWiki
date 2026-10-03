@@ -577,15 +577,16 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
               "external_articles": external_links.configured(root, project),
               "curation": checked["run_id"] if checked else None}
     candidate_id = digest(json_bytes(inputs))
-    cache_root = Path(cache_root).resolve() if cache_root else within(root, ".local")
-    if not cache_root.is_relative_to(within(root, ".local")):
+    local_root = staging.regular(Path(root) / ".local")
+    cache_root = staging.regular(cache_root) if cache_root else local_root
+    if not cache_root.is_relative_to(local_root):
         raise ContractError("Reader cache must remain inside the owning .local directory")
     destination = candidate_path(cache_root, candidate_id)
     pointer = within(cache_root, "reader-latest.json")
     if destination.exists():
         manifest = verify(destination, candidate_id)
         write_changed(pointer, json_bytes({"candidate_id": candidate_id}))
-        staging.retire(within(cache_root, "reader-stage"), "reader")
+        staging.retire(cache_root / "reader-stage", "reader")
         return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"], "reused": True, "curation": curated}
     prior, prior_path = None, None
     if pointer.exists():
@@ -595,7 +596,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         if {k: v for k, v in prior["inputs"].items() if k not in {"availability", "external_articles"}} != {
                 k: v for k, v in inputs.items() if k not in {"availability", "external_articles"}}:
             prior = None
-    with staging.attempt(within(cache_root, "reader-stage"), "reader") as owned:
+    with staging.attempt(cache_root / "reader-stage", "reader") as owned:
         stage = owned / "p"
         stage.mkdir()
         files = {}

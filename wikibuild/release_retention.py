@@ -18,7 +18,7 @@ def regular(root, name):
     relative = PurePosixPath(name)
     if relative.is_absolute() or ".." in relative.parts or "\\" in name or ":" in name:
         raise ContractError(f"Invalid staging path: {name}")
-    literal = Path(root).resolve() / relative
+    literal = staging.regular(Path(root) / relative)
     resolved = within(root, name)
     if literal != resolved or literal.is_symlink():
         raise ContractError(f"Redirected staging path: {name}")

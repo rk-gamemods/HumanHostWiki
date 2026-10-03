@@ -32,7 +32,7 @@ def prepare(root, project, candidate, release_id, inventory, previous, issue_tem
         by_id = {repo["id"]: repo for repo in ordered}
         ordered = [by_id[identity] for identity in order]
         created = {part.id for part in projection.partitions} - existing
-        with staging.attempt(within(root, ".local/rs"), "release", short=True, deferred=True) as stage:
+        with staging.attempt(Path(root) / ".local/rs", "release", short=True, deferred=True) as stage:
             plans, repositories, writers, destinations, new_repositories = {}, {}, {}, {}, []
             for repo in ordered:
                 target = within(root, repo["path"])

@@ -3,6 +3,8 @@
 import copy
 import hashlib
 import json
+import os
+import subprocess
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -23,6 +25,61 @@ PROJECT.pop("external_articles", None)  # Article integration tests inject their
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_nested_malformed_ownership_is_reported_and_update_proceeds(self):
+        from wikibuild import staging
+        unknown = self.wiki / ".local/extractions/staging" / ("f" * 32)
+        unknown.mkdir(parents=True)
+        data = b"[" * 1500 + b"0" + b"]" * 1500
+        self.assertLess(len(data), staging.MAX_RECORD_BYTES)
+        (unknown / staging.OWNER).write_bytes(data)
+        # Python's C decoder has a separate depth limit on newer runtimes.
+        # Its standard-library Python decoder exercises parser recursion portably.
+        decoder = json.JSONDecoder()
+        decoder.scan_once = json.scanner.py_make_scanner(decoder)
+        with patch.object(json, "_default_decoder", decoder):
+            with self.assertRaisesRegex(ContractError, "invalid JSON"):
+                staging.record(unknown, "extraction")
+            result, _ = self.extract()
+        self.assertTrue(result["run_id"])
+        self.assertEqual((unknown / staging.OWNER).read_bytes(), data)
+        report = json.loads(unknown.parent.with_name("staging-retention.json").read_bytes())
+        self.assertTrue(any(row["stage"] == unknown.name and "invalid JSON" in row["reason"]
+                            for row in report["retained"]))
+
+    def test_redirected_staging_root_is_refused_without_touching_target(self):
+        from wikibuild import staging
+        folder = self.wiki / ".local/extractions/staging"
+        outside = self.wiki / "unrelated"
+        outside.mkdir()
+        for index in range(2):
+            victim = outside / (str(index) * 32)
+            victim.mkdir()
+            (victim / staging.OWNER).write_bytes(json_bytes({
+                "schema_version": 1, "stage": "extraction", "attempt_id": victim.name,
+                "created_utc": f"2026-01-0{index + 1}T00:00:00+00:00", "state": "abandoned"}))
+            (victim / "payload").write_bytes(b"outside the literal stage root")
+        before = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            result = subprocess.run(["cmd", "/c", "mklink", "/J", str(folder), str(outside)],
+                                    capture_output=True, text=True)
+            if result.returncode:
+                self.skipTest("Cannot create staging root junction: " + result.stderr)
+            self.addCleanup(folder.rmdir)
+        else:
+            try:
+                folder.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"Cannot create staging root symlink: {exc}")
+            self.addCleanup(folder.unlink)
+        with self.assertRaisesRegex(ContractError, "Redirected staging path"):
+            self.extract()
+        after = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+        report = json.loads(folder.with_name(folder.name + "-retention.json").read_bytes())
+        self.assertTrue(any("Redirected staging path" in row["reason"] for row in report["retained"]))
+
+
     def test_owned_staging_crash_keeps_one_diagnostic_after_success(self):
         from wikibuild import staging
         with patch.object(extraction, "store_file", side_effect=SystemExit("materialization crash")):

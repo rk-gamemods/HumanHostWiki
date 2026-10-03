@@ -18,19 +18,33 @@ MAX_RECORD_BYTES = 4096
 
 def regular(path):
     """Check ancestors as well as leaves; never follow a junction or symlink."""
-    path = Path(path).absolute()
-    for item in (path, *path.parents):
-        if not item.exists() and not item.is_symlink():
+    path = Path(path)
+    if ".." in path.parts:
+        raise ContractError(f"Invalid staging path: {path}")
+    path = path.absolute()
+    # Check from the root down, so even lstat on a leaf never traverses a redirect.
+    for item in reversed((path, *path.parents)):
+        try:
+            info = item.lstat()
+        except FileNotFoundError:
             continue
-        info = item.lstat()
         if (stat.S_ISLNK(info.st_mode)
                 or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
             raise ContractError(f"Redirected staging path: {item}")
     return path
 
 
-def record(path, stage):
-    regular(path)
+def child(folder, path):
+    """Validate a direct child of the literal stage root, without resolving either."""
+    folder = regular(folder)
+    path = Path(path).absolute()
+    if path.parent != folder:
+        raise ContractError(f"Staging attempt is not a direct child of {folder}: {path}")
+    return regular(path)
+
+
+def record(path, stage, *, folder=None):
+    path = child(folder, path) if folder is not None else regular(path)
     marker = regular(path / OWNER)
     if not path.is_dir() or not marker.is_file():
         raise ContractError("Unrecognized staging directory; ownership record missing")
@@ -38,7 +52,10 @@ def record(path, stage):
         data = stream.read(MAX_RECORD_BYTES + 1)
     if len(data) > MAX_RECORD_BYTES:
         raise ContractError("Staging ownership record exceeds its read bound")
-    value = json.loads(data)
+    try:
+        value = json.loads(data)
+    except (ValueError, RecursionError) as exc:
+        raise ContractError("Unrecognized staging ownership record: invalid JSON") from exc
     if (not isinstance(value, dict) or value.get("schema_version") != 1
             or value.get("stage") != stage or value.get("attempt_id") != path.name
             or not re.fullmatch(r"[0-9a-f]{12}|[0-9a-f]{32}", path.name)
@@ -61,14 +78,30 @@ def signature(info):
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_mode
 
 
-def remove(path, stage, expected_owner):
+def unlink(path, expected):
+    """Unlink first; changing protection is safe only for a single-link file."""
+    try:
+        path.unlink()
+    except PermissionError:
+        actual = regular(path).lstat()
+        if signature(actual) != signature(expected):
+            raise ContractError("Staging file changed before retirement")
+        if actual.st_nlink != 1:
+            raise ContractError("Cannot unlink protected multiply linked staging file")
+        if actual.st_mode & stat.S_IWRITE:
+            raise
+        path.chmod(actual.st_mode | stat.S_IWRITE)
+        path.unlink()
+
+
+def remove(path, stage, expected_owner, *, folder):
     """Validate a bounded tree first; retain the ownership marker until last."""
-    path = regular(path)
+    path = child(folder, path)
     pending, files, folders, count = [path], [], [], 0
     while pending:
-        folder = pending.pop()
-        folders.append(folder)
-        with os.scandir(folder) as entries:
+        directory = pending.pop()
+        folders.append(directory)
+        with os.scandir(directory) as entries:
             for entry in entries:
                 count += 1
                 if count > MAX_ENTRIES:
@@ -84,7 +117,7 @@ def remove(path, stage, expected_owner):
     marker = path / OWNER
     marker_info = next(info for item, info in files if item == marker)
     files = [(item, info) for item, info in files if item != marker]
-    if record(path, stage)[0] != expected_owner:
+    if record(path, stage, folder=folder)[0] != expected_owner:
         raise ContractError("Staging ownership changed before retirement")
     for item, expected in files:
         if signature(regular(marker).lstat()) != signature(marker_info):
@@ -92,20 +125,15 @@ def remove(path, stage, expected_owner):
         actual = regular(item).lstat()
         if signature(actual) != signature(expected):
             raise ContractError("Staging file changed before retirement")
-        # These are owned disposable attempts, including read-only Git objects.
-        if not actual.st_mode & stat.S_IWRITE:
-            item.chmod(actual.st_mode | stat.S_IWRITE)
-        item.unlink()
-    for folder in reversed(folders[1:]):
-        info = regular(folder).lstat()
+        unlink(item, actual)
+    for directory in reversed(folders[1:]):
+        info = regular(directory).lstat()
         if not info.st_mode & stat.S_IWRITE:
-            folder.chmod(info.st_mode | stat.S_IWRITE)
-        folder.rmdir()
+            directory.chmod(info.st_mode | stat.S_IWRITE)
+        directory.rmdir()
     if signature(regular(marker).lstat()) != signature(marker_info):
         raise ContractError("Staging ownership changed before retirement")
-    if not marker_info.st_mode & stat.S_IWRITE:
-        marker.chmod(marker_info.st_mode | stat.S_IWRITE)
-    marker.unlink()
+    unlink(marker, marker_info)
     info = regular(path).lstat()
     if not info.st_mode & stat.S_IWRITE:
         path.chmod(info.st_mode | stat.S_IWRITE)
@@ -116,22 +144,22 @@ def retire(folder, stage, current=None):
     """Only valid records of this stage authorize retirement; report everything else."""
     folder = Path(folder).absolute()
     summary = {"removed": [], "retained": []}
-    if not folder.exists():
-        return summary
     attempts = []
     try:
-        regular(folder)
+        folder = regular(folder)
+        if not folder.exists():
+            return summary
         with os.scandir(folder) as entries:
             for index, entry in enumerate(entries):
                 if index >= MAX_ENTRIES:
                     raise ContractError("Staging inventory exceeds its entry bound")
                 path = Path(entry.path)
                 try:
-                    value, created = record(path, stage)
+                    value, created = record(path, stage, folder=folder)
                     attempts.append((path, value, created))
                 except (OSError, ValueError, KeyError, TypeError) as exc:
                     summary["retained"].append({"stage": path.name, "reason": str(exc)})
-        current = Path(current).absolute() if current is not None else None
+        current = child(folder, current) if current is not None else None
         # A live current attempt is not stale. A just-abandoned current attempt
         # ranks newest under the writer lock, but is still never deleted here.
         failed = [(path, created) for path, value, created in attempts
@@ -143,14 +171,19 @@ def retire(folder, stage, current=None):
                 continue
             try:
                 if path != newest:
-                    remove(path, stage, value)
+                    remove(path, stage, value, folder=folder)
                     summary["removed"].append(path.name)
                 elif value["state"] == "materializing":
                     finish(path, stage, "abandoned")
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 summary["retained"].append({"stage": path.name, "reason": str(exc)})
-        write_changed(folder.with_name(folder.name + "-retention.json"), json_bytes(summary))
     except (OSError, ValueError, KeyError, TypeError) as exc:
+        summary["retained"].append({"stage": str(folder), "reason": str(exc)})
+    try:
+        # A redirected root can still be reported at its safe literal sibling.
+        report = regular(folder.with_name(folder.name + "-retention.json"))
+        write_changed(report, json_bytes(summary))
+    except (OSError, ValueError) as exc:
         summary["retained"].append({"stage": str(folder), "reason": str(exc)})
     return summary
 
@@ -158,10 +191,10 @@ def retire(folder, stage, current=None):
 @contextmanager
 def attempt(folder, stage, *, short=False, deferred=False):
     """Ordinary failures abandon; process interruptions leave materializing evidence."""
-    folder = regular(folder)
     retire(folder, stage)
+    folder = regular(folder)
     identity = uuid.uuid4().hex[:12] if short else uuid.uuid4().hex
-    path = folder / identity
+    path = child(folder, folder / identity)
     path.mkdir(parents=True)
     write_changed(path / OWNER, json_bytes({"schema_version": 1, "stage": stage,
                                            "attempt_id": identity,

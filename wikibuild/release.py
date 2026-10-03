@@ -139,7 +139,7 @@ def verify(root, value, *, check_checkout=True, reviewed_project=None):
 
 
 def resume(root, journal):
-    stage = within(root, journal["stage"])
+    stage = staging.child(Path(root) / ".local/rs", Path(root) / journal["stage"])
     for entry in journal.get("new_repositories", []):
         release_partitions.install(root, entry)
     for repo in physical.repositories(journal["project"], journal["result"].get("physical")):
@@ -165,11 +165,12 @@ def run(root, project, candidate):
     if pending.exists():
         pointer = json.loads(pending.read_text(encoding="utf-8"))
         if not pointer["complete"]:
-            data = within(root, pointer["stage"] + "/plan.json").read_bytes()
+            stage = staging.child(Path(root) / ".local/rs", Path(root) / pointer["stage"])
+            data = staging.regular(stage / "plan.json").read_bytes()
             if digest(data) != pointer["sha256"]:
                 raise ContractError("Pending release journal was modified")
             journal = json.loads(data)
-            stage = within(root, journal["stage"])
+            stage = staging.child(Path(root) / ".local/rs", Path(root) / journal["stage"])
             if (stage / staging.OWNER).exists():
                 staging.finish(stage, "release", "completed")
             resume(root, journal)
@@ -193,7 +194,7 @@ def run(root, project, candidate):
     inventory = capacity_inventory.read(root, project)
     previous = publication.published(root)
     prepared, outputs = release_prepare.prepare(root, project, candidate, release_id, inventory, previous, templates)
-    stage = within(root, prepared["stage"])
+    stage = staging.child(Path(root) / ".local/rs", Path(root) / prepared["stage"])
     try:
         if contract() != inputs["contract"]:
             raise ContractError("Release rules changed during preparation")
