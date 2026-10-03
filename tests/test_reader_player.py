@@ -13,8 +13,8 @@ from wikibuild.storage import ContractError, digest, json_bytes
 class PlayerProjectionTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_reader.ReaderTests()
+        self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
         self.root, self.project = self.fixture.root, self.fixture.project
         self.project["repositories"][0]["owns"] = ["recipe", "workbench", "biome", "world-rule",
                                                    "resource-distribution", "combat-rule"]

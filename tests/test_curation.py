@@ -3,7 +3,6 @@
 import copy
 import json
 from pathlib import Path
-import shutil
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +14,7 @@ from wikibuild.storage import ContractError, digest, git, json_bytes
 class CurationTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_reader.ReaderTests()
+        self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
         self.root, self.project = self.fixture.root, self.fixture.project
         self.project['repositories'][1]['path'] = 'repositories/items'
@@ -28,14 +28,6 @@ class CurationTests(unittest.TestCase):
                            'facts': {'weight': {'path': '/weight', 'type': 'integer', 'min': 1, 'max': 4}},
                            'text': ['Configured value: ', {'fact': 'weight'}, '. <script>literal</script>']}
         self.commit_definition()
-        self.addCleanup(self.cleanup)
-
-    def cleanup(self):
-        try:
-            shutil.rmtree(self.root)
-        except PermissionError:
-            print(f'Retained protected curation fixture: {self.root}')
-        self.fixture.folder._finalizer.detach()
 
     def init_git(self, path):
         git(path, 'init', '-q')

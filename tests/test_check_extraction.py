@@ -5,14 +5,13 @@ import copy
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
-from tests._support import fixture_parent
+from tests._support import fixture_dir
+
 from tools import check_coded_values, check_extraction
 
 
@@ -31,9 +30,7 @@ def encoded(value):
 
 class CheckExtractionTests(unittest.TestCase):
     def setUp(self):
-        parent = fixture_parent("test-check-extraction")
-        self.work = Path(tempfile.mkdtemp(dir=parent))
-        self.addCleanup(self.cleanup)
+        self.work = fixture_dir(self, "check")
         self.source, self.wiki = self.work / "source", self.work / "wiki"
         self.source.mkdir()
         self.wiki.mkdir()
@@ -70,12 +67,6 @@ class CheckExtractionTests(unittest.TestCase):
         self.groups = [{"code": "english-text", "topic": "technical-reference", "pattern": "Language_Text/_Infos",
                         "occurrences": 2, "examples": ["fixture#4", "fixture#5"]}]
         self.pin()
-
-    def cleanup(self):
-        try:
-            shutil.rmtree(self.work)
-        except PermissionError:
-            print(f"Retained protected checker fixture: {self.work}")
 
     def git(self, *args):
         return subprocess.check_output(["git", "-C", str(self.source), *args], stderr=subprocess.STDOUT).decode().strip()

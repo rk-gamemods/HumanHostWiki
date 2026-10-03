@@ -18,8 +18,8 @@ from wikibuild.storage import ContractError, git, json_bytes, writer_lock
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_extraction.ExtractionTests()
+        self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
-        self.addCleanup(self.fixture.tearDown)
         self.root, self.source = self.fixture.wiki, self.fixture.source
         registry = self.root / "presentation/fields.json"
         registry.parent.mkdir()

@@ -2,10 +2,10 @@
 
 import json
 from pathlib import Path
-import shutil
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from tests._support import fixture_dir
 
 from wikibuild import git_transaction, ownership, publication, publication_git, release_output
 from wikibuild.storage import ContractError, digest, git
@@ -13,8 +13,7 @@ from wikibuild.storage import ContractError, digest, git
 
 class OwnershipTransactionTests(unittest.TestCase):
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
-        self.root = Path(self.folder.name)
+        self.root = fixture_dir(self, "owner")
         self.repo = self.root / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-b", "main")
@@ -23,14 +22,6 @@ class OwnershipTransactionTests(unittest.TestCase):
         (self.repo / ".gitignore").write_text(".local/\n")
         git(self.repo, "add", ".gitignore")
         git(self.repo, "commit", "-m", "Seed fixture")
-        self.addCleanup(self.cleanup)
-
-    def cleanup(self):
-        try:
-            shutil.rmtree(self.root)
-        except PermissionError:
-            print(f"Retained protected ownership fixture: {self.root}")
-        self.folder._finalizer.detach()
 
     def prepare(self, label, count=60, limit=2048):
         stage = self.repo / ".local" / label

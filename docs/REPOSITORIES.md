@@ -21,7 +21,7 @@ the [capacity contract](CAPACITY.md) defines their ownership, allocation and rec
 | Construction | `repositories/construction` | `HumanHost-Wiki-Construction` | Building pieces, materials, durability, destruction and structural relationships |
 | Vehicles | `repositories/vehicles` | `HumanHost-Wiki-Vehicles` | Vehicle families, parts, assembly, controls and operating mechanics |
 | World systems | `repositories/world-systems` | `HumanHost-Wiki-World` | Weather, time, environmental conditions and world organization |
-| Technical reference | `repositories/technical-reference` | `HumanHost-Wiki-Technical` | Every asset identity, component types, configuration fields, tags, layers and visible coverage gaps |
+| Game files | `repositories/technical-reference` | `HumanHost-Wiki-Technical` | Every asset identity, component types, configuration fields, tags, layers and visible coverage gaps |
 
 ## Navigation and topic relationships
 
@@ -50,7 +50,7 @@ flowchart LR
   hub --> vehicles
   world_systems["World systems"]
   hub --> world_systems
-  technical_reference["Technical reference"]
+  technical_reference["Game files"]
   hub --> technical_reference
   items_equipment -. acquired-from .-> loot_acquisition
   loot_acquisition -. yields .-> items_equipment

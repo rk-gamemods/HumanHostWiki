@@ -2,8 +2,9 @@
 
 import copy
 import json
-import tempfile
 import unittest
+
+from tests._support import fixture_dir
 from pathlib import Path
 
 from wikibuild.guides import GuideError, load_spec, render, render_markdown, text_runs
@@ -190,13 +191,13 @@ class GuideTests(unittest.TestCase):
         changed = copy.deepcopy(spec)
         del changed["title"]
         invalid.append(changed)
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "invalid.json"
-            for candidate in invalid:
-                with self.subTest(candidate=candidate):
-                    path.write_text(json.dumps(candidate), encoding="utf-8")
-                    with self.assertRaises(GuideError):
-                        load_spec(path)
+        folder = str(fixture_dir(self, "guides"))
+        path = Path(folder) / "invalid.json"
+        for candidate in invalid:
+            with self.subTest(candidate=candidate):
+                path.write_text(json.dumps(candidate), encoding="utf-8")
+                with self.assertRaises(GuideError):
+                    load_spec(path)
 
 
 if __name__ == "__main__":

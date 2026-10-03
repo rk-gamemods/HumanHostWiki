@@ -68,26 +68,89 @@ class Host:
             raise ContractError("Injected public hash failure")
         path, commit = self.paths[name], self.ref(name, "gh-pages")
         for name_in_tree, expected in files.items():
-            data = subprocess.check_output(["git", "-C", str(path), "cat-file", "blob", commit + ":" + name_in_tree])
+            # The private fixture's batch reader still reads the real Git blob;
+            # reuse it instead of launching a new reader on every verification.
+            blob = subprocess.run(['git', '-C', str(path), 'cat-file', 'blob', commit + ':' + name_in_tree],
+                                  capture_output=True)
+            if blob.returncode:
+                raise ContractError('Served Git object is not a blob')
+            data = blob.stdout
             if len(data) != expected["bytes"] or hashlib.sha256(data).hexdigest() != expected["sha256"]:
                 raise ContractError("Served Git bytes differ")
         self.verified.append((name, tuple(files)))
         self.events.append(("verified", name))
 
 
+_PUBLICATION_TEMPLATE = None
+_PUBLISHED_TEMPLATE = None
+
+
 class PublicationTests(unittest.TestCase):
     def setUp(self):
+        global _PUBLICATION_TEMPLATE, _PUBLISHED_TEMPLATE
+        if _PUBLICATION_TEMPLATE is None or not _PUBLICATION_TEMPLATE.root.exists():
+            template = PublicationTests()
+            template.addCleanup = test_release._ModuleFixtures().addCleanup
+            template._build_fixture()
+            _PUBLICATION_TEMPLATE = template
+        template = _PUBLICATION_TEMPLATE
+        baselines = {"test_next_release_adopts_an_abandoned_publication",
+                     "test_remote_main_is_adopted_only_on_this_workspaces_release_history",
+                     "test_foreign_commit_on_a_published_branch_is_still_refused",
+                     "test_topic_failure_preserves_hub_and_independent_success_then_resumes",
+                     "test_failed_hub_restores_previous_tree_without_rewriting_history",
+                     "test_unavailable_hub_build_observation_preserves_commit_for_retry",
+                     "test_unchanged_immutable_packs_do_not_download_again"}
+        if self._testMethodName in baselines:
+            if _PUBLISHED_TEMPLATE is None or not _PUBLISHED_TEMPLATE.root.exists():
+                published = PublicationTests()
+                published.addCleanup = test_release._ModuleFixtures().addCleanup
+                published.setUp()
+                published.run_publish()
+                _PUBLISHED_TEMPLATE = published
+            template = _PUBLISHED_TEMPLATE
+        self.fixture = test_release.clone_fixture(self, template.fixture, 'publish')
+        self.root, self.project = self.fixture.root, self.fixture.project
+        self.manifest = copy.deepcopy(template.manifest)
+        self.host = copy.deepcopy(template.host)
+        self.host.paths = {name: self.root / path.relative_to(template.root)
+                           for name, path in self.host.paths.items()}
+
+    def _build_fixture(self):
         self.fixture = test_release.ReleaseTests()
-        self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.addCleanup = self.addCleanup
+        self.fixture.setUp(build_candidate=False)
+        # Publication claims depend on release generations and Git history,
+        # rather than the number of captures within each release.
+        self.fixture.fixture.runs = [self.fixture.fixture.new]
         self.root, self.project = self.fixture.root, self.fixture.project
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = Host(self.project["github_owner"])
         self.make_release()
 
+    def test_cached_initial_release_is_private_and_does_not_repeat_git_setup(self):
+        other = PublicationTests()
+        other.addCleanup = self.addCleanup
+        with patch.object(release, "run", side_effect=AssertionError("repeated initial release")):
+            other.setUp()
+        self.assertNotEqual(self.root, other.root)
+        self.assertEqual(self.manifest, other.manifest)
+        self.assertIsNot(self.project, other.project)
+        self.assertIsNot(self.fixture.fixture.runs, other.fixture.fixture.runs)
+        path = self.root / "repositories/items"
+        before = git(other.root / "repositories/items", "rev-parse", "HEAD")
+        (path / "private.md").write_text("Private publication fixture")
+        git(path, "add", ".")
+        git(path, "commit", "-m", "Private mutation")
+        self.assertEqual(git(other.root / "repositories/items", "rev-parse", "HEAD"), before)
+        self.assertEqual(git(_PUBLICATION_TEMPLATE.root / "repositories/items", "rev-parse", "HEAD"), before)
+        self.assertFalse((other.root / "repositories/items/private.md").exists())
+        release.verify(other.root, other.manifest)
+
     def make_release(self):
         workspace.checkout_lock(self.root, self.project)
         candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
+        self.fixture.candidate = candidate
         self.manifest, _ = release.run(self.root, self.project, candidate)
 
     def run_publish(self):
@@ -448,7 +511,7 @@ class AdapterTests(unittest.TestCase):
                 pass
 
         with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
-            thread = threading.Thread(target=server.serve_forever)
+            thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
             thread.start()
             try:
                 host = github_pages.GitHubPages("fixture")

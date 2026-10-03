@@ -49,7 +49,9 @@ def load_contract(path: Path) -> Contract:
                 if "\\" in pattern or ".." in pattern.split("/") or pattern.startswith("/"):
                     raise ValueError(f"{name}: invalid repository-relative glob: {pattern}")
                 valid = pattern.startswith("tests/") if field == "tests" else (
-                    pattern == "wiki.py" or pattern.startswith(("wikibuild/", "tools/")))
+                    pattern in {"wiki.py", "project.json", "README.md", "AGENTS.md",
+                                "snapshots/README.md", "releases/README.md"}
+                    or pattern.startswith(("wikibuild/", "tools/", "docs/")))
                 if not valid:
                     raise ValueError(f"{name}: {field} glob outside its roots: {pattern}")
         components[name] = Component(name, description, tuple(item["paths"]),
@@ -86,7 +88,9 @@ def repository_files(root: Path) -> list[str]:
 
 
 def in_scope(path: str) -> bool:
-    return path == "wiki.py" or path.startswith(("wikibuild/", "tools/", "tests/"))
+    return path in {"wiki.py", "project.json", "README.md", "AGENTS.md",
+                    "snapshots/README.md", "releases/README.md"} or path.startswith(
+                        ("wikibuild/", "tools/", "tests/", "docs/"))
 
 
 def owners(contract: Contract, path: str) -> list[str]:
@@ -136,6 +140,15 @@ def import_edges(root: Path, files: list[str]) -> set[tuple[str, str]]:
         tree = ast.parse((root / path).read_text(encoding="utf-8-sig"), filename=path)
         module = module_name(path)
         package = module if path.endswith("/__init__.py") else module.rpartition(".")[0]
+        importlib_names = {"importlib"}
+        dynamic_functions = {"__import__"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                importlib_names.update(alias.asname or alias.name for alias in node.names
+                                       if alias.name == "importlib")
+            elif isinstance(node, ast.ImportFrom) and node.module == "importlib":
+                dynamic_functions.update(alias.asname or alias.name for alias in node.names
+                                         if alias.name == "import_module")
 
         def resolve(name):
             if name in modules:
@@ -163,6 +176,18 @@ def import_edges(root: Path, files: list[str]) -> set[tuple[str, str]]:
                     base = node.module or ""
                 # A from-import can select submodules or symbols of its base module.
                 targets = [resolve(base + "." + alias.name) or resolve(base) for alias in node.names]
+            elif isinstance(node, ast.Call) and (
+                    isinstance(node.func, ast.Name) and node.func.id in dynamic_functions
+                    or isinstance(node.func, ast.Attribute) and node.func.attr == "import_module"
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id in importlib_names):
+                argument = node.args[0] if node.args else next(
+                    (keyword.value for keyword in node.keywords if keyword.arg == "name"), None)
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    targets = [resolve(argument.value)]
+                else:
+                    # An unknown name may select the project package. Require an
+                    # explicit exception rather than silently losing its edges.
+                    targets = ["wikibuild.*"]
             for target in targets:
                 if target and target != path:
                     edges.add((path, target))
@@ -196,11 +221,18 @@ def check(root: Path, contract: Contract, files: list[str] | None = None) -> lis
         for pattern in component.tests:
             if not any(fnmatch.fnmatchcase(path, pattern) and (root / path).is_file() for path in files):
                 errors.append(f"{component.name}: test glob matches nothing: {pattern}")
-    violations = undeclared_edges(contract, import_edges(root, [p for p in files if in_scope(p)]))
+    edges = import_edges(root, [p for p in files if in_scope(p)])
+    violations = undeclared_edges(contract, edges)
+    dynamic = {(source, target) for source, target in edges
+               if target == "wikibuild.*"}
+    violations.update(dynamic)
     known = {(v["source"], v["target"]) for v in contract.known_violations}
     for source, target in sorted(violations - known):
-        origin, destination = owners(contract, source)[0], owners(contract, target)[0]
-        errors.append(f"Undeclared import: {source} ({origin}) -> {target} ({destination})")
+        if target == "wikibuild.*":
+            errors.append(f"Non-literal dynamic import: {source} -> {target}; declare a known violation")
+        else:
+            origin, destination = owners(contract, source)[0], owners(contract, target)[0]
+            errors.append(f"Undeclared import: {source} ({origin}) -> {target} ({destination})")
     for source, target in sorted(known - violations):
         errors.append(f"Stale known violation: {source} -> {target}; remove it from components.json")
     return errors

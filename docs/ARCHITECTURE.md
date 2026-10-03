@@ -9,20 +9,20 @@ usually change one or two owners; shared primitives belong below stage orchestra
 | Component | Allowed direct dependencies |
 | --- | --- |
 | storage | None |
-| process | storage |
+| process | storage, test-support |
 | source | storage |
 | extraction | storage, source, test-support |
-| identity | storage, source, extraction |
-| presentation | None |
-| gameplay | storage, source, extraction, identity, presentation |
+| identity | storage, source, extraction, test-support |
+| presentation | test-support |
+| gameplay | storage, source, extraction, identity, presentation, test-support |
 | curation | storage, source, extraction, identity |
-| availability | storage, process |
-| external-links | storage |
-| capacity | storage, extraction, presentation, external-links |
+| availability | storage, process, test-support |
+| external-links | storage, test-support |
+| capacity | storage, extraction, presentation, external-links, test-support |
 | workspace | storage, source, capacity, external-links, test-support |
-| reader | storage, source, extraction, identity, gameplay, curation, presentation, availability, external-links, workspace |
-| release | storage, process, source, extraction, reader, capacity, workspace, external-links, presentation |
-| publication | storage, process, release, capacity, workspace, reader, test-tooling |
+| reader | storage, source, extraction, identity, gameplay, curation, presentation, availability, external-links, workspace, test-support |
+| release | storage, process, source, extraction, reader, capacity, workspace, external-links, presentation, test-support |
+| publication | storage, process, release, capacity, workspace, reader, test-tooling, test-support |
 | cli | All other production components |
 | test-support | None |
 | test-tooling | test-support |
@@ -50,8 +50,9 @@ Cross-component imports require a direct dependency. Existing exceptions are
 specific source/target file pairs with reasons in `known_violations`. A repaired
 or deleted import makes its exception stale and fails the check until that entry
 is removed. New exceptions require review; do not regenerate this inventory to
-silence a failure. Dynamic imports, JavaScript imports and subprocess calls are
-outside the AST check; their integration tests remain necessary.
+silence a failure. Literal dynamic Python imports are checked too; non-literal
+names require an explicit exception. JavaScript imports and subprocess calls
+remain outside the AST check, so their integration tests remain necessary.
 
 ## Running tests
 
@@ -71,29 +72,50 @@ the boundary repairs below land. `--component` runs only the named owners;
 `--all` selects every owner. `--list` prints modules and selection reasons without
 executing; `--list --json` exposes the same plan to CI.
 
-Documentation-only changes select no tests. Changes to `components.json`, either
-test tool, `.github/**`, `requirements*.txt`, or any other unowned/ambiguous path
-select the full suite. Shared fixture changes select their consumers.
+Documentation and `project.json` belong to workspace, whose foundation tests
+read their committed contents and check links, anchors and the repository map.
+Changes to `components.json`, either test tool, `.github/**`, `requirements*.txt`,
+shared fixtures or package initializers select the full suite, as does any
+unowned or ambiguous path. Literal dynamic project imports count as dependency
+edges; imports with unknown names require an explicit known violation.
 
-Each module runs as `python -m unittest <module>` in a separate process. The
+Each module runs unittest in a separate Python process. The
 default concurrency is `os.cpu_count()`; `-j N` overrides it. Passing modules
 produce a short result, failing output is printed in full, and the final table
 sorts per-module wall times. Any failed module makes the command fail.
+`--fail-fast` cancels pending modules after the first failure. Interruption and
+failure-fast termination reap worker trees within five seconds using Windows
+jobs or POSIX process groups before executor shutdown. Worker output goes to a
+temporary file so inherited pipes cannot delay termination.
 
-Each module receives a short private temporary root under `.local/`, via
-`HHWIKI_TEST_ROOT`, `TEMP`, `TMP` and `TMPDIR`. `tests/_support.py` redirects the
-three fixtures that otherwise use checkout-local parents. Other fixtures already
-use random temporary directories and local servers bind ephemeral ports. Bare
-sibling fixture imports remain supported through the worker's `PYTHONPATH`.
-Cleanup uses ordinary removal and reports protected leftovers without overriding
-file protection.
+Tests create directories through `tests/_support.py`'s `fixture_dir(test, label)`,
+which uses `os.mkdir` to inherit the parent's ACL and immediately registers test
+or class cleanup. Tests never write inside the repository. The default root is
+`<tempdir>/hhw`; module workers receive private `<tempdir>/hhw/w<N>` roots through
+`HHWIKI_TEST_ROOT`, `TEMP`, `TMP` and `TMPDIR`. `remove_tree(path)` clears read-only
+attributes and retries Windows sharing violations for up to five seconds;
+cleanup failures fail the test, and the runner removes each worker root after
+its module and fails on leftovers. Release fixtures copy a module-local Git
+template, including `.git`; publication fixtures also copy their initial local
+release. Every test owns a private mutable checkout.
+Release fixtures share stable Git metadata query results until refs, config or
+object directories change, and use a fixture-owned Git batch reader for revision
+lookups. Cached checkout queries also inspect every visible file and the index
+to detect edits, staging and deletions. Mutations and blob reads always execute;
+the local publication host verifies blobs in one Git batch. Tests of later
+releases copy completed release or publication baselines before making changes;
+promotion-failure tests copy a checkpoint stopped after real preparation.
+Paging scenarios use smaller catalogs and force the metadata-page threshold
+independently of the real physical file budget.
+Bare sibling fixture imports remain supported through the worker's `PYTHONPATH`.
 
 CI keeps the workflow name `CI`. Pull requests run the component checker and
 targeted tests against `origin/${{ github.base_ref }}`, with complete checkout
 history. Pushes to `main` and `workflow_dispatch` run the full suite. The Windows
 job runs the process component (`tests.test_bounded`) when a PR selects it and
 always on main or manual dispatch. JavaScript checks invoked by Python test
-modules retain their Node dependency and execution path.
+modules retain their Node dependency and execution path, including the
+`node --test` server contract; its wrapper reports a skip when Node is unavailable.
 
 ## Planned boundary repairs
 

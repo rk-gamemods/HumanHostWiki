@@ -1,28 +1,31 @@
 """Select component tests and run each unittest module in an isolated process."""
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 import fnmatch
 import json
 import os
 from pathlib import Path
 import re
-import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from time import perf_counter
-import uuid
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.check_components import (ROOT, Contract, dependency_errors, git_output,
                                     load_contract, module_name, owners, repository_files)
+from tests._support import remove_tree
 
 
-FULL_SUITE_FILES = {"components.json", "tools/run_tests.py", "tools/check_components.py"}
+FULL_SUITE_FILES = {"components.json", "tools/run_tests.py", "tools/check_components.py",
+                    "tests/__init__.py", "tests/_support.py", "wikibuild/__init__.py",
+                    "wikibuild/adapters/__init__.py"}
 
 
 @dataclass
@@ -38,18 +41,12 @@ def changed_files(root: Path, base: str = "origin/main") -> list[str]:
                       + git_output(root, "ls-files", "--others", "--exclude-standard", "-z")))
 
 
-def docs_only(path: str) -> bool:
-    return path.startswith("docs/") or path.endswith(".md")
-
-
 def select_changed(contract: Contract, files: list[str]) -> Plan:
     selected, explanation, full = {}, [], []
     for path in sorted(set(files)):
         if (path in FULL_SUITE_FILES or path.startswith(".github/")
                 or fnmatch.fnmatchcase(path, "requirements*.txt")):
             full.append(f"shared test/CI configuration changed: {path}")
-        elif docs_only(path):
-            explanation.append(f"documentation only: {path}")
         else:
             matches = owners(contract, path)
             if len(matches) != 1:
@@ -64,6 +61,9 @@ def select_changed(contract: Contract, files: list[str]) -> Plan:
     dependencies = {name: set(c.depends_on) for name, c in contract.components.items()}
     for violation in contract.known_violations:
         origins, destinations = owners(contract, violation["source"]), owners(contract, violation["target"])
+        if len(origins) == 1 and violation["target"] == "wikibuild.*":
+            dependencies[origins[0]].update(name for name, component in contract.components.items()
+                                           if any(path.startswith("wikibuild/") for path in component.paths))
         if len(origins) == len(destinations) == 1:
             dependencies[origins[0]].add(destinations[0])
     frontier = list(selected)
@@ -99,66 +99,224 @@ class Result:
 def worker_environment(root: Path, temporary_root: Path) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(HHWIKI_TEST_ROOT=str(temporary_root), TEMP=str(temporary_root),
-                       TMP=str(temporary_root), TMPDIR=str(temporary_root), PYTHONUNBUFFERED="1")
+                       TMP=str(temporary_root), TMPDIR=str(temporary_root), PYTHONUNBUFFERED="1",
+                       PYTHONDONTWRITEBYTECODE="1")
     # Preserve discovery-era bare imports of sibling fixture modules.
     environment["PYTHONPATH"] = os.pathsep.join(filter(None, (
         str(root), str(root / "tests"), environment.get("PYTHONPATH"))))
     return environment
 
 
-def run_module(root: Path, module: str, temporary_root: Path) -> Result:
+class WindowsJob:
+    """Own a worker's descendants, including children holding inherited pipes."""
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+
+        class Limits(ctypes.Structure):
+            _fields_ = [("process_time", ctypes.c_int64), ("job_time", ctypes.c_int64),
+                        ("flags", wintypes.DWORD), ("minimum", ctypes.c_size_t),
+                        ("maximum", ctypes.c_size_t), ("active", wintypes.DWORD),
+                        ("affinity", ctypes.c_size_t), ("priority", wintypes.DWORD),
+                        ("scheduling", wintypes.DWORD)]
+
+        class Extended(ctypes.Structure):
+            _fields_ = [("basic", Limits), ("io", ctypes.c_uint64 * 6),
+                        ("process_memory", ctypes.c_size_t), ("job_memory", ctypes.c_size_t),
+                        ("peak_process", ctypes.c_size_t), ("peak_job", ctypes.c_size_t)]
+
+        self.api = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.api.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        self.api.CreateJobObjectW.restype = wintypes.HANDLE
+        self.api.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                                    ctypes.c_void_p, wintypes.DWORD]
+        self.api.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        self.api.CloseHandle.argtypes = [wintypes.HANDLE]
+        self.handle = self.api.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        limits = Extended()
+        limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not self.api.SetInformationJobObject(self.handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+            error = ctypes.WinError(ctypes.get_last_error())
+            self.close()
+            raise error
+
+    def assign(self, process):
+        if not self.api.AssignProcessToJobObject(self.handle, int(process._handle)):
+            import ctypes
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def close(self):
+        if self.handle:
+            self.api.CloseHandle(self.handle)
+            self.handle = None
+
+
+class Workers:
+    """Serialize launch/cancel so no child can escape an interrupted executor."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.stopped = False
+        self.active = {}
+
+    def start(self, command, **kwargs):
+        with self.lock:
+            if self.stopped:
+                raise OSError("Worker cancelled before launch")
+            job = WindowsJob() if os.name == "nt" else None
+            process = None
+            try:
+                if job:
+                    # Wait for assignment before executing any test code that
+                    # could spawn a child. POSIX setsid happens before exec.
+                    module = command[-1]
+                    command = [sys.executable, "-c", "import runpy,sys; sys.stdin.buffer.read(1); "
+                               "sys.argv[0]='unittest'; runpy.run_module('unittest',run_name='__main__')", module]
+                    kwargs["stdin"] = subprocess.PIPE
+                process = subprocess.Popen(command, start_new_session=os.name != "nt", **kwargs)
+                if job:
+                    job.assign(process)
+                    process.stdin.write(b"\n")
+                    process.stdin.close()
+            except BaseException:
+                if process:
+                    process.kill()
+                    process.wait(timeout=5)
+                if job:
+                    job.close()
+                raise
+            self.active[process] = job
+            return process
+
+    def finish(self, process):
+        with self.lock:
+            if process not in self.active:
+                return
+            job = self.active.pop(process)
+            if job:
+                job.close()
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        process.wait(timeout=5)
+
+    def cancel(self):
+        with self.lock:
+            self.stopped = True
+            processes = list(self.active)
+            for process, job in self.active.items():
+                if job:
+                    job.close()
+                else:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            self.active.clear()
+        deadline = perf_counter() + 5
+        for process in processes:
+            process.wait(timeout=max(0.01, deadline - perf_counter()))
+
+
+def run_module(root: Path, module: str, temporary_root: Path, children: Workers | None = None) -> Result:
     started = perf_counter()
+    children = children or Workers()
+    process = None
     try:
-        process = subprocess.run([sys.executable, "-m", "unittest", module], cwd=root,
-                                 env=worker_environment(root, temporary_root),
-                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                 text=True, encoding="utf-8", errors="replace")
-        output = process.stdout
+        log = temporary_root / ".worker-output"
+        # A file keeps inherited pipe handles and large output from blocking shutdown.
+        with log.open("wb") as stream:
+            process = children.start([sys.executable, "-m", "unittest", module], cwd=root,
+                                     env=worker_environment(root, temporary_root),
+                                     stdout=stream, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            try:
+                process.wait()
+            finally:
+                children.finish(process)
+        output = log.read_text(encoding="utf-8", errors="replace")
         count = re.search(r"Ran (\d+) tests? in", output)
         skipped = re.search(r"OK \(skipped=(\d+)\)", output)
-        return Result(module, perf_counter() - started, process.returncode, output,
-                      int(count[1]) if count else 0, int(skipped[1]) if skipped else 0)
-    except OSError as error:
-        return Result(module, perf_counter() - started, 1, str(error), 0, 0)
+        result = Result(module, 0, process.returncode, output,
+                        int(count[1]) if count else 0, int(skipped[1]) if skipped else 0)
+    except (OSError, subprocess.SubprocessError) as error:
+        result = Result(module, 0, 1, str(error), 0, 0)
+    finally:
+        try:
+            remove_tree(temporary_root)
+        except OSError as error:
+            # Preserve unittest output and make worker cleanup part of its result.
+            cleanup_error = str(error)
+        else:
+            cleanup_error = None
+    if cleanup_error:
+        result.returncode = 1
+        result.output += f"\nWorker cleanup failed: {cleanup_error}\n"
+    result.seconds = perf_counter() - started
+    return result
 
 
-def execute(root: Path, modules: list[str], workers: int) -> int:
+def execute(root: Path, modules: list[str], workers: int, fail_fast: bool = False) -> int:
     started = perf_counter()
     results = []
     if not modules:
         print("No tests selected.")
         return 0
-    parent = root / ".local"
+    parent = Path(tempfile.gettempdir()) / "hhw"
     parent.mkdir(parents=True, exist_ok=True)
-    while True:
-        run_root = parent / uuid.uuid4().hex[:4]
-        try:
-            run_root.mkdir()
-            break
-        except FileExistsError:
-            continue
-    run_root = run_root.resolve()
+    temporary_roots = []
+    index = 0
+    children = Workers()
+    pool = ThreadPoolExecutor(max_workers=workers)
+    pending = {}
+    interrupted = False
     try:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            pending = {}
-            for index, module in enumerate(modules):
-                # Keep paths short: release fixtures contain long immutable hashes.
-                temporary_root = run_root / format(index, "x")
-                temporary_root.mkdir()
-                pending[pool.submit(run_module, root, module, temporary_root)] = module
-            for future in as_completed(pending):
-                result = future.result()
-                results.append(result)
-                state = "PASS" if result.returncode == 0 else "FAIL"
-                print(f"{state} {result.module}: {result.tests} tests, "
-                      f"{result.skipped} skipped, {result.seconds:.3f}s", flush=True)
-                if result.returncode:
-                    print(result.output, end="" if result.output.endswith("\n") else "\n", flush=True)
-    finally:
         try:
-            shutil.rmtree(run_root)
-        except OSError as error:
-            print(f"Retained test temporary root {run_root}: {error}", file=sys.stderr)
+            for module in modules:
+                # Keep paths short: release fixtures contain long immutable hashes.
+                while True:
+                    temporary_root = parent / f"w{index}"
+                    index += 1
+                    try:
+                        os.mkdir(temporary_root)
+                        break
+                    except FileExistsError:
+                        continue  # Never overwrite another invocation's root.
+                temporary_roots.append(temporary_root)
+                pending[pool.submit(run_module, root, module, temporary_root, children)] = module
+            remaining = set(pending)
+            while remaining:
+                completed, remaining = wait(remaining, timeout=0.1, return_when=FIRST_COMPLETED)
+                for future in completed:
+                    result = future.result()
+                    results.append(result)
+                    state = "PASS" if result.returncode == 0 else "FAIL"
+                    print(f"{state} {result.module}: {result.tests} tests, "
+                          f"{result.skipped} skipped, {result.seconds:.3f}s", flush=True)
+                    if result.returncode:
+                        print(result.output, end="" if result.output.endswith("\n") else "\n", flush=True)
+                        if fail_fast:
+                            remaining.clear()
+                            break
+        except KeyboardInterrupt:
+            interrupted = True
+            print("Interrupted; terminating test workers.", file=sys.stderr, flush=True)
+    finally:
+        for future in pending:
+            future.cancel()
+        children.cancel()
+        pool.shutdown(wait=True, cancel_futures=True)
+        for temporary_root in temporary_roots:
+            if temporary_root.exists():
+                try:
+                    remove_tree(temporary_root)
+                except OSError as error:
+                    print(f"Worker cleanup failed: {error}", file=sys.stderr)
+    leftovers = sorted(parent.iterdir())
+    for path in leftovers:
+        print(f"Leftover test fixture: {path}", file=sys.stderr)
     print("\nModule durations (slowest first):")
     for result in sorted(results, key=lambda item: (-item.seconds, item.module)):
         print(f"{result.seconds:9.3f}s  {result.module}  {'FAIL' if result.returncode else 'PASS'}")
@@ -166,7 +324,7 @@ def execute(root: Path, modules: list[str], workers: int) -> int:
     print(f"Summary: {len(results)} modules, {sum(r.tests for r in results)} tests, "
           f"{sum(r.skipped for r in results)} skipped, {failures} failed modules; "
           f"wall {perf_counter() - started:.3f}s with {workers} workers")
-    return 1 if failures else 0
+    return 130 if interrupted else 1 if failures or leftovers else 0
 
 
 def main(argv=None):
@@ -178,6 +336,7 @@ def main(argv=None):
     parser.add_argument("--list", action="store_true", help="print selection and reasons without running")
     parser.add_argument("--json", action="store_true", help="machine-readable plan; requires --list")
     parser.add_argument("-j", type=int, default=os.cpu_count() or 1, metavar="N")
+    parser.add_argument("--fail-fast", action="store_true", help="stop and terminate workers on the first failed module")
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args(argv)
     if args.j < 1:
@@ -217,7 +376,7 @@ def main(argv=None):
         if args.list:
             for module in modules:
                 print(f"  {module}")
-    return 0 if args.list else execute(root, modules, args.j)
+    return 0 if args.list else execute(root, modules, args.j, args.fail_fast)
 
 
 if __name__ == "__main__":

@@ -4,12 +4,11 @@ import copy
 import hashlib
 import json
 from pathlib import Path
-import shutil
-import tempfile
 import unittest
 from unittest.mock import patch
 
-from tests._support import fixture_parent
+from tests._support import fixture_dir
+
 from wikibuild import extraction, snapshots
 from wikibuild.adapters import items_loot
 from wikibuild.exceptions import Exceptions
@@ -25,8 +24,7 @@ PROJECT.pop("external_articles", None)  # Article integration tests inject their
 
 class ExtractionTests(unittest.TestCase):
     def setUp(self):
-        self.parent = fixture_parent("test-extraction")
-        self.work = Path(tempfile.mkdtemp(dir=self.parent))
+        self.work = fixture_dir(self, "extract")
         self.wiki = self.work / "wiki"
         self.source = self.work / "source"
         self.wiki.mkdir()
@@ -64,12 +62,6 @@ class ExtractionTests(unittest.TestCase):
             {"id": "fixture.assets#999", "type": "Texture2D", "class": None},
         ])
         self.commit()
-
-    def tearDown(self):
-        try:
-            shutil.rmtree(self.work)
-        except PermissionError:
-            print(f"Retained protected test fixture: {self.work}")
 
     def put(self, path, data):
         target = self.source / path

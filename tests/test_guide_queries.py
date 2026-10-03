@@ -7,9 +7,10 @@ import io
 import json
 from pathlib import Path
 import random
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from tests._support import fixture_dir
 
 from tools import render_guides
 from wikibuild import guide_queries as queries
@@ -891,8 +892,8 @@ class RenderGuidesToolTests(unittest.TestCase):
     def test_report_lists_distinct_unmatched_source_families(self):
         ctx = context(fixture() + [harvest_source("duct-1", "Terra_Block_01", "wood"),
                                    harvest_source("duct-2", "Terra_Block_02", "wood")])
-        with tempfile.TemporaryDirectory() as directory, \
-                patch.object(render_guides, "load_context", return_value=ctx), redirect_stdout(io.StringIO()) as output:
+        directory = str(fixture_dir(self, "guide_qu"))
+        with patch.object(render_guides, "load_context", return_value=ctx), redirect_stdout(io.StringIO()) as output:
             self.assertEqual(render_guides.main(["--out", directory, "--guides", "getting-started"]), 0)
         self.assertIn("Other scenery sources: 2\n", output.getvalue())
         self.assertIn('Other scenery families: ["terra block"]\n', output.getvalue())
@@ -904,41 +905,41 @@ class RenderGuidesToolTests(unittest.TestCase):
         self.assertEqual(receipt["other_scenery"], ["terra block"])
 
     def test_default_selection_files_repeat_bytes_and_explicit_selection(self):
-        with tempfile.TemporaryDirectory() as directory:
-            out = Path(directory) / "guides"
-            with patch.object(render_guides, "load_context", return_value=context(weapon_fixture())), redirect_stdout(io.StringIO()):
-                self.assertEqual(render_guides.main(["--out", str(out)]), 0)
-                first = {path.name: path.read_bytes() for path in out.iterdir()}
-                self.assertEqual(set(first), {guide + ext for guide in GUIDES for ext in (".json", ".md")})
-                self.assertEqual(render_guides.main(["--out", str(out), "--guides", ",".join(GUIDES)]), 0)
-                self.assertEqual({path.name: path.read_bytes() for path in out.iterdir()}, first)
+        directory = str(fixture_dir(self, "guide_qu"))
+        out = Path(directory) / "guides"
+        with patch.object(render_guides, "load_context", return_value=context(weapon_fixture())), redirect_stdout(io.StringIO()):
+            self.assertEqual(render_guides.main(["--out", str(out)]), 0)
+            first = {path.name: path.read_bytes() for path in out.iterdir()}
+            self.assertEqual(set(first), {guide + ext for guide in GUIDES for ext in (".json", ".md")})
+            self.assertEqual(render_guides.main(["--out", str(out), "--guides", ",".join(GUIDES)]), 0)
+            self.assertEqual({path.name: path.read_bytes() for path in out.iterdir()}, first)
 
     def test_render_failure_does_not_promote_partial_output(self):
-        with tempfile.TemporaryDirectory() as directory:
-            out = Path(directory) / "guides"
-            out.mkdir()
-            previous = out / "getting-started.md"
-            previous.write_bytes(b"previous reviewed output\n")
-            ctx = context(weapon_fixture())
-            with patch.object(render_guides, "load_context", return_value=ctx), \
-                    patch.dict(queries.QUERIES, {"ring.span": lambda context, scope: {}}):
-                with self.assertRaises(GuideError):
-                    render_guides.main(["--out", str(out)])
-            self.assertEqual(list(out.iterdir()), [previous])
-            self.assertEqual(previous.read_bytes(), b"previous reviewed output\n")
+        directory = str(fixture_dir(self, "guide_qu"))
+        out = Path(directory) / "guides"
+        out.mkdir()
+        previous = out / "getting-started.md"
+        previous.write_bytes(b"previous reviewed output\n")
+        ctx = context(weapon_fixture())
+        with patch.object(render_guides, "load_context", return_value=ctx), \
+                patch.dict(queries.QUERIES, {"ring.span": lambda context, scope: {}}):
+            with self.assertRaises(GuideError):
+                render_guides.main(["--out", str(out)])
+        self.assertEqual(list(out.iterdir()), [previous])
+        self.assertEqual(previous.read_bytes(), b"previous reviewed output\n")
 
     def test_jargon_fails_and_reports_the_actual_visible_string(self):
         ctx = context()
         ctx["names"][key("wood")]["name"] = "Wood_Internal"
-        with tempfile.TemporaryDirectory() as directory, \
-                patch.object(render_guides, "load_context", return_value=ctx), redirect_stdout(io.StringIO()) as output:
+        directory = str(fixture_dir(self, "guide_qu"))
+        with patch.object(render_guides, "load_context", return_value=ctx), redirect_stdout(io.StringIO()) as output:
             self.assertEqual(render_guides.main(["--out", directory, "--guides", "getting-started"]), 1)
         self.assertIn('"match": "Wood_Internal"', output.getvalue())
 
     def test_unsupported_selection_fails_before_read_or_write(self):
         for selection in ("unknown", "getting-started,getting-started"):
-            with tempfile.TemporaryDirectory() as directory, \
-                    patch.object(render_guides, "load_context") as loader, redirect_stderr(io.StringIO()):
+            directory = str(fixture_dir(self, "guide_qu"))
+            with patch.object(render_guides, "load_context") as loader, redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     render_guides.main(["--out", directory, "--guides", selection])
                 loader.assert_not_called()

@@ -6,9 +6,10 @@ from email.message import Message
 import io
 import json
 from pathlib import Path
-import tempfile
 import unittest
 from unittest.mock import Mock, patch
+
+from tests._support import fixture_dir
 
 from wikibuild import external_links, mediawiki
 from wikibuild.storage import ContractError, digest, json_bytes, writer_lock
@@ -46,9 +47,7 @@ class Provider:
 
 class ExternalLinkTests(unittest.TestCase):
     def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = fixture_dir(self, "external")
         self.source = deepcopy(SOURCE)
         self.now = datetime(2026, 9, 27, 12, tzinfo=timezone.utc)
         self.provider = Provider(page(1, "Axe"), page(2, "Empty", "== Empty ==\nComing soon."))

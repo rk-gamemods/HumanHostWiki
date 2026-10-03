@@ -27,7 +27,8 @@
         "tests/test_bounded.py"
       ],
       "depends_on": [
-        "storage"
+        "storage",
+        "test-support"
       ]
     },
     {
@@ -94,7 +95,8 @@
       "depends_on": [
         "storage",
         "source",
-        "extraction"
+        "extraction",
+        "test-support"
       ]
     },
     {
@@ -113,9 +115,12 @@
         "tests/test_lint.py",
         "tests/test_audit_readability.py",
         "tests/reader_*.test.js",
-        "tests/site_server.test.js"
+        "tests/site_server.test.js",
+        "tests/test_site_server.py"
       ],
-      "depends_on": []
+      "depends_on": [
+        "test-support"
+      ]
     },
     {
       "name": "gameplay",
@@ -142,7 +147,8 @@
         "source",
         "extraction",
         "identity",
-        "presentation"
+        "presentation",
+        "test-support"
       ]
     },
     {
@@ -175,7 +181,8 @@
       ],
       "depends_on": [
         "storage",
-        "process"
+        "process",
+        "test-support"
       ]
     },
     {
@@ -193,7 +200,8 @@
         "tests/test_external_integration.py"
       ],
       "depends_on": [
-        "storage"
+        "storage",
+        "test-support"
       ]
     },
     {
@@ -219,7 +227,8 @@
         "storage",
         "extraction",
         "presentation",
-        "external-links"
+        "external-links",
+        "test-support"
       ]
     },
     {
@@ -228,7 +237,13 @@
       "paths": [
         "wikibuild/workspace.py",
         "wikibuild/manifest.py",
-        "wikibuild/navigation.py"
+        "wikibuild/navigation.py",
+        "docs/**",
+        "README.md",
+        "AGENTS.md",
+        "snapshots/README.md",
+        "releases/README.md",
+        "project.json"
       ],
       "tests": [
         "tests/test_foundation.py"
@@ -266,7 +281,8 @@
         "presentation",
         "availability",
         "external-links",
-        "workspace"
+        "workspace",
+        "test-support"
       ]
     },
     {
@@ -294,7 +310,8 @@
         "capacity",
         "workspace",
         "external-links",
-        "presentation"
+        "presentation",
+        "test-support"
       ]
     },
     {
@@ -316,7 +333,8 @@
         "capacity",
         "workspace",
         "reader",
-        "test-tooling"
+        "test-tooling",
+        "test-support"
       ]
     },
     {

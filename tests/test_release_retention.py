@@ -3,11 +3,11 @@
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from tests._support import fixture_dir
 
 from wikibuild import release_retention
 from wikibuild.storage import digest, git, json_bytes
@@ -15,8 +15,7 @@ from wikibuild.storage import digest, git, json_bytes
 
 class RetentionTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp())
-        self.addCleanup(self.cleanup)
+        self.root = fixture_dir(self, "release")
         self.repo = self.root / "repositories/topic"
         self.repo.mkdir(parents=True)
         git(self.repo, "init", "-q")
@@ -49,12 +48,6 @@ class RetentionTests(unittest.TestCase):
         self.pending = self.root / ".local/releases/pending.json"
         self.pending.parent.mkdir(parents=True)
         self.pending.write_bytes(json_bytes({"stage": self.plan["stage"], "complete": True}))
-
-    def cleanup(self):
-        try:
-            shutil.rmtree(self.root)
-        except PermissionError:
-            print(f"Retained protected retention fixture: {self.root}")
 
     def save_plan(self):
         (self.stage / "plan.json").write_bytes(json_bytes(self.plan))
