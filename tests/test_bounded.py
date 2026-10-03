@@ -319,6 +319,74 @@ class BoundedRunTests(unittest.TestCase):
                     self.assertTrue(all(process.poll() is not None for process in processes))
 
 
+@unittest.skipIf(os.name == "nt", "Windows waits for the job object instead of the process group")
+class ProcessGroupExitTests(unittest.TestCase):
+    def start_group(self):
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], start_new_session=True)
+        self.addCleanup(lambda: (process.poll() is None and process.kill(), process.wait(timeout=10)))
+        return process
+
+    def test_live_group_holds_cleanup_until_its_deadline(self):
+        process = self.start_group()
+        self.assertFalse(bounded._group_exited(process.pid))
+        with self.assertRaises(subprocess.TimeoutExpired):
+            bounded._wait_group(process.pid, time.monotonic() + 0.2)
+
+    def test_unreaped_member_keeps_the_group_open_until_reaped(self):
+        process = self.start_group()
+        os.killpg(process.pid, signal.SIGKILL)
+        # WNOWAIT confirms the exit while leaving the child unreaped.
+        deadline = time.monotonic() + 10
+        while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is None:
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(0.01)
+        # Without positive proof from the OS, cleanup stays unresolved.
+        self.assertFalse(bounded._group_exited(process.pid))
+        process.wait(timeout=10)
+        bounded._wait_group(process.pid, time.monotonic() + 5)
+
+    def start_owned(self):
+        process = bounded.start([sys.executable, "-c", "import time; time.sleep(120)"], stdout=subprocess.DEVNULL)
+        self.addCleanup(bounded.kill_tree, process)
+        return process
+
+    def test_kill_tree_waits_until_the_group_is_reported_empty(self):
+        process = self.start_owned()
+        with patch.object(bounded, "_group_exited", side_effect=[False, False, True]) as observed:
+            bounded.kill_tree(process)
+        self.assertEqual(observed.call_count, 3)
+        self.assertNotIn(process._wiki_owned, bounded._children)
+
+    def test_group_that_outlives_the_reap_budget_stays_owned(self):
+        process = self.start_owned()
+        with patch.object(bounded, "REAP_SECONDS", 0.3), \
+                patch.object(bounded, "_group_exited", return_value=False) as observed:
+            with self.assertRaises(subprocess.TimeoutExpired) as raised:
+                bounded.kill_tree(process)
+        # The group wait, not the parent wait, spent the budget.
+        self.assertTrue(observed.called)
+        self.assertIn("process group", str(raised.exception.cmd))
+        self.assertIn(process._wiki_owned, bounded._children)
+        self.assertEqual(process._wiki_owned.state, "unresolved")
+
+    def test_kill_tree_returns_after_the_whole_group_exits(self):
+        folder = fixture_dir(self, "bounded")
+        pids = Path(folder) / "pids.txt"
+        process = bounded.start([sys.executable, "-c", HOLDS_PIPE, str(pids)], cwd=folder,
+                                stdout=subprocess.DEVNULL)
+        self.addCleanup(bounded.kill_tree, process)
+        try:
+            deadline = time.monotonic() + 30
+            while not (pids.exists() and len(pids.read_text().splitlines()) == 2):
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+            bounded.kill_tree(process)
+            self.assertTrue(bounded._group_exited(process.pid))
+            self.assertTrue(all(not alive(pid) for pid in map(int, pids.read_text().splitlines())))
+        finally:
+            stop_recorded(pids)
+
+
 class UpdateDeadlineTests(unittest.TestCase):
     def test_held_recorder_lock_cannot_block_timeout_exit(self):
         for main_returns in (False, True):
@@ -339,7 +407,8 @@ class UpdateDeadlineTests(unittest.TestCase):
                 started = time.monotonic()
                 code, _, errors = self.harness(script, cwd=folder)
                 self.assertEqual(code, 124, errors.decode(errors="replace"))
-                self.assertLess(time.monotonic() - started, 3)
+                # The blocked path sleeps 120 s; 10 s proves the exit without timing a loaded runner.
+                self.assertLess(time.monotonic() - started, 10)
                 self.assertIn(b"recorder lock", errors)
                 self.assertIn(b"timing could not be recorded", errors)
                 self.assertIn(b"exceeded its", errors)

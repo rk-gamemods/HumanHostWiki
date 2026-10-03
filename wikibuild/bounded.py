@@ -134,6 +134,30 @@ def _terminate_suspended(process):
             pass
 
 
+def _group_exited(group):
+    """True only when the OS reports the POSIX group empty.
+
+    The caller has already reaped the direct child, and PID 1 reaps orphaned
+    descendants, so any member the OS still reports means cleanup is unresolved.
+    This needs a working orphan reaper: a container without one (for example
+    Docker without --init) leaves zombie members, and cleanup reports them as
+    unresolved at the deadline.
+    """
+    try:
+        os.killpg(group, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def _wait_group(group, expires):
+    """killpg only sends the signal, so wait for the group's members to exit."""
+    while not _group_exited(group):
+        if time.monotonic() >= expires:
+            raise subprocess.TimeoutExpired(f"process group {group}", REAP_SECONDS)
+        time.sleep(0.02)
+
+
 def _finish_tree(owned, expires):
     """Keep an unresolved job open until both parent and tree exit are confirmed."""
     process = owned.process
@@ -144,6 +168,8 @@ def _finish_tree(owned, expires):
             else:
                 _terminate_suspended(process)
             process.wait(timeout=max(0.0, expires - time.monotonic()))
+            if os.name != "nt":
+                _wait_group(process.pid, expires)
         if owned.job is not None:
             owned.job.wait(expires)
             owned.job.close()
@@ -242,8 +268,9 @@ def _kill_owned(owned):
 def kill_tree(process):
     """Terminate the owned tree even after parent exit, then reap within 30s.
 
-    Concurrent cleanup is idempotent. POSIX orphans are reaped by the OS;
-    the caller reaps its direct child. Descendants that leave the group escape it.
+    Concurrent cleanup is idempotent. On POSIX it returns only after every
+    group member has exited; the OS reaps orphans. Descendants that leave the
+    group escape it.
     """
     _kill_owned(process._wiki_owned)
 
