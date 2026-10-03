@@ -108,7 +108,7 @@ def rehearse(root, project, manifest, progress=print):
                 for name, branch in sorted(destinations):
                     host.ref(name, branch)
                 # Only this read-only simulator uses the engine without the production gate.
-                timing = {"repositories": {}, "rollback": {}, "phases": {}, "prepare": 0.0, "resume": 0.0}
+                timing = publication.new_timing()
                 refs = [{"repository": name, "branch": branch, "commit": sha}
                         for (name, branch), sha in sorted(host.observed.items())]
                 result, _ = publication._run(root, project, manifest, host, progress, timing,

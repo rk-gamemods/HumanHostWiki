@@ -49,6 +49,11 @@ class RehearsalTests(unittest.TestCase):
 
         def simulate(root, project, manifest, host, progress, timing, gate):
             self.assertEqual(len(gate["rehearsal"]["remote_refs"]), 2)
+            # The already-published path takes the shared timing lock.
+            with timing.lock:
+                timing["repositories"]["hub"] = publication.repository_timing(timing.lock)
+            with publication.measure(timing["phases"], "current"):
+                pass
             publication.save(pending, {"phase": "simulated"})
             publication.save(root / "publications/latest.json", {"release_id": manifest["release_id"]})
             host.simulated[("Wiki-hub", "main")] = "d" * 40
