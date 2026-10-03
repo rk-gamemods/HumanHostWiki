@@ -548,6 +548,37 @@ def external_views(stage, project, observation, runs, limit, output):
     return views
 
 
+def validate_bases(project, bases):
+    bases = bases or {repo["id"]: f"/{repo['id']}/" for repo in project["repositories"]}
+    if set(bases) != {repo["id"] for repo in project["repositories"]} or any(not base.endswith("/") for base in bases.values()):
+        raise ContractError("Reader bases must name every topic with a trailing slash")
+    for base in bases.values():
+        parsed = urlsplit(base)
+        if parsed.query or parsed.fragment or parsed.username or parsed.password or ".." in parsed.path.split("/") or not (
+                (parsed.scheme == "https" and parsed.netloc) or (not parsed.scheme and not parsed.netloc and base.startswith("/"))):
+            raise ContractError("Reader base must be an HTTPS site or absolute local URL path")
+    return bases
+
+
+def inputs_changed(root, project, inputs, registry_path, hub_digests):
+    return (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
+            or digest(registry_path.read_bytes()) != inputs["presentation"]
+            or hub_inputs(root)[1] != hub_digests
+            or external_links.configured(root, project) != inputs["external_articles"])
+
+
+def project_fonts(web, bases, output):
+    font_files = {file.name: (file.read_bytes() if file.suffix == ".woff2" else
+                             file.read_bytes().replace(b"\r\n", b"\n"))
+                  for file in sorted((web / "fonts").iterdir()) if file.is_file()}
+    font_metadata = {name: {"sha256": digest(data), "bytes": len(data)} for name, data in font_files.items()}
+    font_path = "fonts/" + digest(json_bytes(font_metadata)) + "/"
+    fonts = {"base": bases["hub"] + font_path, "files": font_metadata}
+    for name, data in font_files.items():
+        output("hub/" + font_path + name, data)
+    return fonts
+
+
 def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=None, cache_root=None, source=None):
     """Caller holds writer_lock. This writes staging only, not child repositories."""
     runs = versions(root) if runs is None else runs
@@ -557,14 +588,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     checked, check_metrics = curation.run(root, project, source, runs)
     curated = {"run_id": checked["run_id"] if checked else None, "metrics": check_metrics,
                "exceptions": checked["exceptions"] if checked else Exceptions().report()}
-    bases = bases or {repo["id"]: f"/{repo['id']}/" for repo in project["repositories"]}
-    if set(bases) != {repo["id"] for repo in project["repositories"]} or any(not base.endswith("/") for base in bases.values()):
-        raise ContractError("Reader bases must name every topic with a trailing slash")
-    for base in bases.values():
-        parsed = urlsplit(base)
-        if parsed.query or parsed.fragment or parsed.username or parsed.password or ".." in parsed.path.split("/") or not (
-                (parsed.scheme == "https" and parsed.netloc) or (not parsed.scheme and not parsed.netloc and base.startswith("/"))):
-            raise ContractError("Reader base must be an HTTPS site or absolute local URL path")
+    bases = validate_bases(project, bases)
     registry_path = root / "presentation/fields.json"
     registry_digest = digest(registry_path.read_bytes())
     registry = presentation.load(registry_path)
@@ -660,10 +684,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                         "total_bytes": sum(record["bytes"] for record in files.values())}
             write_changed(stage / "candidate.json", json_bytes(manifest))
             verify(stage, candidate_id)
-            if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
-                    or digest(registry_path.read_bytes()) != inputs["presentation"]
-                    or hub_inputs(root)[1] != hub_digests
-                    or external_links.configured(root, project) != inputs["external_articles"]):
+            if inputs_changed(root, project, inputs, registry_path, hub_digests):
                 raise ContractError("Reader inputs changed during observation projection")
             curation.ensure_definitions(root, project, checked)
             os.rename(stage, destination)
@@ -690,14 +711,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
         projected = [projected[run["snapshot_id"]] for run in runs]
         views = external_views(stage, project, inputs["external_articles"], runs, max_pack_bytes, output)
         web = Path(__file__).parent / "web"
-        font_files = {file.name: (file.read_bytes() if file.suffix == ".woff2" else
-                                 file.read_bytes().replace(b"\r\n", b"\n"))
-                      for file in sorted((web / "fonts").iterdir()) if file.is_file()}
-        font_metadata = {name: {"sha256": digest(data), "bytes": len(data)} for name, data in font_files.items()}
-        font_path = "fonts/" + digest(json_bytes(font_metadata)) + "/"
-        fonts = {"base": bases["hub"] + font_path, "files": font_metadata}
-        for name, data in font_files.items():
-            output("hub/" + font_path + name, data)
+        fonts = project_fonts(web, bases, output)
         topics = [{"id": repo["id"], "title": repo["title"], "base": bases[repo["id"]], "coverage": repo["coverage"]}
                   for repo in project["repositories"]]
         for repo in project["repositories"]:
@@ -740,10 +754,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                     "status": "validated-reader-candidate", "wiki_release": "not-created"}
         write_changed(stage / "candidate.json", json_bytes(manifest))
         verify(stage, candidate_id)
-        if (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
-                or digest(registry_path.read_bytes()) != inputs["presentation"]
-                or hub_inputs(root)[1] != hub_digests
-                or external_links.configured(root, project) != inputs["external_articles"]):
+        if inputs_changed(root, project, inputs, registry_path, hub_digests):
             raise ContractError("Reader inputs changed during generation")
         curation.ensure_definitions(root, project, checked)
         destination.parent.mkdir(parents=True, exist_ok=True)

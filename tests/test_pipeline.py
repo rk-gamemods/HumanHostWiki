@@ -47,6 +47,39 @@ class PipelineTests(unittest.TestCase):
         self.fixture.put(items_loot.INPUTS[0], [self.fixture.item])
         self.fixture.commit()
 
+    def test_rule_change_during_run_is_reread_at_verify_and_preserves_success(self):
+        first = self.run_pipeline()
+        pointer = self.latest().read_bytes()
+        self.modify(_Weight=8)
+        original = pipeline.release_retention.contract()
+        pipeline.release.run.reset_mock()
+
+        with patch.object(pipeline.release_retention, "contract", return_value=original) as rules:
+            def change_rule(stage):
+                if stage == "verify":
+                    rules.return_value = {"fixture_rule": "changed"}
+
+            with self.assertRaises(ContractError) as raised:
+                pipeline.run(self.root, test_extraction.PROJECT, self.source, progress=change_rule)
+            self.assertEqual(rules.call_count, 2)
+
+        self.assertEqual(str(raised.exception.__cause__), "Pipeline rules changed during processing")
+        self.assertTrue(str(raised.exception).startswith("Wiki stage verify failed: Pipeline rules changed during processing. Failure report: "))
+        self.assertEqual(self.latest().read_bytes(), pointer)
+        pipeline.release.run.assert_not_called()
+        failure = json.loads(next((self.root / ".local/pipeline/failures").glob("*.json")).read_text())
+        self.assertEqual(failure["failed_stage"], "verify")
+        self.assertEqual(failure["error"]["type"], "ContractError")
+        self.assertEqual(failure["error"]["message"], "Pipeline rules changed during processing")
+        self.assertEqual(set(failure["completed"]), {"register", "normalize", "identity", "project"})
+        request = json.loads((self.root / f".local/pipeline/requests/{failure['request_key']}.json").read_text())
+        self.assertEqual(request["previous_run"], first["run_id"])
+        retried = self.run_pipeline()
+        result = pipeline.read(self.root, retried["run_id"])
+        self.assertEqual(result["request_key"], failure["request_key"])
+        self.assertEqual(result["previous_run"], first["run_id"])
+        self.assertEqual(result["contracts"]["retention"], original)
+
     def test_timings_are_append_only_and_do_not_change_run_or_request_identity(self):
         first = self.run_pipeline()
         stages = {"register", "availability", "external-articles", "normalize", "identity", "project",

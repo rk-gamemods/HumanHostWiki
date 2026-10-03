@@ -50,6 +50,15 @@ def report(reports, previous=None):
             if groups else "No unresolved content in the implemented scope."}
 
 
+def contracts(root, project):
+    return {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
+            "availability": availability.contract(), "retention": release_retention.contract(),
+            "reader_retention": reader_retention.contract(),
+            "external_articles": external_links.contract(),
+            "extraction": extraction.contract(root, project), "identity": history.contract(),
+            "reader": reader.contract(), "release": release.contract()}
+
+
 def run(root, project, source, progress=None, timing_sink=None):
     """Caller holds writer_lock. Stage receipts survive a later stage's failure."""
     started = datetime.now(timezone.utc)
@@ -90,15 +99,10 @@ def run(root, project, source, progress=None, timing_sink=None):
             articles, metrics[stage] = external_links.refresh(root, article_options["source"], progress,
                 cache_seconds=article_options["cache_seconds"], retry_seconds=article_options["retry_seconds"])
             completed[stage] = {"observation_id": digest(json_bytes(articles)), **external_links.summary(articles)}
-        contracts = {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
-                     "availability": availability.contract(), "retention": release_retention.contract(),
-                     "reader_retention": reader_retention.contract(),
-                     "external_articles": external_links.contract(),
-                     "extraction": extraction.contract(root, project), "identity": history.contract(),
-                     "reader": reader.contract(), "release": release.contract()}
+        pinned_contracts = contracts(root, project)
         reviewed = history.corrections(root)
         authored = curation.definition_inputs(curation.definitions(root, project))
-        request_key = digest(json_bytes([receipt, project, contracts, reviewed, observed, articles, authored]))
+        request_key = digest(json_bytes([receipt, project, pinned_contracts, reviewed, observed, articles, authored]))
         request_path = within(root, f".local/pipeline/requests/{request_key}.json")
         if request_path.exists():
             request = json.loads(request_path.read_text(encoding="utf-8"))
@@ -145,12 +149,7 @@ def run(root, project, source, progress=None, timing_sink=None):
         # Each stage validates its own artifacts, including when reusing them.
         # These final checks establish the common input, not gameplay verification.
         extraction.ensure_source(source, receipt["source_commit"])
-        if contracts != {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
-                         "availability": availability.contract(), "retention": release_retention.contract(),
-                         "reader_retention": reader_retention.contract(),
-                         "external_articles": external_links.contract(),
-                         "extraction": extraction.contract(root, project), "identity": history.contract(),
-                         "reader": reader.contract(), "release": release.contract()}:
+        if pinned_contracts != contracts(root, project):
             raise ContractError("Pipeline rules changed during processing")
         if history.corrections(root) != reviewed:
             raise ContractError("Reviewed mappings changed during processing")
@@ -188,7 +187,7 @@ def run(root, project, source, progress=None, timing_sink=None):
                   "previous_run": previous["run_id"] if previous else None,
                   "source_commit": receipt["source_commit"], "snapshot_id": receipt["snapshot_id"],
                   "diff_base": previous["source_commit"] if previous else None,
-                  "contracts": contracts, "completed": completed,
+                  "contracts": pinned_contracts, "completed": completed,
                   "exceptions": content_report,
                   "status": "git-release-ready", "wiki_release": released["release_id"],
                   "release_id": released["release_id"], "next_step": next_step,
