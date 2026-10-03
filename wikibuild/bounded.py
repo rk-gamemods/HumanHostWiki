@@ -135,25 +135,16 @@ def _terminate_suspended(process):
 
 
 def _group_exited(group):
-    """True once no live process remains in a POSIX group; orphan zombies have already exited."""
+    """True only when the OS reports the POSIX group empty.
+
+    The caller has already reaped the direct child, and PID 1 reaps orphaned
+    descendants, so any member the OS still reports means cleanup is unresolved.
+    """
     try:
         os.killpg(group, 0)
     except ProcessLookupError:
         return True
-    if not os.path.isdir("/proc"):
-        return False
-    for name in os.listdir("/proc"):
-        if not name.isdigit():
-            continue
-        try:
-            with open(f"/proc/{name}/stat", encoding="ascii", errors="replace") as status:
-                # Fields after the command name: state, parent PID, process group.
-                state, _, member_group = status.read().rsplit(")", 1)[1].split()[:3]
-        except (OSError, IndexError, ValueError):
-            continue
-        if int(member_group) == group and state != "Z":
-            return False
-    return True
+    return False
 
 
 def _wait_group(group, expires):

@@ -332,21 +332,41 @@ class ProcessGroupExitTests(unittest.TestCase):
         with self.assertRaises(subprocess.TimeoutExpired):
             bounded._wait_group(process.pid, time.monotonic() + 0.2)
 
-    def test_unreaped_zombie_member_counts_as_exited(self):
+    def test_unreaped_member_keeps_the_group_open_until_reaped(self):
         process = self.start_group()
         os.killpg(process.pid, signal.SIGKILL)
-        deadline = time.monotonic() + 10
-        while Path(f"/proc/{process.pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z":
-            self.assertLess(time.monotonic(), deadline)
-            time.sleep(0.01)
-        # The zombie still answers killpg(group, 0), so only its state shows it has exited.
+        time.sleep(0.2)
+        # Without positive proof from the OS, cleanup stays unresolved.
+        self.assertFalse(bounded._group_exited(process.pid))
+        process.wait(timeout=10)
         bounded._wait_group(process.pid, time.monotonic() + 5)
+
+    def start_owned(self):
+        process = bounded.start([sys.executable, "-c", "import time; time.sleep(120)"], stdout=subprocess.DEVNULL)
+        self.addCleanup(bounded.kill_tree, process)
+        return process
+
+    def test_kill_tree_waits_until_the_group_is_reported_empty(self):
+        process = self.start_owned()
+        with patch.object(bounded, "_group_exited", side_effect=[False, False, True]) as observed:
+            bounded.kill_tree(process)
+        self.assertEqual(observed.call_count, 3)
+        self.assertNotIn(process._wiki_owned, bounded._children)
+
+    def test_group_that_outlives_the_reap_budget_stays_owned(self):
+        process = self.start_owned()
+        with patch.object(bounded, "REAP_SECONDS", 0.3), patch.object(bounded, "_group_exited", return_value=False):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                bounded.kill_tree(process)
+        self.assertIn(process._wiki_owned, bounded._children)
+        self.assertEqual(process._wiki_owned.state, "unresolved")
 
     def test_kill_tree_returns_after_the_whole_group_exits(self):
         folder = fixture_dir(self, "bounded")
         pids = Path(folder) / "pids.txt"
         process = bounded.start([sys.executable, "-c", HOLDS_PIPE, str(pids)], cwd=folder,
                                 stdout=subprocess.DEVNULL)
+        self.addCleanup(bounded.kill_tree, process)
         try:
             deadline = time.monotonic() + 30
             while not (pids.exists() and len(pids.read_text().splitlines()) == 2):
