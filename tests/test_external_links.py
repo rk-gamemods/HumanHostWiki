@@ -20,6 +20,17 @@ SOURCE = {"api_url": "https://wiki.example/api.php", "namespace": 3000, "namespa
 BODY = "== Axe ==\nThis tool repairs damaged structures and harvests wood from trees.\n\nDamage: 10"
 
 
+class Clock:
+    def __init__(self):
+        self.now = 0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
 def page(number, leaf, body=BODY, revision=None, redirect=False):
     return {"pageid": number, "title": PREFIX + "/" + leaf, "ns": 3000,
             "lastrevid": revision or number * 10, "length": len(body.encode()), "contentmodel": "wikitext",
@@ -209,6 +220,35 @@ class ExternalLinkTests(unittest.TestCase):
 
 
 class ProviderTests(unittest.TestCase):
+    def test_mediawiki_reads_exhaust_elapsed_budget(self):
+        clock = Clock()
+
+        class Slow(io.BytesIO):
+            def read1(self, size):
+                clock.sleep(1)
+                return b"x"
+
+        response = Slow()
+        response.url = "https://example.invalid/file"
+        response.status = 200
+        response.headers = Message()
+        response.headers["Content-Type"] = "application/json"
+        client = mediawiki.Client("https://example.invalid/api.php", clock=clock)
+        with patch.object(client.opener, "open", return_value=response) as opened:
+            with self.assertRaisesRegex(mediawiki.RemoteError, "deadline"):
+                client({}, deadline=3)
+        self.assertEqual(opened.call_args.kwargs["timeout"], 3)
+        self.assertEqual(clock.now, 3)
+        self.assertTrue(response.closed)
+
+    def test_exhausted_mediawiki_budget_prevents_a_new_request(self):
+        clock = Clock()
+        client = mediawiki.Client("https://example.invalid/api.php", deadline=0, clock=clock)
+        with patch.object(client.opener, "open") as opened:
+            with self.assertRaisesRegex(mediawiki.RemoteError, "deadline"):
+                client({})
+        opened.assert_not_called()
+
     def test_pagination_and_revision_batches_complete_independently(self):
         provider = Provider(*(page(n, "Item" + str(n)) for n in range(1, 12)))
 

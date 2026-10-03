@@ -12,6 +12,8 @@ import unittest
 from unittest.mock import patch
 
 import test_release
+from tests._support import fixture_dir
+from tests.test_github_pages import Clock
 from wikibuild import github_pages, publication, publication_git, reader, release, workspace
 from wikibuild.storage import ContractError, git, json_bytes
 
@@ -34,7 +36,7 @@ class Host:
         self.events.append(("create", name))
         return value
 
-    def ref(self, name, branch):
+    def ref(self, name, branch, *, deadline=None):
         return self.refs.get((name, branch))
 
     def gate(self, root, project, manifest):
@@ -49,7 +51,7 @@ class Host:
         test.gate = gate.start()
         test.addCleanup(gate.stop)
 
-    def push(self, path, name, commit, branch, expected):
+    def push(self, path, name, commit, branch, expected, *, deadline=None):
         current = self.ref(name, branch)
         if current == commit:
             return
@@ -91,6 +93,64 @@ class Host:
                 raise ContractError("Served Git bytes differ")
         self.verified.append((name, tuple(files)))
         self.events.append(("verified", name))
+
+
+class RecoveryHost(Host):
+    """Real Pages polling against fake API records and real local Git trees."""
+    def __init__(self, owner, root, mode="built"):
+        super().__init__(owner)
+        self.root, self.mode = root, mode
+        self.target = "Wiki-items"
+        self.waited, self.transitions = [], []
+        self.clock = Clock()
+        self.adapter = github_pages.GitHubPages(owner)
+        self.adapter.clock = self.clock
+        self.adapter.QUEUED_GRACE = 10
+        self.adapter.api = self.api
+        self.adapter.ref = lambda name, branch, **kwargs: self.ref(name, branch)
+
+    def api(self, method, path, **kwargs):
+        if method != "GET":
+            raise AssertionError("Recovery must never cancel, delete or rerun a workflow")
+        commit = self.waited[-1]
+        if "/actions/runs?" in path:
+            return {"workflow_runs": [{"id": 1, "run_attempt": 1, "head_sha": "unrelated", "name": "pages build and deployment", "status": "queued"},
+                                      {"id": 2, "run_attempt": 1, "head_sha": commit, "name": "pages build and deployment", "status": "queued"}]}
+        if "/jobs?" in path:
+            return {"total_count": 0, "jobs": []}
+        return {"commit": commit, "status": "built" if len(self.waited) == 2 and self.mode != "stuck" else "queued"}
+
+    def wait(self, name, commit, **kwargs):
+        if name != self.target:
+            return super().wait(name, commit)
+        self.waited.append(commit)
+        with patch.object(github_pages.time, "sleep", side_effect=self.clock.sleep):
+            try:
+                return self.adapter.wait(name, commit, **kwargs)
+            except github_pages.QueuedPagesError:
+                if self.mode == "drift":
+                    self.refs[(name, "gh-pages")] = "foreign"
+                raise
+
+    def push(self, path, name, commit, branch, expected, *, deadline=None):
+        if name == self.target and branch == "gh-pages" and self.waited:
+            plan = publication.load(self.root / ".local/publication/pending.json")["repositories"]["items"]
+            transition = plan["recovery"]
+            if transition != {"stuck": expected, "successor": commit, "status": "prepared"}:
+                raise AssertionError("Transition was not journaled before the leased push")
+            self.transitions.append(transition)
+            if self.mode == "lost":
+                def attempted(command, **kwargs):
+                    if "push" in command:
+                        super(RecoveryHost, self).push(path, name, commit, branch, expected)
+                        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+                    return subprocess.CompletedProcess(command, 0, b"", b"")
+                with patch.object(github_pages.bounded, "run", side_effect=attempted):
+                    self.adapter.push(path, name, commit, branch, expected, deadline=deadline)
+            else:
+                super().push(path, name, commit, branch, expected)
+            return
+        return super().push(path, name, commit, branch, expected)
 
 
 _PUBLICATION_TEMPLATE = None
@@ -172,6 +232,56 @@ class PublicationTests(unittest.TestCase):
     def next_release(self):
         self.project["official_links"] = [{"title": "Changed", "url": "https://example.invalid/"}]
         self.make_release()
+
+    def recover(self, mode="built"):
+        self.host = RecoveryHost(self.project["github_owner"], self.root, mode)
+        self.gate.side_effect = self.host.gate
+        return self.run_publish()
+
+    def test_queued_build_recovers_once_and_verifies_the_same_tree(self):
+        result, _ = self.recover()
+        plan = result["repositories"]["items"]
+        stuck, successor = self.host.waited
+        path = self.root / plan["path"]
+        self.assertEqual(git(path, "rev-parse", successor + "^"), stuck)
+        self.assertEqual(git(path, "rev-parse", stuck + "^{tree}"), plan["tree"])
+        self.assertEqual(git(path, "rev-parse", successor + "^{tree}"), plan["tree"])
+        self.assertEqual(plan["pages"], successor)
+        self.assertEqual(plan["recovery"], {"stuck": stuck, "successor": successor, "status": "confirmed"})
+        self.assertEqual(len(self.host.transitions), 1)
+        self.assertTrue(any(name == self.host.target for name, files in self.host.verified))
+        # Repeat uses the confirmed successor and creates no third commit.
+        self.run_publish()
+        self.assertEqual(len(self.host.transitions), 1)
+
+    def test_successor_also_stuck_fails_with_journal_and_requires_abandonment(self):
+        with self.assertRaisesRegex(ContractError, "single recovery attempt is exhausted"):
+            self.recover("stuck")
+        state = publication.load(self.root / ".local/publication/pending.json")
+        plan = state["repositories"]["items"]
+        self.assertEqual(plan["recovery"]["status"], "confirmed")
+        self.assertEqual(plan["pages"], self.host.waited[1])
+        self.assertFalse(plan["verified"])
+        self.assertEqual(len(self.host.transitions), 1)
+        self.assertNotIn(("Wiki-hub", "gh-pages"), self.host.refs)
+        with self.assertRaisesRegex(ContractError, "abandon-publication"):
+            self.run_publish()
+        self.assertEqual(len(self.host.transitions), 1)
+
+    def test_lost_successor_push_response_is_confirmed_as_our_transition(self):
+        result, _ = self.recover("lost")
+        plan = result["repositories"]["items"]
+        self.assertEqual(plan["pages"], self.host.ref(self.host.target, "gh-pages"))
+        self.assertEqual(plan["recovery"]["status"], "confirmed")
+        self.assertEqual(len(self.host.transitions), 1)
+
+    def test_drift_after_queued_grace_aborts_without_a_successor_push(self):
+        with self.assertRaisesRegex(ContractError, "Remote ref differs"):
+            self.recover("drift")
+        self.assertEqual(self.host.ref(self.host.target, "gh-pages"), "foreign")
+        self.assertEqual(self.host.transitions, [])
+        plan = publication.load(self.root / ".local/publication/pending.json")["repositories"]["items"]
+        self.assertNotIn("recovery", plan)
 
     def test_interrupted_final_promotion_blocks_until_abandoned_and_keeps_legacy_receipt(self):
         result, _ = self.run_publish()
@@ -514,6 +624,9 @@ class PublicationTests(unittest.TestCase):
 
 
 class TimingTests(unittest.TestCase):
+    def setUp(self):
+        self.root = fixture_dir(self, "pub-time")
+
     def test_deploy_attributes_each_host_step_and_keeps_failed_wait_time(self):
         class Steps:
             elapsed = 0
@@ -546,14 +659,124 @@ class TimingTests(unittest.TestCase):
             with self.subTest(fail=fail), patch.object(publication, "perf_counter", side_effect=lambda: host.elapsed):
                 if fail:
                     with self.assertRaisesRegex(RuntimeError, "build fault"):
-                        publication.deploy(Path(__file__).resolve().parents[1], plan, host, timing)
+                        publication.deploy(self.root, plan, host, timing)
                 else:
-                    self.assertIsNone(publication.deploy(Path(__file__).resolve().parents[1], plan, host, timing))
+                    self.assertIsNone(publication.deploy(self.root, plan, host, timing))
             self.assertEqual(timing, {"push_main": 1, "push_pages": 2, "configure": 3,
                                      "pages_build": 4, "verify": 0 if fail else 5, "total": 10 if fail else 15})
 
 
+class RecoveryBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.root = fixture_dir(self, "recovery")
+
+    def deploy_fixture(self, mode="built"):
+        class BoundaryHost:
+            def __init__(self):
+                self.clock = Clock()
+                self.tips = {"main": None, "gh-pages": None}
+                self.pushes, self.reads = [], []
+                self.recovering = False
+
+            def ref(self, name, branch, **kwargs):
+                if self.recovering:
+                    self.reads.append(kwargs.get("deadline"))
+                    if mode == "read-exhausted":
+                        self.clock.now = 20
+                return self.tips[branch]
+
+            def push(self, path, name, commit, branch, expected, **kwargs):
+                self.pushes.append((commit, expected, kwargs.get("deadline")))
+                self.tips[branch] = commit
+                if self.recovering and mode == "rejected":
+                    raise ContractError("successor rejected before push")
+
+            def configure(self, name):
+                pass
+
+            def wait(self, name, commit, **kwargs):
+                if commit == "stuck":
+                    self.recovering = True
+                    self.clock.now = 20 if mode == "exhausted" else 10
+                    raise github_pages.QueuedPagesError(name, commit, 20)
+
+            def verify(self, base, checks):
+                pass
+
+        host = BoundaryHost()
+        plan = {"path": ".local", "name": "wiki", "main": "main", "pages": "stuck", "tree": "tree",
+                "old_main": None, "old_pages": None, "base": "fixture", "checks": {}}
+        refs = publication.RehearsedRefs([{"repository": "wiki", "branch": branch, "commit": None}
+                                         for branch in ("main", "gh-pages")])
+        def journal(plan, transition):
+            plan["recovery"] = transition
+            plan["pages"] = transition["successor"]
+        return host, plan, refs, journal
+
+    def run_deploy(self, host, plan, refs, journal):
+        with patch.object(publication, "git", return_value="tree"), \
+                patch.object(publication.publication_git, "commit", return_value="successor"), \
+                patch.object(publication, "pin"):
+            publication.deploy(self.root, plan, host, refs=refs, journal=journal)
+
+    def test_failed_recovery_push_cannot_adopt_a_matching_unconfirmed_tip(self):
+        host, plan, refs, journal = self.deploy_fixture("rejected")
+        with self.assertRaisesRegex(ContractError, "successor rejected before push"):
+            self.run_deploy(host, plan, refs, journal)
+        self.assertEqual(refs.confirmed[("wiki", "gh-pages")], "stuck")
+        self.assertEqual(plan["recovery"]["status"], "prepared")
+
+    def test_recovery_propagates_deadline_to_every_read_and_push(self):
+        host, plan, refs, journal = self.deploy_fixture()
+        self.run_deploy(host, plan, refs, journal)
+        self.assertEqual(host.pushes[-1], ("successor", "stuck", 20))
+        self.assertTrue(host.reads)
+        self.assertEqual(set(host.reads), {20})
+
+    def test_spent_recovery_budget_never_starts_a_successor_push(self):
+        for mode in ("exhausted", "read-exhausted"):
+            with self.subTest(mode=mode):
+                host, plan, refs, journal = self.deploy_fixture(mode)
+                with self.assertRaisesRegex(ContractError, "deadline"):
+                    self.run_deploy(host, plan, refs, journal)
+                self.assertEqual(len(host.pushes), 2)
+
+    def test_recovery_ref_failure_through_execute_never_pushes_a_rollback(self):
+        for failure in (ContractError("elapsed deadline exhausted"), ContractError("HTTP 503 after retries")):
+            with self.subTest(failure=failure):
+                host, plan, refs, journal = self.deploy_fixture()
+                plan.update(repository_id=1, verified=False)
+                state = {"release_id": "fixture", "repositories": {"hub": plan}, "groups": [[], []],
+                         "rollback": None, "fallback": {"tree": "fallback-tree", "files": {}}}
+                read = host.ref
+                def ref(name, branch, **kwargs):
+                    if host.recovering and kwargs.get("deadline") is not None:
+                        host.clock.now = 20
+                        raise failure
+                    return read(name, branch, **kwargs)
+                root = self.root
+                with patch.object(host, "ref", side_effect=ref), \
+                        patch.object(host, "repository", create=True, return_value={"id": 1, "private": False}), \
+                        patch.object(publication, "save"), patch.object(publication, "pin"), \
+                        patch.object(publication, "git", return_value="tree"), \
+                        patch.object(publication.publication_git, "commit", return_value="fallback"):
+                    with self.assertRaises(ContractError) as raised:
+                        publication.execute(root, state, root / ".local/unused-journal.json", host, 1, refs)
+                self.assertEqual([push[0] for push in host.pushes], ["main", "stuck"])
+                self.assertIsNone(state["rollback"])
+                self.assertIsInstance(raised.exception, github_pages.BuildObservationError)
+
+
 class AdapterTests(unittest.TestCase):
+    @staticmethod
+    def build_records(records):
+        records = iter(records)
+        def api(method, path, **kwargs):
+            if "/actions/runs?" in path:
+                return {"workflow_runs": []}
+            return next(records)
+        return api
+
     def test_public_http_hashes_and_oversized_response_rejection(self):
         content = b'{"selected":true}\n'
 
@@ -583,7 +806,7 @@ class AdapterTests(unittest.TestCase):
     def test_live_build_is_polled_without_restarting(self):
         host = github_pages.GitHubPages("fixture")
         states = [{"commit": "abc", "status": state} for state in ("queued", "building", "built")]
-        with patch.object(host, "api", side_effect=states) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+        with patch.object(host, "api", side_effect=self.build_records(states)) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
             self.assertEqual(host.wait("wiki", "abc")["status"], "built")
             self.assertTrue(all(c.args[0] == "GET" for c in calls.call_args_list))
 
@@ -592,24 +815,35 @@ class AdapterTests(unittest.TestCase):
         path = "repos/fixture/wiki/pages/builds/17"
         states = [{"commit": "abc", "status": state, "url": "https://api.github.com/" + path}
                   for state in ["queued"] * 15 + ["building"] * 15 + ["built"]]
-        with patch.object(host, "api", side_effect=states) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+        with patch.object(host, "api", side_effect=self.build_records(states)) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
             self.assertEqual(host.wait("wiki", "abc")["status"], "built")
-            self.assertEqual(calls.call_count, 31)
-            self.assertTrue(all(c.args == ("GET", path) for c in calls.call_args_list[1:]))
+            builds = [call for call in calls.call_args_list if "/pages/builds" in call.args[1]]
+            self.assertEqual(len(builds), 31)
+            self.assertTrue(all(c.args == ("GET", path) for c in builds[1:]))
 
     def test_failed_deployment_behind_a_live_build_is_rerun_then_bounded(self):
         # GitHub can leave the build record at 'building' after its deployment workflow fails.
         host = github_pages.GitHubPages("fixture")
         path = "repos/fixture/wiki/pages/builds/17"
         building = {"commit": "abc", "status": "building", "url": "https://api.github.com/" + path}
-        failed = {"workflow_runs": [{"id": 9, "name": "pages build and deployment", "status": "completed",
+        failed = {"workflow_runs": [{"id": 9, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment", "status": "completed",
                                      "conclusion": "failure", "html_url": "https://github.com/run/9"}]}
-        states = [building] * 61 + [failed, None, {**building, "status": "built"}]
-        with patch.object(host, "api", side_effect=states) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+        polls, reruns, finish = 0, 0, True
+        def api(method, endpoint, **kwargs):
+            nonlocal polls, reruns
+            if method == "POST":
+                reruns += 1
+                return None
+            if "/actions/runs?" in endpoint:
+                return failed if polls >= 61 else {"workflow_runs": []}
+            polls += 1
+            return {**building, "status": "built"} if finish and reruns else building
+        with patch.object(host, "api", side_effect=api) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
             self.assertEqual(host.wait("wiki", "abc")["status"], "built")
-            self.assertEqual(calls.call_args_list[62].args, ("POST", "repos/fixture/wiki/actions/runs/9/rerun-failed-jobs"))
-        states = [building] * 61 + [failed, None] + ([building] * 60 + [failed, None]) * 2 + [building] * 60 + [failed]
-        with patch.object(host, "api", side_effect=states), patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            self.assertEqual([call.args for call in calls.call_args_list if call.args[0] == "POST"],
+                             [("POST", "repos/fixture/wiki/actions/runs/9/rerun-failed-jobs")])
+        polls, reruns, finish = 0, 0, False
+        with patch.object(host, "api", side_effect=api), patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
             with self.assertRaisesRegex(ContractError, "failed after 3 reruns: https://github.com/run/9"):
                 host.wait("wiki", "abc")
 
@@ -617,35 +851,38 @@ class AdapterTests(unittest.TestCase):
         host = github_pages.GitHubPages("fixture")
         target = {"commit": "abc", "status": "building", "url": "https://api.github.com/repos/fixture/wiki/pages/builds/17"}
         states = [{"commit": "other", "status": "built"}, [target], {**target, "status": "built"}]
-        with patch.object(host, "api", side_effect=states) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+        with patch.object(host, "api", side_effect=self.build_records(states)) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
             self.assertEqual(host.wait("wiki", "abc")["status"], "built")
             self.assertTrue(calls.call_args_list[1].args[1].endswith("?per_page=100"))
-            self.assertTrue(calls.call_args_list[2].args[1].endswith("/17"))
+            builds = [call for call in calls.call_args_list if "/pages/builds" in call.args[1]]
+            self.assertTrue(builds[2].args[1].endswith("/17"))
 
     def test_disappearing_pinned_build_is_rechecked_without_substitution(self):
         host = github_pages.GitHubPages("fixture")
         path = "repos/fixture/wiki/pages/builds/17"
-        queued = {"commit": "abc", "status": "queued", "url": "https://api.github.com/" + path}
-        with patch.object(host, "api", side_effect=[queued] + [None] * 12) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+        building = {"commit": "abc", "status": "building", "url": "https://api.github.com/" + path}
+        with patch.object(host, "api", side_effect=self.build_records([building] + [None] * 12)) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
             with self.assertRaises(github_pages.BuildObservationError):
                 host.wait("wiki", "abc")
-            self.assertEqual(calls.call_count, 13)
-            self.assertTrue(all(c.args == ("GET", path) for c in calls.call_args_list[1:]))
+            builds = [call for call in calls.call_args_list if "/pages/builds" in call.args[1]]
+            self.assertEqual(len(builds), 13)
+            self.assertTrue(all(c.args == ("GET", path) for c in builds[1:]))
 
     def test_absent_build_returns_observation_failure_without_dispatch(self):
         host = github_pages.GitHubPages("fixture")
-        with patch.object(host, "api", side_effect=[None, []] * 12) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+        with patch.object(host, "api", side_effect=self.build_records([None, []] * 12)) as calls, patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
             with self.assertRaisesRegex(github_pages.BuildObservationError, "not observable after 12 checks"):
                 host.wait("wiki", "abc")
-            self.assertEqual(calls.call_count, 24)
+            self.assertEqual(calls.call_count, 36)
             self.assertTrue(all(c.args[0] == "GET" for c in calls.call_args_list))
 
-    def test_earlier_live_build_does_not_consume_absence_budget(self):
+    def test_unrelated_live_build_does_not_extend_the_target_absence_budget(self):
         host = github_pages.GitHubPages("fixture")
         older = {"commit": "older", "status": "building"}
-        states = [older, [older]] * 15 + [{"commit": "abc", "status": "built"}]
-        with patch.object(host, "api", side_effect=states), patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
-            self.assertEqual(host.wait("wiki", "abc")["status"], "built")
+        states = [older, [older]] * 12
+        with patch.object(host, "api", side_effect=self.build_records(states)), patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            with self.assertRaisesRegex(github_pages.BuildObservationError, "not observable after 12 checks"):
+                host.wait("wiki", "abc")
 
     def test_unknown_status_and_transient_read_failure_do_not_claim_build_failure(self):
         host = github_pages.GitHubPages("fixture")
@@ -667,7 +904,7 @@ class AdapterTests(unittest.TestCase):
 
     def test_live_build_that_never_finishes_stops_at_the_deadline(self):
         # A run once waited three days on a build GitHub never finished. Our own
-        # build and an earlier build ahead of it must both stop at the deadline.
+        # build stops at the deadline; unrelated builds cannot extend discovery.
         ours = {"commit": "abc", "status": "building"}
         earlier = {"commit": "older", "status": "building"}
         for name, value in (("ours", ours), ("earlier", earlier)):
@@ -679,7 +916,8 @@ class AdapterTests(unittest.TestCase):
                     return [value] if "per_page=100" in path else value
                 with patch.object(host, "api", side_effect=api), \
                         patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
-                    with self.assertRaisesRegex(github_pages.BuildObservationError, "after 30 minutes"):
+                    expected = "after 30 minutes" if name == "ours" else "not observable after 12 checks"
+                    with self.assertRaisesRegex(github_pages.BuildObservationError, expected):
                         host.wait("wiki", "abc")
 
     def test_hung_github_call_is_retried_then_reported(self):
@@ -713,10 +951,13 @@ class AdapterTests(unittest.TestCase):
         host = github_pages.GitHubPages("fixture")
         path = "repos/fixture/wiki/pages/builds/17"
         building = {"commit": "abc", "status": "building", "url": "https://api.github.com/" + path}
-        failed = {"workflow_runs": [{"id": 9, "name": "pages build and deployment", "status": "completed",
+        failed = {"workflow_runs": [{"id": 9, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment", "status": "completed",
                                      "conclusion": "failure", "html_url": "https://github.com/run/9"}]}
-        states = [building] * 61 + [failed, ContractError("GitHub POST timed out")]
-        with patch.object(host, "api", side_effect=states), patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+        def api(method, endpoint, **kwargs):
+            if method == "POST":
+                raise ContractError("GitHub POST timed out")
+            return failed if "/actions/runs?" in endpoint else building
+        with patch.object(host, "api", side_effect=api), patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
             with self.assertRaisesRegex(github_pages.BuildObservationError, "unknown outcome"):
                 host.wait("wiki", "abc")
 

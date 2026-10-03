@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
-from time import perf_counter
+from threading import Lock
+from time import monotonic, perf_counter
 
 from . import entrypoints, github_pages, ownership, physical, publication_git, publish_gate, release, run_timing
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
@@ -106,11 +107,30 @@ class RehearsedRefs:
         self.expected = {(row["repository"], row["branch"]): row["commit"] for row in rows}
         self.confirmed = {}
 
-    def observe(self, host, name, branch):
+    @staticmethod
+    def check_deadline(host, deadline):
+        if deadline is not None and getattr(host, "clock", monotonic)() >= deadline:
+            raise github_pages.BuildObservationError("Publication deadline exhausted")
+
+    def read_ref(self, host, name, branch, *, deadline=None):
+        self.check_deadline(host, deadline)
+        try:
+            actual = host.ref(name, branch, **({"deadline": deadline} if deadline is not None else {}))
+        except (ContractError, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            if deadline is None:
+                raise
+            # Recovery observations share the build deadline. An unknown outcome
+            # must not enter execute's rollback path with a fresh push budget.
+            raise github_pages.BuildObservationError(
+                f"Unable to observe Pages recovery ref {name}/{branch}: {exc}") from exc
+        self.check_deadline(host, deadline)
+        return actual
+
+    def observe(self, host, name, branch, *, deadline=None):
         key = (name, branch)
         if key not in self.expected:
             raise ContractError(f"Missing rehearsed ref: {name}/{branch}")
-        actual = host.ref(name, branch)
+        actual = self.read_ref(host, name, branch, deadline=deadline)
         if actual != self.expected[key]:
             raise ContractError(f"Remote ref differs from rehearsal or this invocation's confirmed push: {name}/{branch}")
         return actual
@@ -119,13 +139,15 @@ class RehearsedRefs:
         for name, branch in sorted(keys):
             self.observe(host, name, branch)
 
-    def push(self, host, path, name, commit, branch):
-        expected = self.observe(host, name, branch)
+    def push(self, host, path, name, commit, branch, *, deadline=None):
+        expected = self.observe(host, name, branch, deadline=deadline)
         key = (name, branch)
         # The adapter reconciles a lost push response before returning success.
         # A failing call is never authority to adopt a coincidentally matching tip.
-        host.push(path, name, commit, branch, expected)
-        if host.ref(name, branch) != commit:
+        self.check_deadline(host, deadline)
+        host.push(path, name, commit, branch, expected, **({"deadline": deadline} if deadline is not None else {}))
+        actual = self.read_ref(host, name, branch, deadline=deadline)
+        if actual != commit:
             raise ContractError(f"Publication push was not confirmed: {name}/{branch}")
         self.expected[key] = self.confirmed[key] = commit
 
@@ -293,7 +315,7 @@ def repository_row(timing, group, identity):
     return timing[group].setdefault(identity, repository_timing())
 
 
-def deploy(root, plan, host, timing=None, refs=None):
+def deploy(root, plan, host, timing=None, refs=None, journal=None):
     if refs is None:
         refs = RehearsedRefs([{"repository": plan["name"], "branch": branch, "commit": plan[key]}
                               for branch, key in (("main", "old_main"), ("gh-pages", "old_pages"))])
@@ -305,8 +327,37 @@ def deploy(root, plan, host, timing=None, refs=None):
             refs.push(host, path, plan["name"], plan["pages"], "gh-pages")
         with measure(timing, "configure"):
             host.configure(plan["name"])
-        with measure(timing, "pages_build"):
-            host.wait(plan["name"], plan["pages"])
+        try:
+            with measure(timing, "pages_build"):
+                host.wait(plan["name"], plan["pages"])
+        except github_pages.QueuedPagesError as exc:
+            if plan.get("recovery") or journal is None:
+                raise github_pages.BuildObservationError(
+                    f"Pages {plan['name']} remains queued-not-started; no further successor attempt is allowed. "
+                    "Abandon the publication journal and rehearse a fresh run later.") from exc
+            stuck = plan["pages"]
+            if refs.observe(host, plan["name"], "gh-pages", deadline=exc.deadline) != stuck:
+                raise ContractError(f"Pages recovery source changed: {plan['name']}")
+            tree = git(path, "rev-parse", stuck + "^{tree}")
+            if tree != plan["tree"]:
+                raise ContractError(f"Pages recovery tree differs: {plan['name']}")
+            successor = publication_git.commit(path, tree, stuck, "Recover never-started Pages build")
+            pin(path, successor)
+            transition = {"stuck": stuck, "successor": successor, "status": "prepared"}
+            # Persist our exact transition before any remote effect. A failed run
+            # never reloads this journal to resume a recovery.
+            journal(plan, transition)
+            with measure(timing, "push_pages"):
+                refs.push(host, path, plan["name"], successor, "gh-pages", deadline=exc.deadline)
+            journal(plan, {**transition, "status": "confirmed"})
+            try:
+                with measure(timing, "pages_build"):
+                    host.wait(plan["name"], successor, deadline=exc.deadline)
+            except github_pages.QueuedPagesError as successor_error:
+                raise github_pages.BuildObservationError(
+                    f"Pages successor {successor} for {plan['name']} is also queued-not-started; "
+                    "the single recovery attempt is exhausted. Abandon the publication journal "
+                    "and rehearse a fresh run later.") from successor_error
         with measure(timing, "verify"):
             host.verify(plan["base"], plan["checks"])
 
@@ -351,6 +402,13 @@ def rollback(root, state, path, host, refs, timing=None):
 
 def execute(root, state, path, host, workers, refs, timing=None):
     timing = timing if timing is not None else {"repositories": {}, "rollback": {}, "phases": {}}
+    journal_lock = Lock()
+
+    def journal(plan, transition):
+        with journal_lock:
+            plan["recovery"] = transition
+            plan["pages"] = transition["successor"]
+            save(path, state)
 
     def restore():
         identity = state.get("hub_control", "hub")
@@ -373,14 +431,15 @@ def execute(root, state, path, host, workers, refs, timing=None):
         errors = []
         with measure(timing["phases"], f"topics-{rank}"), ThreadPoolExecutor(max_workers=workers) as pool:
             pending = {pool.submit(deploy, root, plan, host,
-                       repository_row(timing, "repositories", topic), refs): plan
+                       repository_row(timing, "repositories", topic), refs, journal): plan
                        for topic, plan in topics.items()}
             for future in as_completed(pending):
                 plan = pending[future]
                 try:
                     future.result()
-                    plan["verified"] = True
-                    save(path, state)
+                    with journal_lock:
+                        plan["verified"] = True
+                        save(path, state)
                 except Exception as exc:
                     errors.append(f"{plan['name']}: {exc}")
             if errors:
@@ -392,7 +451,7 @@ def execute(root, state, path, host, workers, refs, timing=None):
         try:
             row = repository_row(timing, "repositories", state.get("hub_control", "hub"))
             with measure(timing["phases"], "hub"):
-                deploy(root, hub, host, row, refs)
+                deploy(root, hub, host, row, refs, journal)
             hub["verified"] = True
             save(path, state)
         except github_pages.BuildObservationError:

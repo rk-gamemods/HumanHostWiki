@@ -29,10 +29,11 @@
     },
     {
       "name": "process",
-      "description": "Bounded subprocess execution and exact Git transactions.",
+      "description": "Bounded subprocess execution, bounded HTTP reads and exact Git transactions.",
       "paths": [
         "wikibuild/bounded.py",
-        "wikibuild/git_transaction.py"
+        "wikibuild/git_transaction.py",
+        "wikibuild/bounded_http.py"
       ],
       "tests": [
         "tests/test_bounded.py"
@@ -214,7 +215,8 @@
       ],
       "depends_on": [
         "storage",
-        "test-support"
+        "test-support",
+        "process"
       ]
     },
     {
@@ -339,7 +341,8 @@
       "tests": [
         "tests/test_publication*.py",
         "tests/test_publish_gate.py",
-        "tests/test_rehearsal.py"
+        "tests/test_rehearsal.py",
+        "tests/test_github_pages.py"
       ],
       "depends_on": [
         "storage",
