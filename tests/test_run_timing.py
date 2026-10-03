@@ -62,10 +62,12 @@ class TimingTests(unittest.TestCase):
 
         with patch.object(manifest, "load", return_value={}), patch.object(pipeline, "run", side_effect=succeed):
             first = wiki.run(self.root, args)
-            before = self.records()[0].read_bytes()
+            # Names sort by UTC second, then random hex: identify records by set difference.
+            [earlier] = self.records()
+            before = earlier.read_bytes()
             self.assertEqual(wiki.run(self.root, args), first)
         self.assertEqual(len(self.records()), 2)
-        self.assertEqual(self.records()[0].read_bytes(), before)
+        self.assertEqual(earlier.read_bytes(), before)
         saved = json.loads(before)
         self.assertEqual(saved["outcome"], "succeeded")
         self.assertEqual([row["outcome"] for row in saved["stages"]], ["succeeded", "succeeded"])
@@ -75,10 +77,12 @@ class TimingTests(unittest.TestCase):
             kwargs["timing_sink"].enter("normalize")
             raise ContractError("fixture failure")
 
+        succeeded = set(self.records())
         with patch.object(manifest, "load", return_value={}), patch.object(pipeline, "run", side_effect=fail):
             with self.assertRaisesRegex(ContractError, "fixture failure"):
                 wiki.run(self.root, args)
-        failed = json.loads(self.records()[-1].read_bytes())
+        [newest] = set(self.records()) - succeeded
+        failed = json.loads(newest.read_bytes())
         self.assertEqual(failed["outcome"], "failed")
         self.assertEqual(failed["stages"][-1]["outcome"], "failed")
         self.assertFalse(list((self.root / ".local/runs").glob("*.tmp")))
@@ -113,12 +117,14 @@ class TimingTests(unittest.TestCase):
             if data:
                 receipt.write_text(data)
             stderr = io.StringIO()
+            existing = set(self.records())
             with patch.object(manifest, "load", return_value={}), patch.object(pipeline, "run", return_value={"release_id": "r"}), \
                     patch.object(run_timing.sys, "stderr", stderr):
                 result = wiki.run(self.root, SimpleNamespace(command="update", source="fixture", capture_timing=receipt))
             self.assertEqual(result["release_id"], "r")
             self.assertEqual(stderr.getvalue().count("WARNING:"), 1)
-            self.assertIsNone(json.loads(self.records()[-1].read_bytes())["capture"])
+            [record] = set(self.records()) - existing
+            self.assertIsNone(json.loads(record.read_bytes())["capture"])
 
     def test_write_failure_and_exclusive_collision_do_not_change_outcome(self):
         recorder = run_timing.Recorder(self.root, "update")

@@ -7,9 +7,12 @@ import subprocess
 import threading
 import time
 
+# Worst-case cleanup must fit inside any caller's elapsed deadline.
+REAP_SECONDS = 30
 # After the process exits or is killed, how long to wait for its pipes to close.
 DRAIN_SECONDS = 10
-REAP_SECONDS = 30
+# The reap deadline includes the per-tree lock, parent wait and job query.
+CLEANUP_SECONDS = REAP_SECONDS + DRAIN_SECONDS
 # A descendant that outlives a killed parent can keep writing; stop keeping its bytes.
 MAX_CAPTURE = 64 * 1024 * 1024
 
@@ -294,7 +297,11 @@ def _feed(stream, data):
 
 
 def run(command, timeout, *, input=None, env=None, cwd=None):
-    """Capture a tree within timeout + REAP_SECONDS + DRAIN_SECONDS.
+    """After launch, capture an owned tree within timeout + CLEANUP_SECONDS.
+
+    Cleanup shares REAP_SECONDS across the ownership lock, parent reap and job
+    exit query, then shares DRAIN_SECONDS across all pipe workers. Callers with
+    an elapsed deadline must reserve CLEANUP_SECONDS from the process timeout.
 
     All pipe I/O happens on daemon threads; the caller only ever waits with a deadline.
     subprocess.run cannot promise that on Windows: it writes stdin before its timeout
