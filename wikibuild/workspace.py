@@ -8,7 +8,25 @@ from .storage import ContractError, digest, git, json_bytes, within, write_chang
 
 
 def marker(repo):
-    return {"schema_version": 1, "repository_id": repo["id"], "role": repo["role"]}
+    value = {"schema_version": 1, "repository_id": repo["id"], "role": repo["role"]}
+    if repo["role"] in {"partition", "entrypoint"}:
+        value.update(logical_topic=repo["logical_topic"], ordinal=repo["ordinal"])
+    return value
+
+
+def repositories(root, project, allocated=None):
+    from . import physical, release
+    if allocated is None and (root / "releases/latest.json").exists():
+        identity = json.loads((root / "releases/latest.json").read_text())["release_id"]
+        allocated = release.read(root, identity).get("physical")
+    return physical.repositories(project, allocated)
+
+
+def seed_readme(repo):
+    return (f"# {repo['title']}\n\n{repo['coverage']}.\n\n"
+            "Unofficial community reference for Human Host, not affiliated with or endorsed by Virtual Matrix Studio. Topic content is not generated yet.\n"
+            "The umbrella's `project.json` owns its identity, routing and shared build contracts.\n\n"
+            "## Ownership\n\n" + ", ".join(f"`{kind}`" for kind in repo["owns"]) + "\n").encode()
 
 
 def inspect(root, repo):
@@ -39,11 +57,7 @@ def initialize(root, manifest):
         path.mkdir(parents=True)
         git(path, "init", "--initial-branch=main")
         write_changed(path / ".wiki-repository.json", json_bytes(marker(repo)))
-        readme = (f"# {repo['title']}\n\n{repo['coverage']}.\n\n"
-                  "This repository is initialized for Human Host Wiki. Topic content is not generated yet.\n"
-                  "The umbrella's `project.json` owns its identity, routing and shared build contracts.\n\n"
-                  "## Ownership\n\n" + ", ".join(f"`{kind}`" for kind in repo["owns"]) + "\n")
-        write_changed(path / "README.md", readme.encode())
+        write_changed(path / "README.md", seed_readme(repo))
         write_changed(path / ".gitignore", b".local/\n__pycache__/\n*.local.json\n")
         write_changed(path / ".gitattributes", b"* text=auto eol=lf\n")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -52,10 +66,10 @@ def initialize(root, manifest):
     return created
 
 
-def checkout_lock(root, manifest, check=False):
+def checkout_lock(root, manifest, check=False, *, allocated=None):
     """Pin clean local commits without claiming a coordinated wiki release."""
     records = {}
-    for repo in manifest["repositories"]:
+    for repo in repositories(root, manifest, allocated):
         state = inspect(root, repo)
         if state["state"] != "clean":
             raise ContractError(f"Cannot pin {repo['id']}: checkout is {state['state']}")

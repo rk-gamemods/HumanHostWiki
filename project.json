@@ -1,9 +1,61 @@
 {
   "schema_version": 1,
-  "project": "Human Host Wiki",
+  "project": "Unofficial Game Data Wiki for Human Host",
   "github_owner": "rk-gamemods",
   "language": "en",
-  "publication": {"visibility": "public", "monetized": false, "advertising": false, "host": "github-pages", "remote_setup": "not-created"},
+  "publication": {"visibility": "public", "monetized": false, "advertising": false, "host": "github-pages", "enabled": true, "workers": 4},
+  "availability": {"enabled": true, "cache_seconds": 3600, "retry_seconds": 60},
+  "external_articles": {
+    "cache_seconds": 3600,
+    "retry_seconds": 60,
+    "source": {
+      "api_url": "https://wiki.nerdwerx.io/api.php",
+      "namespace": 3000,
+      "namespace_name": "Human Host",
+      "prefixes": [
+        "Human Host:Content/Game Content/Weapons",
+        "Human Host:Content/Game Content/Armors",
+        "Human Host:Content/Game Content/Crafting Recipes",
+        "Human Host:Content/Game Content/Perks",
+        "Human Host:Content/Game Content/Biomes",
+        "Human Host:Content/Game Content/Zombies"
+      ],
+      "titles": [
+        "Human Host:Getting Started",
+        "Human Host:Guides/Base Building",
+        "Human Host:Guides/Elites",
+        "Human Host:Guides/Vehicle Building",
+        "Human Host:Guides/Modding/Game Structure"
+      ]
+    },
+    "routes": {
+      "hub": {"titles": ["Human Host:Getting Started"], "entity_prefixes": {}},
+      "items-equipment": {
+        "titles": ["Human Host:Content/Game Content/Weapons", "Human Host:Content/Game Content/Armors"],
+        "entity_prefixes": {
+          "item": ["Human Host:Content/Game Content/Weapons", "Human Host:Content/Game Content/Armors"],
+          "equipment": ["Human Host:Content/Game Content/Weapons", "Human Host:Content/Game Content/Armors"]
+        }
+      },
+      "loot-acquisition": {"titles": ["Human Host:Content/Game Content/Biomes"], "entity_prefixes": {}},
+      "crafting-processing": {
+        "titles": ["Human Host:Content/Game Content/Crafting Recipes"],
+        "entity_prefixes": {
+          "recipe": ["Human Host:Content/Game Content/Crafting Recipes"],
+          "workbench": ["Human Host:Content/Game Content/Crafting Recipes"]
+        }
+      },
+      "combat": {"titles": ["Human Host:Guides/Elites"], "entity_prefixes": {}},
+      "creatures-ai": {"titles": ["Human Host:Content/Game Content/Zombies"], "entity_prefixes": {"creature": ["Human Host:Content/Game Content/Zombies"]}},
+      "spawning-populations": {"titles": ["Human Host:Content/Game Content/Zombies"], "entity_prefixes": {}},
+      "skills-survival": {"titles": ["Human Host:Content/Game Content/Perks"], "entity_prefixes": {"skill": ["Human Host:Content/Game Content/Perks"]}},
+      "biomes-resources": {"titles": ["Human Host:Content/Game Content/Biomes"], "entity_prefixes": {"biome": ["Human Host:Content/Game Content/Biomes"]}},
+      "construction": {"titles": ["Human Host:Guides/Base Building"], "entity_prefixes": {}},
+      "vehicles": {"titles": ["Human Host:Guides/Vehicle Building"], "entity_prefixes": {}},
+      "world-systems": {"titles": ["Human Host:Getting Started"], "entity_prefixes": {}},
+      "technical-reference": {"titles": ["Human Host:Guides/Modding/Game Structure"], "entity_prefixes": {}}
+    }
+  },
   "source": {"kind": "humanhost-codebase", "default_path": "../HumanHostCodebase", "steam_app_id": "2393970", "catalog_schema": 1},
   "official_links": [
     {"title": "Human Host on Steam", "url": "https://store.steampowered.com/app/2393970/Human_Host/"},
@@ -22,7 +74,7 @@
     {"id": "construction", "title": "Construction", "path": "repositories/construction", "github_name": "HumanHost-Wiki-Construction", "role": "topic", "owns": ["building-piece", "construction-rule"], "coverage": "Building pieces, materials, durability, destruction and structural relationships"},
     {"id": "vehicles", "title": "Vehicles", "path": "repositories/vehicles", "github_name": "HumanHost-Wiki-Vehicles", "role": "topic", "owns": ["vehicle", "vehicle-rule"], "coverage": "Vehicle families, parts, assembly, controls and operating mechanics"},
     {"id": "world-systems", "title": "World systems", "path": "repositories/world-systems", "github_name": "HumanHost-Wiki-World", "role": "topic", "owns": ["world-rule", "weather", "time-rule"], "coverage": "Weather, time, environmental conditions and world organization"},
-    {"id": "technical-reference", "title": "Technical reference", "path": "repositories/technical-reference", "github_name": "HumanHost-Wiki-Technical", "role": "topic", "owns": ["asset", "component", "configuration", "tag", "layer", "unclassified"], "coverage": "Every asset identity, component types, configuration fields, tags, layers and visible coverage gaps"}
+    {"id": "technical-reference", "title": "Game files", "path": "repositories/technical-reference", "github_name": "HumanHost-Wiki-Technical", "role": "topic", "owns": ["asset", "component", "configuration", "tag", "layer", "unclassified"], "coverage": "Every asset identity, component types, configuration fields, tags, layers and visible coverage gaps"}
   ],
   "relationships": [
     {"from": "items-equipment", "to": "loot-acquisition", "kind": "acquired-from"},
@@ -42,14 +94,15 @@
     {"from": "technical-reference", "to": "items-equipment", "kind": "backs-game-entity"}
   ],
   "pipeline": [
-    {"id": "detect", "depends_on": [], "owner": "future non-LLM local update runner", "status": "planned"},
+    {"id": "detect", "depends_on": [], "owner": "decompile capture reuse and wikibuild/availability.py; Steam branch observations are independent of gameplay verification", "status": "implemented"},
     {"id": "capture", "depends_on": ["detect"], "owner": "HumanHostMods/tools/Decompile-GameCode.ps1", "status": "external-existing"},
     {"id": "register", "depends_on": ["capture"], "owner": "wikibuild/snapshots.py", "status": "implemented"},
-    {"id": "normalize", "depends_on": ["register"], "owner": "future wiki adapters", "status": "planned"},
-    {"id": "identity", "depends_on": ["normalize"], "owner": "future identity registry", "status": "planned"},
-    {"id": "project", "depends_on": ["identity"], "owner": "future topic projectors", "status": "planned"},
-    {"id": "verify", "depends_on": ["project"], "owner": "future semantic and link validation", "status": "planned"},
-    {"id": "release", "depends_on": ["verify"], "owner": "future release coordinator", "status": "planned"},
-    {"id": "publish", "depends_on": ["release"], "owner": "future GitHub Pages publisher", "status": "planned"}
+    {"id": "external-articles", "depends_on": ["register"], "owner": "wikibuild/external_links.py and mediawiki.py; bounded versioned article checks", "status": "implemented"},
+    {"id": "normalize", "depends_on": ["register"], "owner": "wikibuild/extraction.py and topic adapters", "status": "implemented"},
+    {"id": "identity", "depends_on": ["normalize"], "owner": "wikibuild/identity.py, model.py and history.py", "status": "implemented"},
+    {"id": "project", "depends_on": ["identity", "external-articles"], "owner": "wikibuild/reader.py, curation.py, curated_rules.py, external_links.py, packs.py, pages.py and web/", "status": "implemented"},
+    {"id": "verify", "depends_on": ["project"], "owner": "reader artifact checks, declared claim checks and independent tools/check_*.py; runtime verification remains explicitly scoped", "status": "implemented"},
+    {"id": "release", "depends_on": ["verify"], "owner": "wikibuild/release.py and git_transaction.py; selected-fact Git releases", "status": "implemented"},
+    {"id": "publish", "depends_on": ["release"], "owner": "wikibuild/publication.py, publication_git.py and github_pages.py", "status": "implemented"}
   ]
 }

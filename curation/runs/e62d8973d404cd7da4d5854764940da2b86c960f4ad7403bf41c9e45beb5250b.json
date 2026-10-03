@@ -1,0 +1,461 @@
+{
+  "payload": {
+    "exceptions": {
+      "group_count": 0,
+      "groups": [],
+      "kind": "unresolved-wiki-content",
+      "next_action": "No unresolved wiki content in the implemented extraction scope.",
+      "occurrences": 0,
+      "schema_version": 1
+    },
+    "inputs": {
+      "contract": {
+        "code_dependencies.py": "c411a33a37c69280027bf68bb0f7c714b2db4193c33b9264c6f95e17d1605623",
+        "curated_rules.py": "e86f97fefd46542b9311b98851fa85b716da6942651cf17882a2be56b864fe1b",
+        "curation.py": "45dcafee9234eb5eaace9683ebe99e1b736b4084cdf1c413b0a299e6e91eedb8",
+        "source.py": "85cd5b63e82b4de6eed68bbeac5781aec8d60a6c1481bc24ded708208e613fb1",
+        "storage.py": "6976ca321eb18a14f95a42241ea602076e79de0e8e56c91ae7e8c475eb6e71c1"
+      },
+      "definitions": {
+        "items-equipment/crude-axe-stack-limit": {
+          "path": "curated/crude-axe-stack-limit.json",
+          "sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+          "topic": "items-equipment"
+        }
+      },
+      "identity_runs": [
+        "7c8c3ea0bb79b0f2ce9cdacfe6e126937fbb3ae45a8a43665dc1f50a2641bad2",
+        "beaadcd697fb1389eb6b3f7f86cf5df476d978f0d85b6747e1284e43ddd5b3e5",
+        "cb5eb289fa6110f124a8b57d0cc316b2d8278c72ec09f6e458dce528bf37d98e",
+        "51b7e4c9d19785d73b315a905f35989eb723ef3b69bcd147f598ee58f18a678f",
+        "0ee6b98abc585e45012dd6278ffc45d2e5d39a7757d106eb859097a77c6a68c5",
+        "5d957f15f72f00519128f17e8a5e0a5955d0348c66ed66783ee4b426777dae2a"
+      ],
+      "receipts": [
+        "8ddc5df06f67acd0c272458061a5e55231776c8b7d10feeac15d6de4c1fdef15",
+        "8a7deaf7c7053d8b8dc199f7282cbde4a3015b2a1e4e3f43b4f81e5f1260cba8",
+        "3118f380f488dff9da4f2c860218670442d886866ea84a132e6456bf0b0627f2",
+        "83abc10c2a07512a8035b91ac076e78c7bea42aad27dcc2dfe5375cea029822a",
+        "73e76c45ad8081477388b712502b957fce4801917244376597df2f9821ca2edc",
+        "5db589782ab49ac997b32058229094e0af91741a23039db93c305529faa25475"
+      ]
+    },
+    "previous_run": "e8157f2342b009e8c9bbbf7d62b0814f3479139f044908330bd43089b92d47c1",
+    "run_id": "e62d8973d404cd7da4d5854764940da2b86c960f4ad7403bf41c9e45beb5250b",
+    "schema_version": 1,
+    "snapshot_inputs": {
+      "build-25548639-0bf00fe33781": "210b9c1636adc202ee972bb52c4f9873616c9f90c77a0cf1395a6fed8e7af6d2",
+      "build-25548639-1080b929da89": "8d1ce22c0650467d8986df84e43e4b5d529fd6538a8294097694e22b4a918563",
+      "build-25548639-8f1263c7d28f": "5bf604faa5304bad34eb0b3706f53a70b05d79bf487ebee87ded90d026dd448c",
+      "build-25548639-a7d9406a5bfb": "f1d42ee034fce7758d2bf06e8fe59fd9887a18cb9b2dfa14cbe72534f516fdfe",
+      "build-25587699-a399133f7ca4": "cba822bfd20153e5f2923663392b7a10719fbdc49d341ed8dd162a19c1d31f03",
+      "build-25606549-f1e8b4a4a8b8": "45db303611a18a74b1306f23dc268f24ffc07d692882c0b32cf46593193a059b"
+    },
+    "snapshots": {
+      "build-25548639-0bf00fe33781": {
+        "items-equipment/crude-axe-stack-limit": {
+          "authored_source": {
+            "path": "curated/crude-axe-stack-limit.json",
+            "sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+            "topic": "items-equipment"
+          },
+          "checks": [
+            {
+              "entity": "e-045871a35c62b6aa04edaddb21311d64",
+              "evidence": [
+                {
+                  "fields": [
+                    "MaxStack",
+                    "_BaseMaxDurability",
+                    "_BuySellValue",
+                    "_Can_Repair",
+                    "_Can_Stack",
+                    "_DuraCostPerAttack",
+                    "_LootCountRange",
+                    "_SlotType",
+                    "_Tag",
+                    "_Tags",
+                    "_ammoType",
+                    "_baseBladeHitProb",
+                    "_baseDamage",
+                    "_baseHitDownProb",
+                    "_blockDurability",
+                    "_fireRate",
+                    "_headShotFactor",
+                    "_maxMagCount",
+                    "_noiseDistance"
+                  ],
+                  "git_blob": "ffac0b903da6a3e3be52a9c2c552ee60b5834c7f",
+                  "input_sha256": "6dc42616b6aa10ee8cb4233b0f9a32fbab87893062bcc5b1c5ea53901f36319a",
+                  "object": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#70639105008562756",
+                  "path": "Catalog/views/items.jsonl"
+                },
+                {
+                  "fields": [
+                    "/_Infos/2/_ItemName",
+                    "/_Infos/2/languageType"
+                  ],
+                  "git_blob": "9d5ea79d2c9f53e9485226278ac5c3c890780bcc",
+                  "object": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#8669593743624665058",
+                  "path": "Catalog/objects/bundles/melee_weapon_icon_assets_all.bundle/serialized-0.jsonl"
+                }
+              ],
+              "fact": "stack",
+              "field": "/MaxStack",
+              "result": "passed",
+              "source_id": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#70639105008562756",
+              "value_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+            }
+          ],
+          "claim_key": "items-equipment/crude-axe-stack-limit",
+          "definition_sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+          "entity": "e-045871a35c62b6aa04edaddb21311d64",
+          "last_verified": {
+            "build_id": "25548639",
+            "check_run": "e02a249ca5bb10fad15b862c6fa945c7cccc615ff6c95c789db50c7266f7f1dc",
+            "definition_sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+            "dependencies_sha256": "621bb15a0a319b540feb1ee006d04aa616eaf67a4a58dbad1b57cb5af78fc1a2",
+            "identity_run": "18035d0ec8ccb989e8acaa62068acafc79b47f6990beb5dd8b8b7613580e536a",
+            "snapshot_id": "build-25548639-0bf00fe33781",
+            "text": "Configured maximum stack size: 1."
+          },
+          "reasons": [],
+          "scope": "selected-data",
+          "snapshot_id": "build-25548639-0bf00fe33781",
+          "status": "passed",
+          "text": "Configured maximum stack size: 1.",
+          "title": "Maximum stack configuration",
+          "topic": "items-equipment"
+        }
+      },
+      "build-25548639-1080b929da89": {
+        "items-equipment/crude-axe-stack-limit": {
+          "authored_source": {
+            "path": "curated/crude-axe-stack-limit.json",
+            "sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+            "topic": "items-equipment"
+          },
+          "checks": [
+            {
+              "entity": "e-045871a35c62b6aa04edaddb21311d64",
+              "evidence": [
+                {
+                  "fields": [
+                    "MaxStack",
+                    "_BaseMaxDurability",
+                    "_BuySellValue",
+                    "_Can_Repair",
+                    "_Can_Stack",
+                    "_DuraCostPerAttack",
+                    "_LootCountRange",
+                    "_SlotType",
+                    "_Tag",
+                    "_Tags",
+                    "_ammoType",
+                    "_baseBladeHitProb",
+                    "_baseDamage",
+                    "_baseHitDownProb",
+                    "_blockDurability",
+                    "_fireRate",
+                    "_headShotFactor",
+                    "_maxMagCount",
+                    "_noiseDistance"
+                  ],
+                  "git_blob": "ffac0b903da6a3e3be52a9c2c552ee60b5834c7f",
+                  "input_sha256": "6dc42616b6aa10ee8cb4233b0f9a32fbab87893062bcc5b1c5ea53901f36319a",
+                  "object": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#70639105008562756",
+                  "path": "Catalog/views/items.jsonl"
+                },
+                {
+                  "fields": [
+                    "/_Infos/2/_ItemName",
+                    "/_Infos/2/languageType"
+                  ],
+                  "git_blob": "9d5ea79d2c9f53e9485226278ac5c3c890780bcc",
+                  "input_sha256": "cff1f7fcbd122c0113f668ab9772f7682f55013b862d5101f2f0c747a61ae7b7",
+                  "object": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#8669593743624665058",
+                  "path": "Catalog/objects/bundles/melee_weapon_icon_assets_all.bundle/serialized-0.jsonl"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "member": "_Can_Repair",
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "member": "_Can_Stack",
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "member": "_SlotType",
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "line": 32,
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info.Slot_Type"
+                }
+              ],
+              "fact": "stack",
+              "field": "/MaxStack",
+              "result": "passed",
+              "source_id": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#70639105008562756",
+              "value_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+            }
+          ],
+          "claim_key": "items-equipment/crude-axe-stack-limit",
+          "definition_sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+          "entity": "e-045871a35c62b6aa04edaddb21311d64",
+          "last_verified": {
+            "build_id": "25548639",
+            "check_run": "e8157f2342b009e8c9bbbf7d62b0814f3479139f044908330bd43089b92d47c1",
+            "definition_sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+            "dependencies_sha256": "3231a43687f3c5d3e6eab077aafc4dc188b5ec64939e59bb06664db7085e0820",
+            "identity_run": "ec92c7f62b105018cc6be206c11c7bad3d467cf3499c6432eb1e069f78e7a1c9",
+            "snapshot_id": "build-25548639-1080b929da89",
+            "text": "Configured maximum stack size: 1."
+          },
+          "reasons": [],
+          "scope": "selected-data",
+          "snapshot_id": "build-25548639-1080b929da89",
+          "status": "passed",
+          "text": "Configured maximum stack size: 1.",
+          "title": "Maximum stack configuration",
+          "topic": "items-equipment"
+        }
+      },
+      "build-25548639-8f1263c7d28f": {},
+      "build-25548639-a7d9406a5bfb": {},
+      "build-25587699-a399133f7ca4": {
+        "items-equipment/crude-axe-stack-limit": {
+          "authored_source": {
+            "path": "curated/crude-axe-stack-limit.json",
+            "sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+            "topic": "items-equipment"
+          },
+          "checks": [
+            {
+              "entity": "e-045871a35c62b6aa04edaddb21311d64",
+              "evidence": [
+                {
+                  "fields": [
+                    "MaxStack",
+                    "_BaseMaxDurability",
+                    "_BuySellValue",
+                    "_Can_Repair",
+                    "_Can_Stack",
+                    "_DuraCostPerAttack",
+                    "_LootCountRange",
+                    "_SlotType",
+                    "_Tag",
+                    "_Tags",
+                    "_ammoType",
+                    "_baseBladeHitProb",
+                    "_baseDamage",
+                    "_baseHitDownProb",
+                    "_blockDurability",
+                    "_fireRate",
+                    "_headShotFactor",
+                    "_maxMagCount",
+                    "_noiseDistance"
+                  ],
+                  "git_blob": "ffac0b903da6a3e3be52a9c2c552ee60b5834c7f",
+                  "input_sha256": "6dc42616b6aa10ee8cb4233b0f9a32fbab87893062bcc5b1c5ea53901f36319a",
+                  "object": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#70639105008562756",
+                  "path": "Catalog/views/items.jsonl"
+                },
+                {
+                  "fields": [
+                    "/_Infos/2/_ItemName",
+                    "/_Infos/2/languageType"
+                  ],
+                  "git_blob": "9d5ea79d2c9f53e9485226278ac5c3c890780bcc",
+                  "object": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#8669593743624665058",
+                  "path": "Catalog/objects/bundles/melee_weapon_icon_assets_all.bundle/serialized-0.jsonl"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "member": "_Can_Repair",
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "member": "_Can_Stack",
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "member": "_SlotType",
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "line": 32,
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info.Slot_Type"
+                }
+              ],
+              "fact": "stack",
+              "field": "/MaxStack",
+              "result": "passed",
+              "source_id": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#70639105008562756",
+              "value_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+            }
+          ],
+          "claim_key": "items-equipment/crude-axe-stack-limit",
+          "definition_sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+          "entity": "e-045871a35c62b6aa04edaddb21311d64",
+          "last_verified": {
+            "build_id": "25587699",
+            "check_run": "e8157f2342b009e8c9bbbf7d62b0814f3479139f044908330bd43089b92d47c1",
+            "definition_sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+            "dependencies_sha256": "f46bcf762a41d51f38e9d61dadbbcbbe9ca27576f04434569ba2f8094da2bf12",
+            "identity_run": "3e1a9c3e28254e28d37010c955af3af42259f7cc445ba0ccb26ac969ab4ff0e4",
+            "snapshot_id": "build-25587699-a399133f7ca4",
+            "text": "Configured maximum stack size: 1."
+          },
+          "reasons": [],
+          "scope": "selected-data",
+          "snapshot_id": "build-25587699-a399133f7ca4",
+          "status": "passed",
+          "text": "Configured maximum stack size: 1.",
+          "title": "Maximum stack configuration",
+          "topic": "items-equipment"
+        }
+      },
+      "build-25606549-f1e8b4a4a8b8": {
+        "items-equipment/crude-axe-stack-limit": {
+          "authored_source": {
+            "path": "curated/crude-axe-stack-limit.json",
+            "sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+            "topic": "items-equipment"
+          },
+          "checks": [
+            {
+              "entity": "e-045871a35c62b6aa04edaddb21311d64",
+              "evidence": [
+                {
+                  "fields": [
+                    "MaxStack",
+                    "_BaseMaxDurability",
+                    "_BuySellValue",
+                    "_Can_Repair",
+                    "_Can_Stack",
+                    "_DuraCostPerAttack",
+                    "_LootCountRange",
+                    "_SlotType",
+                    "_Tag",
+                    "_Tags",
+                    "_ammoType",
+                    "_baseBladeHitProb",
+                    "_baseDamage",
+                    "_baseHitDownProb",
+                    "_blockDurability",
+                    "_fireRate",
+                    "_headShotFactor",
+                    "_maxMagCount",
+                    "_noiseDistance"
+                  ],
+                  "git_blob": "ffac0b903da6a3e3be52a9c2c552ee60b5834c7f",
+                  "input_sha256": "6dc42616b6aa10ee8cb4233b0f9a32fbab87893062bcc5b1c5ea53901f36319a",
+                  "object": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#70639105008562756",
+                  "path": "Catalog/views/items.jsonl"
+                },
+                {
+                  "fields": [
+                    "/_Infos/2/_ItemName",
+                    "/_Infos/2/languageType"
+                  ],
+                  "git_blob": "9d5ea79d2c9f53e9485226278ac5c3c890780bcc",
+                  "object": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#8669593743624665058",
+                  "path": "Catalog/objects/bundles/melee_weapon_icon_assets_all.bundle/serialized-0.jsonl"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "member": "_Can_Repair",
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "member": "_Can_Stack",
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "member": "_SlotType",
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info"
+                },
+                {
+                  "assembly": "Item_Info",
+                  "git_blob": "458e0a297b9280beaaf382b89a7ba5ee3ca8df56",
+                  "input_sha256": "84a126399460ec9736b7e27c40d41659f910fb4be5061f19f571ee2afeea583a",
+                  "line": 32,
+                  "path": "Item_Info/Item_Info.decompiled.cs",
+                  "type": "Icon_Info.Slot_Type"
+                }
+              ],
+              "fact": "stack",
+              "field": "/MaxStack",
+              "result": "passed",
+              "source_id": "bundles/melee_weapon_icon_assets_all.bundle::serialized-0#70639105008562756",
+              "value_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+            }
+          ],
+          "claim_key": "items-equipment/crude-axe-stack-limit",
+          "definition_sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+          "entity": "e-045871a35c62b6aa04edaddb21311d64",
+          "last_verified": {
+            "build_id": "25606549",
+            "check_run": "e62d8973d404cd7da4d5854764940da2b86c960f4ad7403bf41c9e45beb5250b",
+            "definition_sha256": "de03fbc9e7113eaf22eb8b37941369e23d50e257269875def587ce22fe87eb66",
+            "dependencies_sha256": "f46bcf762a41d51f38e9d61dadbbcbbe9ca27576f04434569ba2f8094da2bf12",
+            "identity_run": "6190dccf656d59a6d8937a96999d3e2aaf7926a2b1c42ed59f16af65932c3bc1",
+            "snapshot_id": "build-25606549-f1e8b4a4a8b8",
+            "text": "Configured maximum stack size: 1."
+          },
+          "reasons": [],
+          "scope": "selected-data",
+          "snapshot_id": "build-25606549-f1e8b4a4a8b8",
+          "status": "passed",
+          "text": "Configured maximum stack size: 1.",
+          "title": "Maximum stack configuration",
+          "topic": "items-equipment"
+        }
+      }
+    }
+  },
+  "sha256": "83c7dcca5f679881bc4ed8555756f2277d5f615254a0ce3659f95ed078b38092"
+}

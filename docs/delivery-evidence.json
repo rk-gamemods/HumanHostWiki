@@ -1,0 +1,349 @@
+{
+  "status": "current-capture-delivered",
+  "public_name": "Unofficial Game Data Wiki for Human Host",
+  "disclaimer": "An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.",
+  "command": "pwsh -NoProfile -File tools/Decompile-GameCode.ps1",
+  "command_directory": "HumanHostMods",
+  "public_url": "https://rk-gamemods.github.io/HumanHost-Wiki/",
+  "snapshot": "build-25548639-1080b929da89",
+  "source_commit": "1080b929da89375e2c09b6a80abc28f343e9d9a5",
+  "pipeline": "cc2e8ff11bf9e0fa2d6408a4fcae2356d096928474c7b50dd3c266669dc4a533",
+  "release": "53307f1c57a80b3a7bce5441eb1dab973ea18481d70e96655c4fd7c0e0284d1d",
+  "implementation_commit": "52d8e3b89b9ae0fcaaf03dfa075eac67589a787c",
+  "parent_commit": "70e4501fe7f4ef37134701734578b8f0886259f4",
+  "original_reconciliation": {
+    "content_groups": 193,
+    "article_issues": 5,
+    "status": "passed",
+    "ledger": "baseline-inventory-reconciliation.json",
+    "selected_sha256": "d588d687a3e96b6dda41a906cef80f25df8cf4108da06723c8115f3fc2e94a4c",
+    "unresolved_groups": 0,
+    "unresolved_article_issues": 0
+  },
+  "completed": {
+    "availability": {
+      "observation_id": "7da16391f63835e26803a39a0acebe5c8708c055c7dcf3d1f5b81c83717c05fa",
+      "status": "observed"
+    },
+    "external-articles": {
+      "counts": {
+        "populated": 22
+      },
+      "inventory_complete": true,
+      "observation_id": "1e2d019224551a7b6ea2f100f21a8771f81f296f47623f3adde9e6d098ea8df3",
+      "unresolved": []
+    },
+    "identity": {
+      "counts": {
+        "changed": 7565,
+        "new": 109,
+        "unchanged": 17798
+      },
+      "run_id": "d3c4b0548c4bafad3c7a0be65406bd4d92d40589d074e57dadbd4859b699bb85"
+    },
+    "normalize": {
+      "counts": {
+        "ai-rule": 251,
+        "asset": 2801,
+        "biome": 22,
+        "building-piece": 4189,
+        "combat-rule": 293,
+        "component": 451,
+        "configuration": 4499,
+        "construction-rule": 8316,
+        "creature": 74,
+        "damage-type": 29,
+        "equipment": 385,
+        "item": 944,
+        "loot-source": 882,
+        "loot-table": 61,
+        "loot-tag": 29,
+        "population": 2,
+        "processing-rule": 36,
+        "recipe": 795,
+        "resource-distribution": 815,
+        "skill": 70,
+        "spawn-rule": 22,
+        "status-effect": 36,
+        "survival-rule": 159,
+        "time-rule": 2,
+        "vehicle": 2,
+        "vehicle-rule": 14,
+        "weather": 54,
+        "workbench": 11,
+        "world-rule": 228
+      },
+      "run_id": "a1f8021bbb298769de1121f7fc9fef229717dd65f05fe98c8e5f6552d1713118"
+    },
+    "project": {
+      "bytes": 259876294,
+      "candidate_id": "81ccfe3d8fac58edf157383e218b6b6399bf032175bfc6a3d758e096280948ca"
+    },
+    "publish": {
+      "hub": "https://rk-gamemods.github.io/HumanHost-Wiki/",
+      "status": "published"
+    },
+    "register": {
+      "snapshot_id": "build-25548639-1080b929da89",
+      "source_commit": "1080b929da89375e2c09b6a80abc28f343e9d9a5"
+    },
+    "release": {
+      "publication": "not-published",
+      "release_id": "53307f1c57a80b3a7bce5441eb1dab973ea18481d70e96655c4fd7c0e0284d1d"
+    },
+    "verify": {
+      "gameplay_verified": false,
+      "scope": "stage-artifacts-and-stable-source"
+    }
+  },
+  "remaining": [],
+  "source_audit_reuse": "Normalization and identity run IDs are identical to the audited coded-value release.",
+  "audits": {
+    "source": {
+      "snapshot_id": "build-25548639-1080b929da89",
+      "observations_checked": 22111,
+      "assertions": 365969,
+      "coded_values": {
+        "boolean_occurrences": 33978,
+        "enum_occurrences": 24203,
+        "ammunition_targets": 42,
+        "enum_value_entries": 109,
+        "enum_fields": 31,
+        "status": "passed"
+      },
+      "sampling": "all",
+      "prefab_identities_checked": 2725,
+      "kinds": [
+        "ai-rule",
+        "biome",
+        "building-piece",
+        "combat-rule",
+        "configuration",
+        "construction-rule",
+        "creature",
+        "damage-type",
+        "equipment",
+        "item",
+        "loot-source",
+        "loot-table",
+        "loot-tag",
+        "population",
+        "processing-rule",
+        "recipe",
+        "resource-distribution",
+        "skill",
+        "spawn-rule",
+        "status-effect",
+        "survival-rule",
+        "time-rule",
+        "vehicle",
+        "vehicle-rule",
+        "weather",
+        "workbench",
+        "world-rule"
+      ],
+      "status": "passed",
+      "type_summaries_checked": 527,
+      "scope": "Selected serialized facts, English names and loot eligibility; not runtime verification"
+    },
+    "history": {
+      "run_id": "d3c4b0548c4bafad3c7a0be65406bd4d92d40589d074e57dadbd4859b699bb85",
+      "snapshot_id": "build-25548639-1080b929da89",
+      "observations_checked": 25472,
+      "assertions": 449827,
+      "status": "passed",
+      "scope": "All selected observations, semantic hashes, canonical edge targets and provenance; not runtime verification"
+    },
+    "reader": {
+      "candidate_id": "81ccfe3d8fac58edf157383e218b6b6399bf032175bfc6a3d758e096280948ca",
+      "observations_checked": 67127,
+      "assertions": 604151,
+      "files": 3019,
+      "output_bytes": 259876294,
+      "largest_pack_bytes": 514644,
+      "status": "passed",
+      "scope": "Complete selected model conservation and reverse-edge equality; not runtime gameplay verification"
+    },
+    "release": {
+      "status": "passed",
+      "release_id": "53307f1c57a80b3a7bce5441eb1dab973ea18481d70e96655c4fd7c0e0284d1d",
+      "repositories": 13,
+      "owned_files": 5990,
+      "owned_bytes": 547159984,
+      "candidate_files": 3006,
+      "historical_configs": 299,
+      "ownership_pages": 96,
+      "scope": "Committed bytes, candidate conservation and retained release reachability; not gameplay or deployment verification"
+    }
+  },
+  "unchanged_repeat": {
+    "status": "passed",
+    "elapsed_seconds": 66.601,
+    "source_commit": "1080b929da89375e2c09b6a80abc28f343e9d9a5",
+    "repositories": 13,
+    "stable_files": 6111,
+    "pipeline": "cc2e8ff11bf9e0fa2d6408a4fcae2356d096928474c7b50dd3c266669dc4a533",
+    "release": "53307f1c57a80b3a7bce5441eb1dab973ea18481d70e96655c4fd7c0e0284d1d",
+    "remaining": [],
+    "exception_groups": 0,
+    "article_checks": {
+      "populated": 22
+    }
+  },
+  "brand_remote_descriptions": {
+    "status": "passed",
+    "repositories": [
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki",
+        "repository_id": 1390201328,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Start here. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Items",
+        "repository_id": 1390201401,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Items and equipment. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Loot",
+        "repository_id": 1390201469,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Loot and acquisition. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Crafting",
+        "repository_id": 1390201529,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Crafting and processing. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Combat",
+        "repository_id": 1390201597,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Combat. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Creatures",
+        "repository_id": 1390201682,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Creatures and AI. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Spawning",
+        "repository_id": 1390201756,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Spawning and populations. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Survival",
+        "repository_id": 1390201844,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Skills and survival. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Biomes",
+        "repository_id": 1390201909,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Biomes and resources. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Construction",
+        "repository_id": 1390201972,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Construction. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Vehicles",
+        "repository_id": 1390202048,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Vehicles. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-World",
+        "repository_id": 1390202118,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: World systems. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      },
+      {
+        "repository": "rk-gamemods/HumanHost-Wiki-Technical",
+        "repository_id": 1390202179,
+        "changed": true,
+        "description": "Unofficial Game Data Wiki for Human Host: Technical reference. An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+      }
+    ]
+  },
+  "public_repository_commits": {
+    "hub": {
+      "repository": "HumanHost-Wiki",
+      "commit": "71796677adbd12e1694b02886dc102ce55262632"
+    },
+    "items-equipment": {
+      "repository": "HumanHost-Wiki-Items",
+      "commit": "87097a5a4f0226eb4f785a11d17c5889b9e4edb7"
+    },
+    "loot-acquisition": {
+      "repository": "HumanHost-Wiki-Loot",
+      "commit": "296ec3f5f748bb889ff6e8d6a4537ca433a1cb82"
+    },
+    "crafting-processing": {
+      "repository": "HumanHost-Wiki-Crafting",
+      "commit": "700aba801826485554c2ecb6d312ee7737383c02"
+    },
+    "combat": {
+      "repository": "HumanHost-Wiki-Combat",
+      "commit": "3dd3ba9c61a9853b1bbed2da38f8ee29f161678d"
+    },
+    "creatures-ai": {
+      "repository": "HumanHost-Wiki-Creatures",
+      "commit": "70c017dff9ce3ab1f013d290327d811e39ffce9a"
+    },
+    "spawning-populations": {
+      "repository": "HumanHost-Wiki-Spawning",
+      "commit": "01c31ee35c504a6c5c1746c122a96f03a3486025"
+    },
+    "skills-survival": {
+      "repository": "HumanHost-Wiki-Survival",
+      "commit": "60b78aade540c5af73cbfac862518215bb1e7781"
+    },
+    "biomes-resources": {
+      "repository": "HumanHost-Wiki-Biomes",
+      "commit": "565845b67b56e734d2065ac40053889a7274179a"
+    },
+    "construction": {
+      "repository": "HumanHost-Wiki-Construction",
+      "commit": "bb4eb934afc4f3d389b0af3820e06112b21ef17d"
+    },
+    "vehicles": {
+      "repository": "HumanHost-Wiki-Vehicles",
+      "commit": "3c47430573c089ff9241dbbecf3cc72d94411563"
+    },
+    "world-systems": {
+      "repository": "HumanHost-Wiki-World",
+      "commit": "2eaafc24d616b6df3eec8d40a0b36713c59f6bc8"
+    },
+    "technical-reference": {
+      "repository": "HumanHost-Wiki-Technical",
+      "commit": "6166108c755520ca17b1d8dd07725b9e20e79c39"
+    }
+  },
+  "logs": [
+    {
+      "path": ".local/delivery-brand-decompile.log",
+      "sha256": "c41de922cc3c775b120b6870f531cd737ee6214c785660940866e8f9caceafa7"
+    },
+    {
+      "path": ".local/delivery-final-normal-repeat.log",
+      "sha256": "6ff24ec9a181d64add613599139a6aad0ec655ea2b45135ec8dae8638f19da89"
+    },
+    {
+      "path": "HumanHostWiki/.local/delivery-final-brand-tests.log",
+      "sha256": "71c64a7997bdbef1ed91763394e3ebe9651f4ca0eece1426e6985013021a2536"
+    }
+  ],
+  "evidence_limitations": [
+    "Only one distinct real Steam build has a complete normalized catalog; two-build change behavior is fixture-proven.",
+    "Runtime gameplay verification remains unknown; extraction does not establish runtime behavior.",
+    "Automatic capacity overflow is proven with real-Git fixtures and a deterministic host; live overflow was not forced."
+  ]
+}

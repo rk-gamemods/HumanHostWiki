@@ -1,13 +1,32 @@
 # Local workspace workflow
 
 Run these commands from the `HumanHostWiki` umbrella directory. Python 3.11+
-and Git are the only foundation dependencies. No packages are installed.
+and Git are the foundation dependencies. Publication also uses the authenticated
+GitHub CLI. Captured enum extraction and optional named C# checks use the pinned
+packages installed once with `py -3 -m pip install -r requirements-source.txt`.
+See [selected extraction](EXTRACTION.md) and [authored checks](CURATED.md).
 
-These are current foundation/development commands. The
-[target update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
-is unattended: a configured runner detects changes and invokes capture through
-publication, including capacity management. That runner is not implemented yet.
-The manual examples below are not a maintenance requirement for the completed wiki.
+The public [Unofficial Game Data Wiki for Human Host](https://rk-gamemods.github.io/HumanHost-Wiki/) and
+[hub repository](https://github.com/rk-gamemods/HumanHost-Wiki) are live.
+The [delivery acceptance](ACCEPTANCE.md) lists implemented requirements and
+finite evidence limitations. The
+[normal update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
+starts when an operator invokes the decompile command and completes supported work
+through publication, including capacity management, without intermediate input.
+The entrypoint now runs capture, registration, selected extraction, identity and
+the validated reader, coordinated local Git release and configured Pages publication. The
+[runner contract](PIPELINE.md) defines receipts and recovery. At completion the operator presents
+unresolved wiki exceptions and requests direction; execution failures are separate.
+The manual examples below are foundation diagnostics, not extra maintenance steps.
+
+The normal update also refreshes [external article checks](EXTERNAL_LINKS.md),
+reuses unchanged revisions and reports unresolved article checks at the end.
+The linked acceptance command is an isolated development diagnostic.
+
+For Steam build observations, run `pwsh -NoProfile -File tools/Install-SteamMetadataClient.ps1`
+once. The normal update then checks the captured branch using the configured cache
+and reports unavailable checks separately from content exceptions. See
+[availability setup and evidence](AVAILABILITY.md). This never installs a game update.
 
 ## Inspect and validate
 
@@ -22,8 +41,9 @@ py -3 wiki.py map --check
 settings, pipeline order and any existing checkout identities. Absent topic
 repositories are reported as absent. Dirty repositories are reported as dirty;
 the command does not commit, clean or reset them. Unknown existing directories
-fail validation rather than being adopted. `plan` explicitly distinguishes
-implemented stages from later gameplay generation and publication work.
+fail validation rather than being adopted. `plan` describes implemented stages
+and the scope of their checks. Run reports list detected content issues and actual
+execution failures; roadmap items do not keep a successful run open.
 
 Edit `project.json` to change repository declarations, then regenerate the map:
 
@@ -56,8 +76,8 @@ the umbrella detect checkout drift without pretending that a set of seed commits
 is a verified gameplay release. Both commands refuse dirty or missing children.
 
 Children are ignored by the umbrella. The umbrella is ignored by HumanHostMods.
-Do not use `git add -f` to override either boundary. Future release coordination
-will pin child commits in a release manifest; Git submodules are not used.
+Do not use `git add -f` to override either boundary. The release coordinator
+pins child commits in a release manifest; Git submodules are not used.
 
 ## Register an existing source snapshot
 
@@ -73,16 +93,153 @@ remote, dirty snapshot, wrong game or unsupported catalog schema. The resulting
 small `snapshots/<snapshot-id>.json` is an **input receipt**, not a wiki release.
 An unchanged repeat leaves the receipt bytes unchanged.
 
-To capture newly installed game files, use the parent's existing command first:
+To capture newly installed game files and run supported wiki work:
 
 ```powershell
 pwsh -NoProfile -File ../tools/Decompile-GameCode.ps1
-py -3 wiki.py refresh
 ```
 
-That separate capture may be expensive and follows the parent's recovery rules.
-The wiki command never invokes it implicitly. The current source generator does
-not provide the game's display version, so the receipt records it as unknown.
+Capture may be expensive and follows the parent's recovery rules. The wrapper
+also invokes wiki processing when capture is unchanged. The wiki commands never
+invoke capture implicitly. To rerun only wiki processing against the existing
+capture, use `py -3 wiki.py update --operator-report`. New captures preserve the
+[application version](GAME_VERSION.md); older captures without evidence remain unknown.
+
+## Extract selected facts
+
+```powershell
+py -3 wiki.py extract
+```
+
+This development command registers the pinned existing source and extracts the
+implemented contracts across the registered topics. It reads selected records,
+resolves English item/skill names and records exact field evidence. Media, unrelated fields and raw code
+are excluded. New fields produce grouped wiki exceptions while known fields and
+independent records continue. Missing required input files or malformed records
+are execution failures, not successful content exceptions.
+
+The JSON result names the content-addressed records and exception report under
+`.local/extractions/`. It reports partial coverage by topic and does not claim
+a wiki release or runtime verification. The last-success pointer advances only
+after all output hashes validate. Rerunning validates and reuses complete output;
+modified output is refused. An unrelated source commit reuses facts when every
+selected dependency is unchanged. Previously absent dependencies are rechecked.
+
+See [extraction contracts](EXTRACTION.md) for extension points and
+[acceptance checklist](ACCEPTANCE.md) for finite delivery evidence.
+
+Check selected real-source facts independently and measure an isolated fresh run:
+
+```powershell
+py -3 tools/check_extraction.py
+py -3 tools/benchmark_extraction.py
+```
+
+The benchmark retains its generated cache under `.local/benchmarks/`; it reads the
+existing source in place. It verifies unchanged output bytes and pointer timestamps.
+Its peak-memory figure covers the Python process and excludes the Git subprocess.
+
+## Reconcile selected identities
+
+```powershell
+py -3 wiki.py normalize
+py -3 tools/check_history.py
+py -3 tools/benchmark_extraction.py --identity
+```
+
+`normalize` registers and extracts the current source, then reconciles selected
+observations with the durable ledger under `identity/`. It preserves ambiguous
+matches and logs unresolved relationships while supported records complete.
+The independent checker verifies observation conservation, facts, evidence,
+semantic hashes and canonical target references against the pinned source.
+
+Immutable run/state files and `identity/latest.json` are durable decision history.
+The generated `.local/history/` model is rebuildable staging. Missing staging is
+reconstructed from frozen decisions; modified staging is preserved and refused.
+A repeated older request cannot rewind a later decision chain. For reviewed
+corrections and rule ownership, see [identity contracts](IDENTITY.md).
+
+This command currently processes the current source commit. Older captured game
+builds without a catalog require explicit uncaptured status; current asset facts
+cannot establish what those builds contained. Available real catalogs cover one
+Steam build; two-build fixture evidence is recorded in [ACCEPTANCE.md](ACCEPTANCE.md).
+No identity run grants gameplay verification.
+
+## Build and inspect the selected-fact reader
+
+```powershell
+py -3 wiki.py reader
+py -3 tools/check_reader.py
+py -3 tools/benchmark_reader.py
+py -3 tools/serve_reader.py
+```
+
+The reader consumes the latest accepted identity run for each normalized snapshot
+in the decision chain. It stages a complete candidate under `.local/readers/`,
+validates ownership, semantic hashes, search membership and cross-topic targets,
+then updates `.local/reader-latest.json`. Existing files must match recorded hashes;
+unknown or changed files are preserved and refused. A repeat reuses the candidate.
+
+The local server binds only `127.0.0.1`, prints its chosen URL and runs until stopped
+with Ctrl+C. It pins the candidate selected at startup. Restart it after rebuilding
+to inspect a newer candidate. Optional `--candidate <id>` selects retained output;
+`--port <number>` chooses the port. Entry routes use the same `404.html` fallback
+contract expected on Pages. Group pages are ordinary static files.
+
+For optional authored explanations, follow [CURATED.md](CURATED.md). Definitions
+belong to the topic repository; the normal update checks them, retains their last
+successful checks and reports unresolved explanations after supported work finishes.
+
+The browser supports topic search, entry evidence, reverse relationships and a
+captured-version selector. A missing historical entry is explicit; it never
+substitutes current data. The real dataset currently has one normalized game build.
+Two-build navigation and removal behavior have also been exercised with fixtures.
+`tools/check_reader.py` independently compares every selected model with emitted
+facts, provenance, search records and reverse links. It does not import the renderer.
+
+The benchmark retains its isolated candidate under `.local/rb-*/`, reads existing
+selected models in place and checks byte/pointer stability. Its reported memory
+covers the Python process. Reader candidates do not create child commits, remote
+repositories, verification badges or wiki releases. See [reader contracts](READER.md).
+
+## Inspect the coordinated Git release
+
+For the coordinated Git release, `wiki.py update` commits validated generated
+content to every child and updates the checkout lock automatically. Inspect the
+release manifest under `releases/` and run `py -3 tools/serve_release.py` to preview
+the committed content locally. The preview substitutes local origins; it does not
+deploy the configured URLs. [RELEASE.md](RELEASE.md) owns recovery and retention.
+
+```powershell
+py -3 tools/check_release.py
+py -3 tools/benchmark_release.py
+py -3 tools/serve_release.py
+```
+
+The independent checker compares committed blobs with the candidate and verifies
+that retained release indexes, packs and runtimes remain reachable. The benchmark
+runs an unchanged `wiki.py update` and checks child commits, output bytes and
+timestamps. It requires an already completed release for the current inputs.
+
+The normal update applies [storage capacity allocation](CAPACITY.md) before
+committing and publishing. New physical repositories retain their logical topic
+owner, appear in the release manifest and checkout lock, and publish before their
+dependent entrypoints. Optional byte limits and reserves live in
+`project.json.capacity`; no separate allocation command is needed for maintenance.
+Oversized snapshot pack-reference lists, release capture lists and ownership manifests
+split automatically. Full entrypoints roll into new physical repositories while
+preserving the original topic URLs and historical files. Indivisible control records
+remain unfinished and fail before promotion if their budgets are exceeded. Live
+GitHub overflow acceptance is still pending; forced-threshold tests use a host adapter.
+
+## Publish or resume a release
+
+Publication is enabled in `project.json` and runs during `wiki.py update`.
+`py -3 wiki.py publish` resumes only the latest local release without recapturing
+game inputs. It provisions configured repositories, audits outgoing history,
+verifies topic deployments and advances the hub last. Completed publication
+receipts live in `publications/`; incomplete work lives in `.local/publication/`.
+See [publication recovery](PUBLICATION.md) for interrupted pushes and hub rollback.
 
 ## Build the architecture preview
 
@@ -105,6 +262,10 @@ directory so earlier previews remain available.
 
 ## Failure and recovery
 
+- **Pipeline execution failure:** inspect the reported `.local/pipeline/failures/`
+  receipt. It lists completed stages and the failing stage separately from content
+  exceptions. Repair the execution problem and rerun the same command. The prior
+  pipeline success and prepared stage artifacts remain available.
 - **Another writer:** the OS lock releases when the process exits. Do not delete
   the persistent lock file to bypass a live writer.
 - **Dirty source/child:** inspect its Git status and resolve useful work in that
@@ -120,9 +281,12 @@ directory so earlier previews remain available.
   evidence. Explicitly remove only the verified generated output after checking
   its absolute path; then rebuild. File protection is not bypassed.
 
-There is no automatic garbage collection. Old local previews can be removed
-after confirming none is selected or in use. Published historical revisions and
-source snapshots require a separate retention decision.
+The normal update removes verified duplicate committed release payloads and shares
+identical immutable reader files under the [retention contract](RETENTION.md).
+Reader paths remain available for previews and recovery. Never edit candidate files
+in place: they can share storage. Other old local previews can be removed after
+confirming none is selected or in use. Published historical revisions and source
+snapshots require a separate retention decision.
 
 ## Tests and scope of proof
 
@@ -140,8 +304,14 @@ no-op builds, writer exclusion and failure before preview promotion. They use
 small synthetic local Git repositories. A real input registration and repeated
 preview build complement those tests during initial setup.
 
-They do not establish correctness of unimplemented gameplay adapters, historical
-identity matching or remote publication. The ADR lists their acceptance gates.
+Identity tests cover source-ID changes, renames, reused IDs, split/merge ambiguity,
+reviewed mappings, revision reuse, removals, capture gaps and interrupted writes.
+Publication tests cover independent topic completion, interrupted pushes, hub
+rollback, retained history and rejection of changed remote refs. Live publication
+and browser evidence are recorded in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+These checks prove their declared scope. Real cross-build identity continuity
+requires another complete game catalog; fixtures do not substitute for that
+evidence. The [acceptance checklist](ACCEPTANCE.md) records the disposition.
 
 Git for Windows can mark synthetic test object files read-only. Test cleanup uses
 ordinary removal and reports any protected fixtures retained under

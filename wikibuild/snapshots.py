@@ -2,11 +2,41 @@
 
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 RECEIPT_ID = re.compile(r"^build-[0-9]+-[0-9a-f]{12}$")
+
+
+def game_version(source, revision, metadata):
+    """Validate the selected field against the pinned installed-input inventory."""
+    if not isinstance(metadata, dict) or metadata.get("schema") != 1:
+        raise ContractError("Unsupported game-version evidence schema")
+    value, status, evidence = metadata.get("version"), metadata.get("status"), metadata.get("evidence")
+    if status == "unknown":
+        if value is not None or evidence != [] or metadata.get("reason") not in {
+                "missing-player-settings", "ambiguous-player-settings", "missing-or-invalid-bundle-version"}:
+            raise ContractError("Invalid unknown game-version evidence")
+        return {"game_version": None, "game_version_status": "unknown", "game_version_reason": metadata["reason"]}
+    if status != "recorded" or not isinstance(value, str) or not value or len(value) > 128 or value.strip() != value or not value.isprintable():
+        raise ContractError("Invalid recorded application version")
+    if not isinstance(evidence, list) or len(evidence) != 1 or not isinstance(evidence[0], dict):
+        raise ContractError("Game version requires one PlayerSettings source")
+    item = evidence[0]
+    path = item.get("source_path", "")
+    if (set(item) != {"source_path", "source_sha256", "object_id", "field"}
+            or not isinstance(path, str) or not path.startswith("Human Host_Data/")
+            or ".." in PurePosixPath(path).parts or "\\" in path or ":" in path
+            or item.get("field") != "/bundleVersion"
+            or not isinstance(item.get("object_id"), str) or not re.fullmatch(r"[^\r\n]+#-?[0-9]+", item["object_id"])
+            or not isinstance(item.get("source_sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", item["source_sha256"])):
+        raise ContractError("Invalid PlayerSettings evidence locator")
+    matches = [row for row in map(json.loads, git(source, "show", f"{revision}:Catalog/inputs.jsonl").splitlines())
+               if row.get("path") == path]
+    if len(matches) != 1 or matches[0].get("sha256") != item["source_sha256"]:
+        raise ContractError("Game-version evidence differs from pinned input inventory")
+    return {"game_version": value, "game_version_status": "recorded", "game_version_evidence": evidence}
 
 
 def register(root, manifest, source):
@@ -44,6 +74,11 @@ def register(root, manifest, source):
                "coverage": {"objects": coverage.get("objects"), "decode_gaps": coverage.get("decode_gaps", [])},
                "status": "input-registered", "wiki_verification": "not-performed",
                "latest_available_game_build": None}
+    version_path = "Catalog/game-version.json"
+    if git(source, "ls-tree", "--name-only", revision, "--", version_path):
+        metadata = json.loads(git(source, "show", f"{revision}:{version_path}"))
+        receipt.update(game_version(source, revision, metadata))
+        receipt["catalog_metadata_sha256"][version_path] = digest(json_bytes(metadata))
     if revision != git(source, "rev-parse", "HEAD") or git(source, "status", "--porcelain=v1", "--untracked-files=all"):
         raise ContractError("Source changed during registration; retry with stable inputs")
     output = within(root, f"snapshots/{identity}.json")

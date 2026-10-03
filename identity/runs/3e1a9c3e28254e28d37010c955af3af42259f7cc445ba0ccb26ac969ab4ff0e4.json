@@ -1,0 +1,111 @@
+{
+  "change_origin": "game-input-change",
+  "contract_sha256": "292b10987218c6b056bda5188fb0777d23e2bb24c7125891f24dd35eb69cd1a0",
+  "corrections_sha256": "5d62a235dcc2da9cda53d48b721d214c434e54eb8b580e1bd9e4a31852a2c79f",
+  "counts": {
+    "ambiguous": 36,
+    "new": 36,
+    "unchanged": 27237,
+    "unresolved": 36
+  },
+  "exceptions": {
+    "group_count": 4,
+    "groups": [
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11541"
+        ],
+        "id": "a6b5c4f730de504ef88d815f",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 1,
+        "pattern": "processing-rule",
+        "topic": "crafting-processing"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11537"
+        ],
+        "id": "aad5cbb48745e9f02260c4a9",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 1,
+        "pattern": "processing-rule",
+        "topic": "crafting-processing"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10501",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10584",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10606",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10633",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10636",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10653",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10737",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10819"
+        ],
+        "id": "acfede8773ac3857965dfa14",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 35,
+        "pattern": "equipment",
+        "topic": "items-equipment"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10499",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10582",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10604",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10631",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10634",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10651",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10735",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10817"
+        ],
+        "id": "ed0a9672d4dbaf574d7aa6ad",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 35,
+        "pattern": "equipment",
+        "topic": "items-equipment"
+      }
+    ],
+    "kind": "unresolved-wiki-content",
+    "next_action": "Ask the user how to handle these exceptions after supported work completes.",
+    "occurrences": 72,
+    "schema_version": 1
+  },
+  "extraction_run": "00a219176ace04d37aa5826983c87f3ff5f0d881a3747e06a8fd2b987a0fd2be",
+  "input_identity": {
+    "inventory": "82029b6c2edee60d2f6be85165a379cbbc4f9bb4",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "25587699",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "2797817546341190172",
+          "size": "53522262965"
+        }
+      }
+    }
+  },
+  "models": {
+    "bytes": 111661858,
+    "path": ".local/history/objects/cfa094e54969ba573af3c858562786350ecf3954d8a824719367171d91752fd5.jsonl",
+    "sha256": "cfa094e54969ba573af3c858562786350ecf3954d8a824719367171d91752fd5"
+  },
+  "parent_run": "ec92c7f62b105018cc6be206c11c7bad3d467cf3499c6432eb1e069f78e7a1c9",
+  "request_key": "ed3e3a59cf2127c8ba336738dc3ac6a739c8b220c967080ee11fc6642f6dcb1b",
+  "run_id": "3e1a9c3e28254e28d37010c955af3af42259f7cc445ba0ccb26ac969ab4ff0e4",
+  "schema_version": 1,
+  "snapshot_id": "build-25587699-a399133f7ca4",
+  "source_commit": "a399133f7ca47cc0ddf79ac79dbbf04a700e67b8",
+  "state": {
+    "bytes": 33221168,
+    "path": "identity/states/eccf93ca8ea7574e56f458fb49ddb61fbe9d967d9f9714e0cbe16b28cb312e19.jsonl",
+    "sha256": "eccf93ca8ea7574e56f458fb49ddb61fbe9d967d9f9714e0cbe16b28cb312e19"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}

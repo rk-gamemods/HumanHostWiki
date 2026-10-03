@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "crafting-stations",
+  "title": "Crafting stations",
+  "dek": "Every bench in the game: what it costs to build, where its materials come from, and what it lets you make.",
+  "audience": "A player deciding what to build next.",
+  "sections": [
+    {
+      "id": "overview",
+      "heading": "The benches at a glance",
+      "blocks": [
+        {"type": "table", "query": "benches.overview", "columns": ["Bench", "Recipes", "Build cost"]}
+      ]
+    },
+    {
+      "id": "bench",
+      "repeat": "benches",
+      "heading": "{bench}",
+      "blocks": [
+        {"type": "sentence", "template": "You can build it from {ring} onward. It is crafted {built_at}.", "query": "bench.summary"},
+        {"type": "list", "title": "Build cost", "query": "bench.cost", "item": "{count} × {item}: {how}"},
+        {"type": "checklist", "title": "What it makes", "query": "bench.recipes", "item": "{output}", "group_by": "category", "limit_per_group": 10, "more": "{remaining} more in the crafting index"}
+      ]
+    },
+    {
+      "id": "sources",
+      "heading": "Where this comes from",
+      "blocks": [
+        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id})."}
+      ]
+    }
+  ]
+}

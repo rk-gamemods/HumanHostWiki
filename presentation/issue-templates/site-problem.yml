@@ -1,0 +1,22 @@
+name: The site is broken or hard to use
+description: A page that does not load, a broken link, or something hard to read or find.
+title: "Site problem: "
+labels: ["site"]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: The address of the page, if there is one.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What went wrong
+      placeholder: "The search box does nothing on my phone"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and browser
+      placeholder: "Android phone, Chrome"

@@ -1,0 +1,775 @@
+{
+  "mappings": [
+    {
+      "entity_key": "e-a77cc2c4216dd347530cf826d8c65a84",
+      "observation_key": "e6cdce187a41d9040567a3fb6b315d65",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-00851229ce05c3a4568837d426903444"
+      ]
+    },
+    {
+      "entity_key": "e-d8d21a3bb8ebeaa4affec12d373a8733",
+      "observation_key": "da98416222bf38cb1f91113fbb7d3f37",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-05c52eaa1ff045f8b88bede35e953aba"
+      ]
+    },
+    {
+      "entity_key": "e-8f0122117293045152dbd4ca6fa24b90",
+      "observation_key": "1bcd01d04bed41d3563715dfbb58d3bb",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-091bfbc01b8fe936d18a2a7093fa7681"
+      ]
+    },
+    {
+      "entity_key": "e-1a40582c5c00457e340a9d41617e0874",
+      "observation_key": "3486a1ba09b778c6b391102d6b8b04dc",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-11730f466a220a8bae066365ee88472a"
+      ]
+    },
+    {
+      "entity_key": "e-eb19e47687e79adf14362f74ff527d89",
+      "observation_key": "6ffbe0b860ea5718db575872bd508fd8",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-121a4b17ca1b4070ff00bfae5da8b184"
+      ]
+    },
+    {
+      "entity_key": "e-5c0d58070e04ec1cf970d5d745dfaa5a",
+      "observation_key": "a5254c556d06769c7960fbbacfb8b3e4",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-12745d7f93be1092a3c2c01609161b51"
+      ]
+    },
+    {
+      "entity_key": "e-21c4129d97bec7e94e4e2a39f3fdc682",
+      "observation_key": "3c739cf0722190c3bee6ed14b4c4113b",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-1845d6bf1dfc211994ad4f48829f6155"
+      ]
+    },
+    {
+      "entity_key": "e-75c7b8fb129a4709f1786db0e0e431cb",
+      "observation_key": "a87805872f72ac29999eb82fabbbee14",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-2081813723bfd54b440991a0bb452836"
+      ]
+    },
+    {
+      "entity_key": "e-70fa6e8343e25cb70756edf8257ffca2",
+      "observation_key": "1445a0efb8572f7f55c713239117d83e",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-2644597b7ba44bd506c1df134f17956e"
+      ]
+    },
+    {
+      "entity_key": "e-57f11b9742e5fe9b7cb5113314f7a59a",
+      "observation_key": "77c0a3cd6d2effc458572ffc18a894e8",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-319e9e8adffa3d94e3af5a83b1093e8a"
+      ]
+    },
+    {
+      "entity_key": "e-53dc41d7aec5b9c906842e11c3f3a601",
+      "observation_key": "7e76544ccc96765cf78716dd7a6b4c0c",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-340ea777e5369410ce9c0f8eb0cadc77"
+      ]
+    },
+    {
+      "entity_key": "e-1b15d10eb41f4201d2265e55cdadfe9f",
+      "observation_key": "0b4e926a83f10dc01704021cefa6a039",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-34d916e6808070bc89910f6d530ef5a7"
+      ]
+    },
+    {
+      "entity_key": "e-12b354d0024ce8fabcb689511679fe03",
+      "observation_key": "ba7638b28787678c60880bb655a98c5b",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-35720edb0c5da32b35cb2ef75c092f95"
+      ]
+    },
+    {
+      "entity_key": "e-19c192f5753b0e3252c7d327c4f40797",
+      "observation_key": "27b9d104463cbbfd9026c48e0be5c7ad",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-36c6e24b1cb64cf06da8717f20183522"
+      ]
+    },
+    {
+      "entity_key": "e-73cf5a3b9bc46a03142284fa3bd50f47",
+      "observation_key": "63dbc9d48b707565ade7741522ab2121",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-3e53d0a1d2972f2edc10a49f98516f72"
+      ]
+    },
+    {
+      "entity_key": "e-fbabc961834882043d62df058f5ef05e",
+      "observation_key": "d0bc7350fdb5bfbb0df8236f5fa851c3",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-40ca47ea0c0472031101b7fc2cbf1f97"
+      ]
+    },
+    {
+      "entity_key": "e-d4fb376c1338da20532376761b43cdf9",
+      "observation_key": "f6fb283bba5f64c39f979f32679d2d6f",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-42c9cc04a3e9c7a59b78c44036a2f98c"
+      ]
+    },
+    {
+      "entity_key": "e-13cd6e93ed4a5b7a4e678197e42714e4",
+      "observation_key": "9db150e1388c54a30811fdd7cd4cfd33",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-4759cb712ef0cbacbc398ccbf434fa2c"
+      ]
+    },
+    {
+      "entity_key": "e-eddb14291733e09b50705fa7619c3b8c",
+      "observation_key": "53cea1006c7f7c168b7e1e5c0e0d48cc",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-4a5b59dc430e0530d563d086cc099dee"
+      ]
+    },
+    {
+      "entity_key": "e-5faf90058afb178ae3b9cbf1cfa78cfb",
+      "observation_key": "1946ca3035439a0665026e2c4ebbac73",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-4d0977ba9bd4d6e4b2278c7edad86a7e"
+      ]
+    },
+    {
+      "entity_key": "e-3e6260ef8cd5d04896ca93fcf0f6207c",
+      "observation_key": "f7de3714defbdfc7430542fc7bbeacc6",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-4e4d42aca74e189a5c6bbb7ea24eb9b7"
+      ]
+    },
+    {
+      "entity_key": "e-b9efc43ead2fdf78f8c15c681958ecf0",
+      "observation_key": "30d68cc43b5550215c59567e7c8ec4b1",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-57544e00246494a3e61e4868166cb03b"
+      ]
+    },
+    {
+      "entity_key": "e-94a97b920cba7fad9c9c77357347678e",
+      "observation_key": "9e34550403fbf0f8455f4d2be421b76c",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-57746f633d6cd556f1a324aa7a30d942"
+      ]
+    },
+    {
+      "entity_key": "e-75bed25ea8e9c429550490cf35da19af",
+      "observation_key": "58e38d106d460fed4561c03e35fd30f8",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-592175957d938517bf21a3bf527aa038"
+      ]
+    },
+    {
+      "entity_key": "e-cb7a546b33939f61f5aa2acc9ce7d9c2",
+      "observation_key": "c560f22dee89d486937662cef503fbda",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-66574298d244aa7ba18ef32e968afd40"
+      ]
+    },
+    {
+      "entity_key": "e-cb11e8beda8222e1cd4891da0df032c7",
+      "observation_key": "7f64a53d80b3647cac76039bf019dd45",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-68b0acb54f3cc88b822acd35f5830188"
+      ]
+    },
+    {
+      "entity_key": "e-55c74f6adba41a551d9b2a99272930d9",
+      "observation_key": "b79576fb11334a3a975a0ead2500aed4",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-68d53aafdbd8a67454c51416005a10d2"
+      ]
+    },
+    {
+      "entity_key": "e-b4632fd23ff3aa18a34b36bbe45fe862",
+      "observation_key": "7ca51f6d3ddb34bc634b289f85f1af98",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-6bdfea4f97d55d09733c433f0f0534bc"
+      ]
+    },
+    {
+      "entity_key": "e-c6cf4ea11e8cc21ff230b862447ee5da",
+      "observation_key": "368dd71218013e98f96c9d32e08b5051",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-6d6ef258daad9b8275850cbe81d5b545"
+      ]
+    },
+    {
+      "entity_key": "e-b28fdc85289be55b1d7e45f9f2705b66",
+      "observation_key": "7aa916f5bd1ec29dacc09972e0e8c81d",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-7af9f2af9cd52275543279f8b2747b7a"
+      ]
+    },
+    {
+      "entity_key": "e-e656e46d5eb2549233a86dac4a487ae9",
+      "observation_key": "45a70793baff00d852cca2e09ab87685",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-7de008574c5d3eadfb1c6d953fe9a138"
+      ]
+    },
+    {
+      "entity_key": "e-8ae99d8a0bf25fd70fb23d97d944757a",
+      "observation_key": "9410e3745da737cded76055452504d16",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-80da9a46076dcfb79159ac0682948ce9"
+      ]
+    },
+    {
+      "entity_key": "e-d27b0e851e36ff74ac0773ebfc7ecdac",
+      "observation_key": "d6574e79e662ce68a53fad69c01ba32c",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-8553a62e29a4e78f5abe3eb4655b7551"
+      ]
+    },
+    {
+      "entity_key": "e-3fd4a0b220f32a6f4a29ff2d6fc91349",
+      "observation_key": "725b0d7e4af7589f6ba229d1d7cf1a9e",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-88492fe3207beabde0533893a9760b98"
+      ]
+    },
+    {
+      "entity_key": "e-e26508278eb3967891d219b21933c918",
+      "observation_key": "9969b01b2593d584e114af35e992bb2b",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-8ad1f8129177976204eb4ccd8ad5618c"
+      ]
+    },
+    {
+      "entity_key": "e-fd5dc37c269d2cb5f4f30e7a7c7c60f0",
+      "observation_key": "0e5800d3d70847e666af607428aade9d",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-8c03ea62a97b13f07283be54469bdc7f"
+      ]
+    },
+    {
+      "entity_key": "e-3408eb5c5ecc7703199245fca22eff29",
+      "observation_key": "7ccdf6b04a6dae223ceb5bd9aa1e12af",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-8d6e1ac196b5bf57852dfd4d2c66ccb7"
+      ]
+    },
+    {
+      "entity_key": "e-877f5bb9af34eb494bee26372b9e4f52",
+      "observation_key": "eaa6d8fb264c8dc1f296ae1dffd74127",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-8e68db33b55e3f64d302db469379ffdf"
+      ]
+    },
+    {
+      "entity_key": "e-8ea2da0e26b951287d3df6dd4a3fb52a",
+      "observation_key": "8d8a9d81d5d4c4eebca6d65579009c7c",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-900af099668db1eb7dff1daa0a868ac1"
+      ]
+    },
+    {
+      "entity_key": "e-1dc9fc73ead8ebe023388e04c5a868f9",
+      "observation_key": "7b37fdd9390e8f114c827fc52d552027",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-91838ee4bfeeceec3fec3a2a923d25c8"
+      ]
+    },
+    {
+      "entity_key": "e-7fc3fe6483c7a0b6a68e2d8ee6637664",
+      "observation_key": "abeaaa1236df64412cf4fef6ce809638",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-958ad288053103c303fde0027b8e0d03"
+      ]
+    },
+    {
+      "entity_key": "e-4070650d70f6e96c229452fff633fb82",
+      "observation_key": "0f3e33087b8992fc606b5e7120198499",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-97df6849f698a8d4ade241f2495aea53"
+      ]
+    },
+    {
+      "entity_key": "e-7754b4c34f86f59de075ec347bfb7851",
+      "observation_key": "8e6de3742e8b4b945631f9d539bc9a72",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-a5b4f94c8464c5b0e214ef58bbc51af4"
+      ]
+    },
+    {
+      "entity_key": "e-818f1f4883e75eab7f847fa666463c9a",
+      "observation_key": "357f1f895b2e77adbcdcb0ca3f2b69a4",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-ab14ac06f321023ea6577dc402f604a2"
+      ]
+    },
+    {
+      "entity_key": "e-eda7faa61f49dca9b86494a8168902ff",
+      "observation_key": "f3a30eb886c507ed06293f079a2b9172",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-afa30676c47c5ef3e66e63550f4e2a3b"
+      ]
+    },
+    {
+      "entity_key": "e-52073a8e28db6868d5ebeaf4aab37d28",
+      "observation_key": "c107b931aaf48969106bd61087277859",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-b1ad8e2f08f6c6cd203364d5e69f9b09"
+      ]
+    },
+    {
+      "entity_key": "e-8c9f5683de07a231ab983a331c09a77f",
+      "observation_key": "6bf5280648616476ca1814bce2382535",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-b2a9031d996b1f58280f5e76406166be"
+      ]
+    },
+    {
+      "entity_key": "e-42a919a9604d95c5f760dc0ebab326dc",
+      "observation_key": "acb83b41005cd4516659ab4ccc9d4a85",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-b3b6d05af0456f167e2ff2453fbe8065"
+      ]
+    },
+    {
+      "entity_key": "e-ccb7013b44fd1c4a5dd65d7846d6efc1",
+      "observation_key": "325851c0fb4ac080c4589c5333065323",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-b4ecf1d9aa334584986c6dbf863e6100"
+      ]
+    },
+    {
+      "entity_key": "e-eb3863ac9e426b55d87c3a5b1780a584",
+      "observation_key": "faa9467ad97f414162b2e2b4acb5cc72",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-b5c67e94546c6689f3b7b895abeee88f"
+      ]
+    },
+    {
+      "entity_key": "e-935da45665e773d1f2ca545b07731e5f",
+      "observation_key": "6fcb3ac05b683b24110445db06235e66",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-bbb16b8bc05784b6c44e28e057d0d64f"
+      ]
+    },
+    {
+      "entity_key": "e-256c8efb2d546126a4775f5828cf2180",
+      "observation_key": "00d2f9a566a0134817266ce687d0c36c",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-bda1550b25a6d4ea64a90441f680cbf5"
+      ]
+    },
+    {
+      "entity_key": "e-9df2b117b5fcd42ca3acb81f96474330",
+      "observation_key": "65a99d77f1633a828545ad988d103dd3",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-bf7a6aa783e210515323655538e211f4"
+      ]
+    },
+    {
+      "entity_key": "e-7bc62c90bf8a7ea6d1f30ffd13dfea2b",
+      "observation_key": "5a5fd60bdcf29eaa7ff42150857988b8",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-bfbd2cafb3056fe12e8e2bf147ef4ab3"
+      ]
+    },
+    {
+      "entity_key": "e-9a9c73c3c325a5a1944fc1ab380da6e2",
+      "observation_key": "ea00ef3b557bda7fe73c8660b48c6b94",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-c09ab26504ab544ab18485f2b44e1023"
+      ]
+    },
+    {
+      "entity_key": "e-56c64100e286e65f85545b2ae70c186f",
+      "observation_key": "888d14ab23ed9e1142e930d3817c13b3",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-c44f1089bb0eba8ec04822ec826ead1d"
+      ]
+    },
+    {
+      "entity_key": "e-8958981d8a2414fd7ac9fb2ce5d94a29",
+      "observation_key": "f6d3e0487871813f364c880c43d37ba7",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-cba114cca872b19ecd629818cd8da35a"
+      ]
+    },
+    {
+      "entity_key": "e-084a09d48f27a0c838ddffac0c9879a6",
+      "observation_key": "1ff444257d2b46ea89e11652d93ae539",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-cd7fd22f6e1b4e719a54d490ebc5449a"
+      ]
+    },
+    {
+      "entity_key": "e-343c7dc6d231768c530e79bde3c76a21",
+      "observation_key": "58454a43cb84aa44ae84fefb474ffd60",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-cef6bacd69fd015c085065b47c8cfb15"
+      ]
+    },
+    {
+      "entity_key": "e-979d326512e5a9caed2c03f7f60c34ce",
+      "observation_key": "f63753a478f6b368b74036abc18e78fd",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-cf7a8cb6339c415255ce10e98d13f4fd"
+      ]
+    },
+    {
+      "entity_key": "e-56e079a73b662a0f22b090d3b477b7dc",
+      "observation_key": "a4ccdedb42b563359c96644ba7d092e5",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-cfd5f513fbe3708c9d419f456a543318"
+      ]
+    },
+    {
+      "entity_key": "e-e440f0923d21443d78476a39a0fac97c",
+      "observation_key": "45fbf6151c3596e46fe2bcbe458999ab",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-d143ce51ba264826f5df58de6e488561"
+      ]
+    },
+    {
+      "entity_key": "e-cfbf2f96724cb71ad95ddc163321aecb",
+      "observation_key": "f41c2d7737363f9a8cd98d7b0e10ff31",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-d224a06adc196a093f6b1a5fc4aee15a"
+      ]
+    },
+    {
+      "entity_key": "e-51eee2ae3f57b6742ea0e372da01bc1f",
+      "observation_key": "392744adaaaa4ba251b8231f0f482e14",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-d488b591a27dbbaf0ed9153898132c33"
+      ]
+    },
+    {
+      "entity_key": "e-6963954de60fe1b12bfa3fd201d98aa2",
+      "observation_key": "8ee937dcb54a65f23aedbb833b5db65b",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-d5d2cd99c19e1a2083dab3d6f492dfa6"
+      ]
+    },
+    {
+      "entity_key": "e-94caac9ec4df6701bdaf89acfc02296b",
+      "observation_key": "90e34b4347cdb09d7b4f2b3dc23fd11c",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-d80afe3ab45be33940b15a8a12adbe9a"
+      ]
+    },
+    {
+      "entity_key": "e-173cd1889605e88fd725f4cdc1d65ec1",
+      "observation_key": "7005e8e4d7f943e80c4c6b6ef2b3705b",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-df2a656389829fd7b4fe1c162a617c29"
+      ]
+    },
+    {
+      "entity_key": "e-59084c04b57cdc49c133dfaf7fe21624",
+      "observation_key": "01d0c589c5730c10c0b6ab944d687d5a",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-e1b77a98c8f4a7f2c597947946419044"
+      ]
+    },
+    {
+      "entity_key": "e-bb932d8698955c8b2cbc0e53337888f7",
+      "observation_key": "f3c7e518fffe04b89eccf078a56d7a56",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-e748ce343842c7b7906a6724649f6f44"
+      ]
+    },
+    {
+      "entity_key": "e-4dbdffbd0ac0c8ff6d4a124870295e02",
+      "observation_key": "51857d86460bee54df9e4d5ce4c50ed4",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-e89114ab6bbc7b4ed0d65234d391be4c"
+      ]
+    },
+    {
+      "entity_key": "e-f8d168707daf95612c02e6f65539825e",
+      "observation_key": "8063782e0e1538c9e654def693ab187e",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-ea18d50cef90a563d9a10054a03a13df"
+      ]
+    },
+    {
+      "entity_key": "e-d6d4c7dc2e85dc2ca5d5cecbabceaeff",
+      "observation_key": "5612775bd144bbd09ad3f28030a06d71",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-ed17172d2cc04f34f5312caecad1243e"
+      ]
+    },
+    {
+      "entity_key": "e-2db6d91b63c704fa5453298ca667c1ff",
+      "observation_key": "71655ec2f9479a1a16b83a7794d05b46",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-f1813054d96d20a3c0e19f858447eb4d"
+      ]
+    },
+    {
+      "entity_key": "e-2d034b2fab89fccf4f63e037a876a9e3",
+      "observation_key": "1c4bdcb3cc9e95a5b7a12afaeb269ef9",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-f25d055e995b6713954f9a95e313cee5"
+      ]
+    },
+    {
+      "entity_key": "e-6a0b09175040b908d56e49b315726f6c",
+      "observation_key": "561e475a64deb9985eed67f4696b8229",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-f8a7c74730fc3a10fa5dc20fb0a7ae01"
+      ]
+    },
+    {
+      "entity_key": "e-789dcf991c2c7e43604ff73f7fc41247",
+      "observation_key": "f467463ea229b6b7bd728089aad44d1f",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-fb9ee3dbab071372ab5fc3ff15f632fe"
+      ]
+    },
+    {
+      "entity_key": "e-7078f7e4723ef8f1ecde1b668848d1a5",
+      "observation_key": "302f4dcbd0fbd436f094eaaa09366938",
+      "reason": "Initial baseline source review: this exact Player_Input or Zombie_Input component is controller configuration. Reclassified from creature to ai-rule; Zombie_Agent remains the spawned creature record. Both observations use the same captured component; this is an extractor correction, not removed game content.",
+      "reviewer": "Codex",
+      "snapshot_id": "build-25548639-0bf00fe33781",
+      "supersedes": [
+        "e-fce26fd2e765ef4cfada47d3fe83f821"
+      ]
+    }
+  ],
+  "schema_version": 1
+}

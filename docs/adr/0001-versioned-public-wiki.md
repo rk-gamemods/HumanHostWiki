@@ -1,12 +1,19 @@
 # ADR-0001: Generated, versioned Human Host wiki
 
 **Accepted 2026-09-26.** Architecture contract for `HumanHostWiki`.
+[ADR-0002](0002-player-template-and-guides.md) amends the reader, the presentation of
+fields and the guides.
 Repository/category ownership and pipeline dependencies are defined in
 [project.json](../../project.json); the [generated map](../REPOSITORIES.md)
 shows their connections. Commands and recovery procedures belong in
 [WORKFLOW.md](../WORKFLOW.md).
 
 ## 1. Outcome and scope
+
+Public name, selected by the user on 2026-09-27:
+**Unofficial Game Data Wiki for Human Host**. Generated headers identify it as:
+"An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio."
+`project.json` supplies the public name to the renderer.
 
 Build a public, English, free, ad-free GitHub Pages reference for players and
 modders: game contents, mechanics, acquisition, technical identifiers and
@@ -16,12 +23,17 @@ relationships, with information for every captured game version.
   twelve topic repositories provide detail and links back to the hub.
 - Cover all known assets and systems. Group related records into readable pages;
   page count does not follow source-file or Unity-object count.
+  For this delivery, coverage is measured against the enumerated current capture
+  and its explicit extraction/cataloging decisions in [ACCEPTANCE.md](../ACCEPTANCE.md).
+  Additional mechanic explanations are optional prose, not an expanding inventory.
 - Read the existing `HumanHostCodebase` in place. Reuse the parent's
   `tools/Decompile-GameCode.ps1` for capture. Export useful text metadata, not
   graphical/audio payloads, raw source trees or duplicate analysis datasets.
-- After initial setup, a non-LLM runner automatically detects updates, captures,
-  parses, classifies, links, versions, validates, commits and publishes them.
-  Routine updates require no operator commands, page edits or approval per release.
+- An operator starts the existing decompile command. Its deterministic pipeline
+  captures, parses, classifies, links, versions, validates, commits and publishes
+  supported changes without intervention during the run. Wiki generation follows
+  capture and reads only the inputs selected by each topic's extraction contract.
+  Source trees and whole asset indexes never pass through into wiki output.
 - Credit the studio and identify the site as an independent community resource.
   The in-game viewer remains deferred until the wiki is stable and maintainable.
 
@@ -60,12 +72,17 @@ Keep three records distinct:
 - `releases/`: immutable manifests for verified, coordinated wiki releases.
 
 Registration or a navigation preview cannot establish gameplay verification.
-The complete scope and implementation status are separate: the current foundation
-supports registry validation, local repository setup/locking, input registration,
-generated architecture maps and deterministic navigation previews.
-The unattended runner, gameplay adapters, identity matching, historical browsing
-and publishing remain planned. These manual foundation commands are diagnostic
-entrypoints, not the intended maintenance workflow.
+The implemented pipeline provides selected facts across all topics, durable
+identity decisions, grouped/searchable historical readers, capacity allocation,
+coordinated Git/Pages publication and interrupted-run recovery. All thirteen
+logical sites are public. [ACCEPTANCE.md](../ACCEPTANCE.md) records finite proof
+for each requirement and distinguishes fixture proof from real-source evidence.
+In particular, distinct-real-build history evidence is unavailable; current
+captures and extractor corrections must not be described as different game builds.
+Unknown gameplay verification remains an honest evidence state, not a run failure.
+Development commands are diagnostic entrypoints; the normal decompile command
+is the maintenance workflow. Historical checkpoints are in
+[IMPLEMENTATION.md](../IMPLEMENTATION.md) and do not add completion requirements.
 
 ## 4. Data and provenance contracts
 
@@ -74,9 +91,10 @@ snapshot commit. Preserve source paths and SHA-256 hashes, extractor/decompiler
 versions and code hashes, normalization schema and coverage. Extractor corrections
 create separate capture revisions even when the game build is unchanged.
 
-The current capture lacks a reliable game display-version label. Add evidence-backed
-extraction; until available, use the exact Steam build with an explicit unknown
-label. Public provenance uses game-relative paths and excludes machine/account
+New captures include the [application version](../GAME_VERSION.md) selected from
+Unity `PlayerSettings.bundleVersion`, with source hash and object/field evidence.
+Captures without this evidence retain an explicit unknown label alongside the exact
+Steam build. Public provenance uses game-relative paths and excludes machine/account
 state. The registered receipts own baseline build details; do not duplicate them here.
 
 | Record | Required fields/meaning |
@@ -112,6 +130,9 @@ Every gameplay page exposes selected version/build and snapshot, last verified
 build, last substantive change, history, provenance, evidence level and gaps.
 Freshness compares verification against the latest known available build and
 includes the availability observation's source/time. Unknown freshness stays unknown.
+The current [availability adapter](../AVAILABILITY.md) records anonymous SteamCMD
+branch observations, caches them between operator runs and pins them in each release.
+Matching the observed build does not satisfy gameplay verification.
 
 Keep `last changed` separate from `last verified`. Unchanged content can gain
 verification for another build only after relevant data/code dependencies and
@@ -148,17 +169,23 @@ the configured namespace. It updates registry locks, indexes and routes together
 preserving historical links and coverage without deleting snapshots or rewriting
 history. Physical partitions retain their logical topic owner. Full history
 partitions remain readable while new writes roll into another partition.
+The release manifest distinguishes stable logical routes from active physical
+entrypoints. A retired entrypoint retains its historical files and a successor
+record; new mutable pages live in its replacement. Publish and verify the replacement
+before selecting it, and retain enough configured headroom for the retiring update.
 Configure headroom below the checked platform limits (2026-09-26):
 [100 MiB per Git file, warnings above 50 MiB](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github)
 and [1 GB per Pages site](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits).
 
 ## 6. Refresh, build and coordinated release
 
-One scheduled local runner owns this sequence. It checks for stable installed
-build/catalog changes, skips unchanged inputs and invokes capture automatically.
+The operator-invoked decompile command owns this sequence. It checks for stable
+installed build/catalog changes, skips unchanged work and invokes wiki generation
+after a successful capture, including an unchanged capture.
 Latest available builds are checked separately; unavailable local inputs produce
 a waiting/stale state and automatic retry, never a false current badge. Configure
-input paths, credentials, namespace and budgets once; no LLM scheduler is required.
+input paths, publication credentials, namespace and storage budgets once.
+There is no separate scheduler, autonomous LLM processor or model spending budget.
 
 | Stage | Required result |
 | --- | --- |
@@ -186,9 +213,24 @@ input paths, credentials, namespace and budgets once; no LLM scheduler is requir
 
 Use conservative invalidation until complete dependencies are recorded. Identical
 inputs must produce identical bytes and no new content commit. Automation invokes
-commands and consumes exit codes/receipts. Duplicate or missed wakes resume from
-durable state; human attention is for unsupported content/schema or unrecoverable
-failures, not normal changes, successful releases or capacity growth.
+commands and consumes exit codes/receipts. Repeated or interrupted invocations
+resume from durable state. Compare against the last successful wiki processing
+point so a skipped or failed run cannot lose changes. Separate dependency hashes
+from semantic content hashes: an irrelevant source change can require a check
+without producing a new page revision.
+
+The script completes all safely independent supported work and writes a grouped,
+deterministic exception report. Unsupported content does not block known-pattern
+updates or confirmation of unchanged facts. The operator, usually an LLM, presents
+the remaining issues after the run and asks the user how to proceed. Explanations,
+category proposals and model-assisted resolution follow that direction; they are
+not automatic stages. Reuse decisions while their evidence and rules remain valid.
+Execution failures are reported separately from unresolved wiki content. After
+diagnosis and repair, rerun this same process and review its remaining exceptions.
+
+During development, record concrete lightweight-classifier opportunities with
+examples, expected labels and measurable accuracy/cost criteria. Implementing
+Jev or another local classifier is outside this scope.
 
 ### Failure and recovery
 
@@ -215,17 +257,32 @@ Separate optional authored prose from generated facts. Claims use generated valu
 and executable dependency checks. Updates refresh factual sections automatically;
 failed checks mark only the affected explanation unverified with its last verified
 build and reason. Maintaining core reference coverage must not require prose edits.
+The [authored explanation contract](../CURATED.md) owns definition fields,
+scoped checks, preserved history and the operator workflow.
 
 Official backlinks use scripted entity/topic matching and recorded checks:
 populated, empty, missing or temporarily unavailable. Link only useful populated
 article destinations; temporary external failure does not remove our information.
 Feed these observations into the default offline, deterministic build as versioned
 inputs rather than querying live websites during rendering.
+The [external article contract](../EXTERNAL_LINKS.md) owns provider checks,
+observation reuse, routing, release storage and reader matching. Its implementation
+evidence distinguishes fixture tests, live provider checks and publication checks.
 
 ## 8. Acceptance and delivery
 
+The closed requirement-to-code-and-evidence checklist is
+[ACCEPTANCE.md](../ACCEPTANCE.md). It preserves the requirements below, names
+the fixed current-capture inventory, and gives an explicit disposition for
+unavailable real historical inputs. Every further investigation must identify a
+listed defect and produce a deterministic correction or verification result.
+
 Required proof before full publication:
 
+- Establish the first working baseline by reviewing and reconciling every known
+  initial content and article exception, including corrections to extraction and
+  cataloging rules. The user has authorized the entire initial backlog. Routine
+  post-baseline reporting for user direction does not defer this initial work.
 - Account for every source object as a domain/technical entry, payload omission or
   documented gap; resolve edges within the selected snapshot or label them unresolved.
 - Independently check real-source identifiers, values and references. Across at least
@@ -237,15 +294,17 @@ Required proof before full publication:
   retry and rollback; preserve the prior coordinated release without duplicates/loss.
 - Demonstrate unattended updates through new assets in existing categories and
   forced capacity thresholds, including automatic splits/provisioning and intact
-  historical links. No hand edits, operator commands, release approvals or LLM calls.
+  historical links. After the operator starts the command, no hand edits,
+  release approvals or LLM calls are required to complete supported work.
 - Unknown content enters technical reference with an actionable exception while
-  supported changes proceed; retries and missed/duplicate wakes require no intervention.
+  supported changes proceed; repeat invocations resume without duplicate work.
 
-Delivery order: **foundation (implemented) -> unattended runner with item/loot slice
+Delivery order: **foundation (implemented) -> integrated pipeline with item/loot slice
 -> all registered topics -> historical reader -> coordinated Pages publication**.
-The first slice does not reduce final coverage. Select streaming versus
-SQLite from measured access patterns and choose the production renderer when building
-the historical reader; the current HTML preview does not select that framework.
+The first slice does not reduce final coverage. Selected data uses streaming and
+bounded in-memory joins. The reader uses standard-library Python generation and
+native browser APIs with immutable JSON packs; it adds no application framework.
+See [reader contracts](../READER.md) for routing, storage and validation boundaries.
 
 Multiple repositories bound topic history/clone/site size but require shared release
 coordination. Revision reuse avoids copying each patch's entire corpus. Grouped pages

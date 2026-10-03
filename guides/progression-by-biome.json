@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "id": "progression-by-biome",
+  "title": "Progression by biome",
+  "dek": "What each biome adds: new raw materials, what they let you craft, and what to build before you move on.",
+  "audience": "A player planning where to go next.",
+  "sections": [
+    {
+      "id": "how-the-world-is-laid-out",
+      "heading": "How the world is laid out",
+      "blocks": [
+        {"type": "sentence", "template": "The world is a set of rings around your starting point, one biome per ring. The game numbers the biomes 1 to {ring_count} going outward. Each is about {ring_width} wide, and the pattern repeats after biome {ring_count}.", "query": "world.rings"},
+        {"type": "sentence", "template": "Close to the spawn point there are patches of mixed ground where any ore can turn up, but only about {near_spawn_chance} of dig hits find one. Each ore is far more common in its home biome, listed below.", "query": "world.near_spawn", "optional": true},
+        {"type": "sentence", "template": "Zombies get stronger the farther you are from the start: every {zombie_level_step} adds a level, and each level adds health and damage.", "query": "world.zombie_scaling", "optional": true},
+        {"type": "sentence", "template": "Loot quality can also rise with distance: the best possible quality goes up one tier every {quality_step}.", "query": "world.loot_quality_scaling", "optional": true}
+      ]
+    },
+    {
+      "id": "ring",
+      "repeat": "rings",
+      "heading": "Biome {number}: {biome}",
+      "blocks": [
+        {"type": "sentence", "template": "{biome} runs from {start_distance} to {end_distance} out from the spawn point.", "query": "ring.span"},
+        {"type": "list", "title": "New raw materials", "query": "ring.new_materials", "item": "{item}: {how}", "group_by": "method", "limit_per_group": 10, "more": "{remaining} more in the index", "empty": "No raw material is best found here."},
+        {"type": "list", "title": "Easier to get here", "query": "ring.easier_gathering", "item": "{item}: {how}", "optional": true},
+        {"type": "checklist", "title": "Now craftable", "query": "ring.new_recipes", "item": "{output} {made}", "group_by": "category", "limit_per_group": 8, "more": "{remaining} more in the crafting index", "empty": "Nothing new becomes craftable here."},
+        {"type": "checklist", "title": "Benches you can build now", "query": "ring.new_benches", "item": "{bench}", "optional": true},
+        {"type": "list", "title": "Only found here", "query": "ring.exclusive_loot", "item": "{item}: {how}", "optional": true},
+        {"type": "sentence", "template": "Merchants here sell {merchant_count} {merchant_plural}.", "query": "ring.merchant_summary", "optional": true}
+      ]
+    },
+    {
+      "id": "sources",
+      "heading": "Where this comes from",
+      "blocks": [
+        {"type": "sources", "template": "Generated from game version {game_version} (Steam build {build_id}). Distances are in metres, the unit the game itself uses when it shows speeds in m/s. A material belongs to the biome where it drops most often per dig hit. A container's biome is inferred from the name of the asset bundle it ships in."}
+      ]
+    }
+  ]
+}

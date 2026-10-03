@@ -15,12 +15,14 @@ CSS = """body{font:17px/1.6 system-ui,sans-serif;max-width:980px;margin:3rem aut
 
 def render(manifest, receipt):
     repositories = manifest["repositories"]
+    brand = escape(manifest["project"])
     by_id = {repo["id"]: repo for repo in repositories}
     source = "No input snapshot selected."
     if receipt:
         source = (f"Input: Steam build {escape(receipt['steam']['build_id'])}; "
                   f"source commit {escape(receipt['source_commit'])}. "
-                  "Display version not recorded. Wiki verification not performed. Latest available build unknown.")
+                  f"Application version: {escape(receipt.get('game_version') or 'unknown')}. "
+                  "Wiki verification not performed. Latest available build unknown.")
     official = " | ".join(f'<a href="{escape(link["url"], quote=True)}">{escape(link["title"])}</a>'
                           for link in manifest["official_links"])
 
@@ -30,11 +32,13 @@ def render(manifest, receipt):
         nav = "".join(f'<li><a href="{prefix}{repo["id"]}.html">{escape(repo["title"])}</a></li>'
                       for repo in repositories if repo["role"] == "topic")
         return (f'<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
-                f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(title)} | Human Host Wiki</title>'
-                f'<style>{CSS}</style></head><body><header><a href="{home}">Human Host Wiki: start here</a>'
+                f'<meta name="viewport" content="width=device-width,initial-scale=1"><title>{escape(title)} | {brand}</title>'
+                f'<style>{CSS}</style></head><body><header><a href="{home}">{brand}: start here</a>'
+                '<p>An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.</p>'
                 f'<h1>{escape(title)}</h1><p class="status">Architecture preview. Gameplay articles are not generated.</p>'
                 f'<p>{source}</p></header>{body}<nav aria-label="Topics"><h2>Explore topics</h2><ul>{nav}</ul></nav>'
-                f'<footer><p>Independent community reference for players and modders. Free and ad-free.</p>'
+                f'<footer><p>Unofficial community reference for players and modders. Free and ad-free. '
+                'Not affiliated with or endorsed by Virtual Matrix Studio.</p>'
                 f'<p>{official}</p></footer></body></html>\n').encode("utf-8")
 
     cards = "".join(f'<article><h2><a href="topics/{repo["id"]}.html">{escape(repo["title"])}</a></h2>'

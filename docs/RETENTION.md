@@ -1,0 +1,98 @@
+# Local retention
+
+## Committed release staging
+
+`wikibuild/release_retention.py` owns removal of duplicate release payloads under
+`.local/rs/`. The normal `wiki.py update` calls it after supported publication
+work, while holding the existing writer lock. It makes no network calls and
+does not alter child checkouts, Git history, source captures or public snapshots.
+
+Before removing a payload, the cleaner requires a saved coordinated release
+whose manifest matches the staging journal. It reads each repository's committed
+tree and confirms that the referenced blob objects exist. It streams each staged
+file in chunks of at most 1 MiB, comparing both its journal SHA-256 and its Git
+blob identity. It validates the whole stage's deletion set before unlinking any
+files, then checks file identity, size and modification time again immediately
+before each unlink. Paths must stay within the stage without symlinks or junctions.
+
+A pending release transaction prevents cleanup. Missing release receipts,
+modified payloads, invalid paths and protected files remain available for
+investigation. The cleaner never overrides protection. Unknown files, journals,
+Git preparation indexes and path lists are retained. Only exact payload paths
+declared in a validated journal are candidates for removal; there is no recursive
+directory deletion.
+
+An interruption after some unlinks is safe to retry: committed copies remain,
+and already absent staging files need no action. Completion records under
+`.local/releases/retention/` bind the stage to its journal hash and release ID.
+An unchanged repeat checks those records without Git reads or payload scans.
+Cleanup counts stay in invocation metrics, so they cannot change release IDs
+or generate new public commits. The operator report lists any cleanup issues
+after the wiki content report. `.local/releases/retention/report.json` retains
+their current reasons separately from content exceptions.
+
+Failed preparation attempts without committed release receipts remain retained.
+Extraction caches, identity model caches, test fixtures and old diagnostic indexes
+are outside this cleaner's scope. Their retention policies remain unfinished;
+removing them requires their own recovery and ownership proof.
+
+Focused checks:
+
+```powershell
+py -3 -m unittest discover -s tests -p test_release_retention.py -v
+py -3 -m unittest discover -s tests -p test_pipeline.py -v
+```
+
+The retention suite uses a real Git repository to verify conservation, no-op
+repeats, independently detected changed bytes, pending transactions, path escape
+and interrupted deletion. The full pipeline fixture verifies cleanup after
+publication while content exceptions remain available for user direction.
+
+## Immutable reader files
+
+`wikibuild/reader_retention.py` shares identical files across completed candidates
+under `.local/readers/`. The normal update invokes it after publication and staging
+cleanup, under the same OS-held writer lock. Every candidate path remains available
+for historical previews, audits and release recovery. No Git tree, accepted fact,
+source snapshot or public file is changed. This reduces duplicate storage without
+evicting unique candidate content.
+
+Before sharing, it checks candidate identity, exact file membership, regular paths,
+declared sizes and streamed SHA-256 values. An invalid candidate is retained in full
+and excluded from sharing. Symlinks and Windows junctions are rejected. File reads
+use chunks of at most 1 MiB; metadata reads are capped at 8 MiB. A candidate whose
+metadata exceeds that bound is retained and reported. Already shared inodes are
+hashed once per pass. Windows requires explicit file stats because directory-entry
+stats omit the identity needed for this check.
+
+Each duplicate is replaced atomically with a hard link to verified identical bytes
+in another immutable candidate. The compactor rechecks file identity, size, mode
+and modification time before replacement. It never writes through shared inodes or
+links to editable repository files. All reader writers must continue to replace
+files or build a new candidate, never edit candidate bytes in place. This is the
+same immutability contract used by the reader's observation-only projection path.
+
+An interruption leaves a complete original or a complete shared file. Temporary
+links live under `.local/reader-retention/links/`; retry accepts a leftover only if
+it is still a hard link to the selected verified source inode. Unknown temporaries,
+protected files and filesystems without hard-link support are preserved and
+reported. File protection is never overridden. No recursive deletion occurs.
+
+The completion receipt binds the compactor version and every candidate manifest
+hash. An unchanged repeat reads only metadata, with no payload scan or replacement.
+This receipt is a housekeeping optimization, not a reader-integrity certificate:
+normal reader verification still checks content on reuse. A new or changed manifest
+invalidates the receipt; source bytes are verified again before further sharing.
+Metrics and cleanup issues remain separate from content exceptions and public
+release identity. Issues are also saved in `.local/reader-retention/report.json`.
+
+```powershell
+py -3 -m unittest discover -s tests -p test_reader_retention.py -v
+py -3 tools/benchmark_reader_retention.py
+```
+
+The benchmark runs the normal wiki update, hashes actual candidate files before
+and after independently of the compactor, and measures an immediate cleanup repeat.
+It writes ignored evidence and the final operator report under `.local/`. Reported
+unique-inode bytes are file lengths, not filesystem allocation or free-disk space.
+Failed reader staging and retention of unique obsolete cache content remain open.

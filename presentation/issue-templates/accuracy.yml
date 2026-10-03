@@ -1,0 +1,42 @@
+name: Something on the wiki is wrong
+description: A wrong number, name, recipe, location or guide step.
+title: "Wrong on the wiki: "
+labels: ["accuracy"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for checking the wiki against the game. The wiki is built from the game's files, so a report that says what you saw in play helps most. Screenshots are welcome.
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: The wiki page with the problem. The "Report it on GitHub" link on a page fills this in.
+      placeholder: https://rk-gamemods.github.io/HumanHost-Wiki-Items/entry/...
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What the wiki says
+      placeholder: "Crude Axe: Damage 10"
+    validations:
+      required: true
+  - type: textarea
+    id: right
+    attributes:
+      label: What you see in the game
+      placeholder: "The tooltip says Damage 12"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Game version you play
+      description: Shown on the game's main menu. The wiki link fills in the version the page was built from.
+      placeholder: "0.8.316"
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How you checked
+      description: Steps, a screenshot, or where in the world it happened. Optional.

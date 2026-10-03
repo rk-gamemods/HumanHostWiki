@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Unit tests (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install source-analysis dependencies
+        run: python -m pip install -r requirements-source.txt
+      - name: Whitespace check
+        run: git diff --check $(git hash-object -t tree /dev/null) HEAD
+      - name: Unit tests
+        run: python -m unittest discover -s tests
+
+  windows-process-tests:
+    name: Windows process tests
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install source-analysis dependencies
+        run: python -m pip install -r requirements-source.txt
+      - name: Bounded external-process tests
+        run: python -m unittest tests.test_bounded -v

@@ -141,6 +141,43 @@ class FoundationTests(unittest.TestCase):
             snapshots.register(wiki, self.project, source)
         self.assertFalse((wiki / "snapshots").exists())
 
+    def test_application_version_requires_pinned_source_evidence_and_preserves_older_receipt(self):
+        wiki, source = self.git_source()
+        older = snapshots.register(wiki, self.project, source)
+        old_path = wiki / "snapshots" / (older["snapshot_id"] + ".json")
+        old_bytes = old_path.read_bytes()
+        item = {"source_path": "Human Host_Data/globalgamemanagers", "source_sha256": "a" * 64,
+                "object_id": "globalgamemanagers#1", "field": "/bundleVersion"}
+        value = {"schema": 1, "status": "recorded", "version": "0.8.315", "evidence": [item]}
+        (source / "Catalog/game-version.json").write_bytes(json_bytes(value))
+        (source / "Catalog/inputs.jsonl").write_bytes(json_bytes({"path": item["source_path"], "sha256": item["source_sha256"]}).replace(b"\n", b"") + b"\n")
+        git(source, "add", "Catalog")
+        git(source, "commit", "-m", "Capture application version")
+        recorded = snapshots.register(wiki, self.project, source)
+        self.assertEqual(recorded["game_version"], "0.8.315")
+        self.assertEqual(recorded["game_version_evidence"], [item])
+        self.assertIn("Catalog/game-version.json", recorded["catalog_metadata_sha256"])
+        self.assertEqual(recorded, snapshots.register(wiki, self.project, source))
+        self.assertEqual(old_path.read_bytes(), old_bytes)
+        self.assertIsNone(older["game_version"])
+        value["evidence"][0]["source_sha256"] = "b" * 64
+        (source / "Catalog/game-version.json").write_bytes(json_bytes(value))
+        git(source, "add", "Catalog")
+        git(source, "commit", "-m", "Mismatched evidence fixture")
+        with self.assertRaisesRegex(ContractError, "pinned input"):
+            snapshots.register(wiki, self.project, source)
+        self.assertEqual(len(list((wiki / "snapshots").glob("*.json"))), 2)
+
+    def test_unknown_and_malformed_game_version_metadata(self):
+        wiki, source = self.git_source()
+        revision = git(source, "rev-parse", "HEAD")
+        value = {"schema": 1, "status": "unknown", "version": None, "evidence": [], "reason": "missing-player-settings"}
+        self.assertEqual(snapshots.game_version(source, revision, value)["game_version_reason"], "missing-player-settings")
+        for invalid in ([], {**value, "schema": 2}, {**value, "version": "invented"},
+                        {**value, "reason": "machine/path"}, {**value, "status": "recorded", "version": "line\nbreak"}):
+            with self.subTest(invalid=invalid), self.assertRaises(ContractError):
+                snapshots.game_version(source, revision, invalid)
+
     def test_source_remote_rejected(self):
         wiki, source = self.git_source()
         git(source, "remote", "add", "origin", "https://example.invalid/source.git")
@@ -222,6 +259,21 @@ class FoundationTests(unittest.TestCase):
                     self.fail("Second writer acquired lock")
         with writer_lock(self.root):
             self.assertTrue((self.root / ".local/writer.lock").exists())
+
+    def test_blocked_writer_names_the_holder(self):
+        # A stuck run once held the lock for three days with no clue who owned it.
+        with writer_lock(self.root):
+            with self.assertRaisesRegex(ContractError, rf"held by PID {os.getpid()} \(running\) since .+ for \d+ min"):
+                with writer_lock(self.root):
+                    self.fail("Second writer acquired lock")
+        self.assertFalse((self.root / ".local/writer.lock.owner.json").exists())
+
+    def test_unqueryable_holder_is_not_reported_as_stopped(self):
+        from wikibuild import storage
+        with writer_lock(self.root), patch.object(storage, "process_running", return_value=None):
+            with self.assertRaisesRegex(ContractError, r"status unknown"):
+                with writer_lock(self.root):
+                    self.fail("Second writer acquired lock")
 
     def test_atomic_write_does_not_rewrite_unchanged_file(self):
         path = self.root / "result.json"

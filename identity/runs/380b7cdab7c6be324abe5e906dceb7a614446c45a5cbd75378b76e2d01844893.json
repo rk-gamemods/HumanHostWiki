@@ -1,0 +1,69 @@
+{
+  "change_origin": "extractor-correction",
+  "contract_sha256": "7d214ead400551dae99dcb8f0bf37f65f2430fe56262ca8284aceb07992b9f9f",
+  "corrections_sha256": "ff75bee24e8eb4b416fe1bac1036b0898729c3286ad5a8c9e0f0994df2bcc6a4",
+  "counts": {
+    "changed": 16,
+    "unchanged": 13606
+  },
+  "exceptions": {
+    "group_count": 1,
+    "groups": [
+      {
+        "code": "relationship-gap",
+        "examples": [
+          "bundles/terrain_base_assets_all.bundle::serialized-0#-1460477519278829884",
+          "bundles/terrain_base_assets_all.bundle::serialized-0#-1885806835552423292",
+          "bundles/terrain_base_assets_all.bundle::serialized-0#4032413444707838408",
+          "bundles/terrain_base_assets_all.bundle::serialized-0#4654242357136200038",
+          "bundles/terrain_base_assets_all.bundle::serialized-0#5235382926781769473",
+          "bundles/terrain_desert_assets_all.bundle::serialized-0#-163535046056249647",
+          "bundles/terrain_desert_assets_all.bundle::serialized-0#-3788498946921584379",
+          "bundles/terrain_desert_assets_all.bundle::serialized-0#-620346175336575173"
+        ],
+        "id": "281d4fce6784f12d5faf5d3d",
+        "message": "A selected relationship lacks a unique cataloged target; other relationships were retained.",
+        "occurrences": 431,
+        "pattern": "vegetation",
+        "topic": "biomes-resources"
+      }
+    ],
+    "kind": "unresolved-wiki-content",
+    "next_action": "Ask the user how to handle these exceptions after supported work completes.",
+    "occurrences": 431,
+    "schema_version": 1
+  },
+  "extraction_run": "df64d90126b92168a4ce4b2ef526de74e49d4276d6ec1086ab7fa7cf85991810",
+  "input_identity": {
+    "inventory": "1184f9cfdddd5f6448411e38187fc9ac68a37088",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "25548639",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "8060226703539543058",
+          "size": "53522231159"
+        }
+      }
+    }
+  },
+  "models": {
+    "bytes": 38461968,
+    "path": ".local/history/objects/c7d24c7c68727d0eebbca1667c7625123a79db6da1a3880eadc1b323f084c4cf.jsonl",
+    "sha256": "c7d24c7c68727d0eebbca1667c7625123a79db6da1a3880eadc1b323f084c4cf"
+  },
+  "parent_run": "c3af7bbedad9391df82e7901f6ba67390e46060b06ae6fb0f8b744eed44401e9",
+  "request_key": "65872fa768b4747acdcb651af1733724d5dcd2edf683599fd877f26dc21e7016",
+  "run_id": "380b7cdab7c6be324abe5e906dceb7a614446c45a5cbd75378b76e2d01844893",
+  "schema_version": 1,
+  "snapshot_id": "build-25548639-0bf00fe33781",
+  "source_commit": "0bf00fe33781a7357b2d462fdaad49b0c3518b86",
+  "state": {
+    "bytes": 16864761,
+    "path": "identity/states/57208532ffae785815c99f79cd8cc7d09f1cd6127035561827ddf0f93abd2beb.jsonl",
+    "sha256": "57208532ffae785815c99f79cd8cc7d09f1cd6127035561827ddf0f93abd2beb"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}
