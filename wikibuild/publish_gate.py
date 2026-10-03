@@ -37,10 +37,11 @@ def destinations(root, project, manifest):
     return {(name, branch) for name in names for branch in ("main", "gh-pages")}
 
 
-def write_receipt(root, release_id, workspace_commit, remote_refs):
+def write_receipt(root, release_id, workspace_commit, remote_refs, destination_observations):
     from . import publication
     value = {"schema_version": 1, "release_id": release_id, "workspace_commit": workspace_commit,
              "contract": publication.contract(), "remote_refs": remote_refs,
+             "destination_observations": destination_observations,
              "created_utc": datetime.now(timezone.utc).isoformat()}
     publication.save(receipt_path(root, release_id), value)
     return value
@@ -125,6 +126,18 @@ def check(root, project, manifest):
         for row in refs:
             if host.ref(row["repository"], row["branch"]) != row["commit"]:
                 raise ContractError(f"Publish gate: rehearsal remote ref changed: {row['repository']}/{row['branch']}")
+        observations = receipt["destination_observations"]
+        names = {name for name, branch in destinations(root, project, manifest)}
+        covered = set()
+        for row in observations:
+            name = row["repository"]
+            if name in covered or name not in names or row["observed"] not in {"absent", "pages-disabled", "present"}:
+                raise ContractError("Publish gate: invalid rehearsal destination observations")
+            covered.add(name)
+            if github_pages.observe_configuration(host, project["github_owner"], name) != row:
+                raise ContractError(f"Publish gate: rehearsal destination observation changed: {name}")
+        if covered != names:
+            raise ContractError("Publish gate: rehearsal does not cover every destination configuration")
     except ContractError:
         raise
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:

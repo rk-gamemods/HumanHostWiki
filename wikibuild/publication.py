@@ -512,6 +512,13 @@ def _run(root, project, manifest, host, progress, timing, gate):
     refs = RehearsedRefs(gate["rehearsal"]["remote_refs"])
     refs.check(host, publish_gate.destinations(root, project, manifest))
     release.verify(root, manifest)
+    # Validate every destination before provisioning or the first deployment push.
+    expected = {row["repository"]: row for row in gate["rehearsal"].get("destination_observations", [])}
+    for repo in physical.repositories(project, manifest.get("physical")):
+        name = repo["github_name"]
+        observed = github_pages.observe_configuration(host, project["github_owner"], name)
+        if name in expected and observed != expected[name]:
+            raise ContractError(f"Publication destination observation changed: {name}")
     current = published(root)
     if current and current["release_id"] == manifest["release_id"]:
         def check_current(topic, plan):

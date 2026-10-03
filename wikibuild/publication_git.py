@@ -1,12 +1,75 @@
 """Prepare Pages trees in existing Git object storage without a second checkout."""
 
 import hashlib
+import os
+from pathlib import Path
 import re
+import shutil
+import stat
 import subprocess
+import tempfile
 
 from . import bounded
 from .git_transaction import command
 from .storage import ContractError, git
+
+
+def storage_snapshot(path):
+    """Exact read-only evidence; porcelain status cannot detect rehearsal lineage."""
+    common = Path(git(path, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    pins = common / "refs/wiki-publications"
+    files = {file.relative_to(common).as_posix(): file.read_bytes()
+             for file in sorted(pins.rglob("*")) if file.is_file()}
+    packed = common / "packed-refs"
+    if packed.exists():
+        files["packed-refs"] = packed.read_bytes()
+    return {"refs": command(path, "for-each-ref"), "pins": files,
+            "objects": command(path, "count-objects", "-v")}
+
+
+def disposable_clone(source, destination, revision):
+    """Borrow existing objects read-only; all new objects and refs belong to the clone."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    command(source, "clone", "--shared", "--no-checkout", "--", str(source), str(destination))
+    # Normal clone omits publication pins and other private refs. They are input
+    # evidence, but any pins the engine adds here must never become production input.
+    refs = command(source, "for-each-ref", "--format=%(objectname) %(refname)")
+    command(destination, "update-ref", "--no-deref", "--stdin",
+            data=b"".join(b"update " + name + b" " + oid + b"\n"
+                          for oid, name in (row.split() for row in refs.splitlines())))
+    identity = command(source, "var", "GIT_COMMITTER_IDENT").decode().strip()
+    match = re.fullmatch(r"(.*) <(.*)> \d+ [+-]\d{4}", identity)
+    if not match:
+        raise ContractError("Unable to read rehearsal Git identity")
+    git(destination, "config", "user.name", match[1])
+    git(destination, "config", "user.email", match[2])
+    git(destination, "config", "core.autocrlf", "false")
+    git(destination, "checkout", "--detach", revision)
+
+
+def remove_disposable(root):
+    """Delete an owned temp tree, retrying only Git's read-only object files."""
+    root = Path(root).resolve()
+    if (root.parent != Path(tempfile.gettempdir()).resolve()
+            or not re.fullmatch(r"hhwiki-(?:rehearsal|publication)-[0-9a-f]{32}", root.name)):
+        raise ContractError(f"Refusing disposable cleanup outside an owned temp root: {root}")
+
+    def retry_readonly(function, filename, error):
+        path = Path(filename).resolve()
+        if not path.is_relative_to(root):
+            raise error[1]
+        parts = path.relative_to(root).parts
+        mode = path.stat().st_mode
+        if (os.name != "nt" or not isinstance(error[1], PermissionError)
+                or function not in {os.unlink, os.remove} or not stat.S_ISREG(mode)
+                or mode & stat.S_IWRITE or not any(parts[i:i + 2] == (".git", "objects")
+                                                 for i in range(len(parts) - 1))):
+            raise error[1]
+        path.chmod(mode | stat.S_IWRITE)
+        function(filename)
+
+    if root.exists():
+        shutil.rmtree(root, onerror=retry_readonly)
 
 
 def commit(path, tree, parent, message):

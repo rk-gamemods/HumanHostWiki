@@ -28,6 +28,44 @@ class QueuedPagesError(BuildObservationError):
         self.deadline = deadline
 
 
+def _validate_pages(owner, name, value):
+    if (not isinstance(value, dict) or value.get("source") != {"branch": "gh-pages", "path": "/"}
+            or value.get("build_type", "legacy") != "legacy" or value.get("cname")):
+        raise ContractError(f"Unexpected Pages configuration: {name}")
+    expected = f"https://{owner}.github.io/{name}/"
+    url = value.get("html_url")
+    if not isinstance(url, str) or url.rstrip("/").casefold() != expected.rstrip("/").casefold():
+        raise ContractError(f"Unexpected Pages URL: {name}")
+
+
+def validate_configuration(owner, name, repository, pages):
+    """Read-only validation and a receipt-sized observation of deployment settings."""
+    observation = {"repository": name, "observed": "absent"}
+    if repository is None:
+        return observation
+    full_name = f"{owner}/{name}"
+    if (not isinstance(repository, dict) or not isinstance(repository.get("full_name"), str)
+            or repository["full_name"].casefold() != full_name.casefold()
+            or type(repository.get("id")) is not int or repository["id"] <= 0
+            or repository.get("private") or repository.get("archived") or repository.get("fork")
+            or not isinstance(repository.get("permissions"), dict)
+            or not repository.get("permissions", {}).get("admin")):
+        raise ContractError(f"Unexpected remote identity or permissions: {full_name}")
+    observation.update(repository_id=repository["id"], observed="pages-disabled" if pages is None else "present")
+    observation["identity"] = {key: repository.get(key) for key in ("full_name", "private", "archived", "fork")}
+    observation["identity"]["admin"] = repository["permissions"]["admin"]
+    if pages is not None:
+        _validate_pages(owner, name, pages)
+        observation["pages"] = {key: pages.get(key) for key in ("source", "build_type", "cname", "html_url")}
+    return observation
+
+
+def observe_configuration(host, owner, name):
+    repository = host.repository(name)
+    pages = host.api("GET", f"repos/{owner}/{name}/pages", missing=True) if repository is not None else None
+    return validate_configuration(owner, name, repository, pages)
+
+
 def pages_run(commit, runs):
     """Newest Pages attempt for this commit; never adopt an unrelated queued run."""
     if not isinstance(runs, (list, tuple)) or any(not isinstance(run, dict) for run in runs):
@@ -237,11 +275,7 @@ class GitHubPages:
                 if self.api("GET", endpoint, missing=True) is None:
                     raise
             value = self.api("GET", endpoint)
-        if value.get("source") != {"branch": "gh-pages", "path": "/"} or value.get("build_type", "legacy") != "legacy" or value.get("cname"):
-            raise ContractError(f"Unexpected Pages configuration: {name}")
-        expected = f"https://{self.owner}.github.io/{name}/"
-        if value["html_url"].rstrip("/").casefold() != expected.rstrip("/").casefold():
-            raise ContractError(f"Unexpected Pages URL: {name}")
+        _validate_pages(self.owner, name, value)
 
     def failed_deployment(self, name, commit, *, deadline=None):
         """GitHub's Pages workflow run for this commit, if it finished without deploying.

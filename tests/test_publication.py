@@ -7,9 +7,12 @@ import itertools
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from uuid import uuid4
 
 import test_release
 from tests.test_github_pages import Clock
@@ -24,6 +27,12 @@ class Host:
         self.events, self.verified = [], []
         self.fail_name = None
         self.interrupt_name = None
+        self.pages = {}
+
+    def api(self, method, path, **kwargs):
+        if method != "GET" or not path.endswith("/pages"):
+            raise AssertionError(f"Unexpected fake API call: {method} {path}")
+        return self.pages.get(path.split("/")[2])
 
     def repository(self, name):
         return self.repos.get(name)
@@ -41,7 +50,9 @@ class Host:
     def gate(self, root, project, manifest):
         return {"rehearsal": {"fixture": True, "remote_refs": [
             {"repository": name, "branch": branch, "commit": self.ref(name, branch)}
-            for name, branch in sorted(publication.publish_gate.destinations(root, project, manifest))]}}
+            for name, branch in sorted(publication.publish_gate.destinations(root, project, manifest))],
+            "destination_observations": [github_pages.observe_configuration(self, self.owner, name)
+                for name in sorted({name for name, branch in publication.publish_gate.destinations(root, project, manifest)})]}}
 
     def push(self, path, name, commit, branch, expected, *, deadline=None):
         current = self.ref(name, branch)
@@ -61,6 +72,9 @@ class Host:
             raise KeyboardInterrupt("Interrupted after remote accepted push")
 
     def configure(self, name):
+        if name not in self.pages:
+            self.pages[name] = {"source": {"branch": "gh-pages", "path": "/"}, "build_type": "legacy",
+                                "cname": None, "html_url": f"https://{self.owner}.github.io/{name}/"}
         self.events.append(("configure", name))
 
     def wait(self, name, commit):
@@ -96,6 +110,8 @@ class RecoveryHost(Host):
         self.adapter.ref = lambda name, branch, **kwargs: self.ref(name, branch)
 
     def api(self, method, path, **kwargs):
+        if path.endswith("/pages"):
+            return super().api(method, path, **kwargs)
         if method != "GET":
             raise AssertionError("Recovery must never cancel, delete or rerun a workflow")
         commit = self.waited[-1]
@@ -140,9 +156,20 @@ class RecoveryHost(Host):
 
 
 class PublicationTests(unittest.TestCase):
+    def temporary_fixture(self):
+        path = Path(tempfile.gettempdir()) / ("hhwiki-publication-" + uuid4().hex)
+        path.mkdir()
+        def cleanup():
+            if path.exists():
+                publication_git.remove_disposable(path)
+        self.addCleanup(cleanup)
+        return SimpleNamespace(name=str(path), cleanup=cleanup, _finalizer=Mock())
+
     def setUp(self):
         self.fixture = test_release.ReleaseTests()
-        self.fixture.setUp()
+        with patch.object(test_release.test_reader.tempfile, "TemporaryDirectory", side_effect=self.temporary_fixture), \
+                patch.object(self.fixture, "cleanup", lambda: publication_git.remove_disposable(self.fixture.root)):
+            self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.root, self.project = self.fixture.root, self.fixture.project
         self.project["publication"] = {"enabled": True, "workers": 2}
@@ -164,6 +191,33 @@ class PublicationTests(unittest.TestCase):
     def next_release(self):
         self.project["official_links"] = [{"title": "Changed", "url": "https://example.invalid/"}]
         self.make_release()
+
+    def test_shared_configuration_rejects_cname_and_url_before_provision_or_push(self):
+        self.run_publish()
+        self.next_release()
+        for key, value, message in (("cname", "other.example", "Pages configuration"),
+                                    ("html_url", "https://other.example/", "Pages URL")):
+            with self.subTest(key=key):
+                old = self.host.pages["Wiki-items"][key]
+                self.host.pages["Wiki-items"][key] = value
+                with patch.object(publication, "provision") as provision, patch.object(self.host, "push") as push:
+                    with self.assertRaisesRegex(ContractError, message):
+                        self.run_publish()
+                    provision.assert_not_called()
+                    push.assert_not_called()
+                self.host.pages["Wiki-items"][key] = old
+
+    def test_production_provisions_missing_repositories_and_enables_disabled_pages(self):
+        self.run_publish()
+        self.assertEqual({event[1] for event in self.host.events if event[0] == "create"},
+                         {"Wiki-hub", "Wiki-items", "Wiki-loot"})
+        self.next_release()
+        self.host.pages.pop("Wiki-items")
+        before = self.host.repos["Wiki-items"]["id"]
+        result, _ = self.run_publish()
+        self.assertEqual(result["status"], "published")
+        self.assertEqual(result["repositories"]["items"]["repository_id"], before)
+        self.assertEqual(github_pages.observe_configuration(self.host, self.host.owner, "Wiki-items")["observed"], "present")
 
     def recover(self, mode="built"):
         self.host = RecoveryHost(self.project["github_owner"], self.root, mode)
