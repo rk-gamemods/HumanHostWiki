@@ -44,6 +44,14 @@ Do not introduce a scheduler, automatic LLM processing or intermediate approvals
 Derived factual documentation belongs in the wiki repositories. The parent
 codebase's source and raw catalog remain local inputs, read in place.
 
+Routine updates stop after the local release, release retention and reader retention.
+Production publication is a separate `wiki.py publish --release <id>` operator step
+from reviewed, merged code: the workspace must be clean, HEAD must equal fetched
+origin/main, exact-commit CI must succeed, and a successful rehearsal receipt must
+match the release, commit, publication contract and live refs within 24 hours.
+The gate runs before pending resume or provisioning and has no override flag.
+See `docs/PUBLICATION.md` for the owning contract and the 2026-10-02 ADR decision.
+
 Current tooling builds an architecture/navigation preview, registers input snapshots
 and extracts selected facts in every topic with durable identity decisions.
 `wiki.py reader` projects those records into a validated static reader candidate.

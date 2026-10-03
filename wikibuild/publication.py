@@ -6,13 +6,13 @@ import json
 from pathlib import Path
 from time import perf_counter
 
-from . import entrypoints, github_pages, ownership, physical, publication_git, release
+from . import entrypoints, github_pages, ownership, physical, publication_git, publish_gate, release
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 
 def contract():
     return {name: digest((Path(__file__).parent / name).read_bytes().replace(b"\r\n", b"\n"))
-            for name in ("publication.py", "publication_git.py", "github_pages.py", "ownership.py", "entrypoints.py", "physical.py")}
+            for name in ("publication.py", "publication_git.py", "github_pages.py", "ownership.py", "entrypoints.py", "physical.py", "publish_gate.py")}
 
 
 def save(path, payload):
@@ -281,6 +281,8 @@ def resume(root, state, path, host, workers, timing=None):
                   "status": "published", "repositories": state["repositories"], "hub": state["repositories"]["hub"]["base"],
                   "entrypoints": state.get("entrypoints", {topic: topic for topic, plan in state["repositories"].items()
                                                           if plan.get("role") != "partition"})}
+        if "gate" in state:
+            result["gate"] = state["gate"]
         receipt = within(root, f"publications/{state['release_id']}.json")
         if receipt.exists() and load(receipt) != result:
             raise ContractError("Immutable publication receipt differs")
@@ -292,18 +294,19 @@ def resume(root, state, path, host, workers, timing=None):
 
 
 def run(root, project, manifest, *, host=None, progress=None):
-    """Caller holds the shared OS writer lock; no model calls or human gates."""
+    """Caller holds the shared OS writer lock. Production always passes the gate."""
     timing = {"repositories": {}, "rollback": {}, "phases": {}, "prepare": 0.0, "resume": 0.0}
     try:
         with measure(timing, "total"):
-            result, metrics = _run(root, project, manifest, host, progress, timing)
+            gate = publish_gate.check(root, project, manifest)
+            result, metrics = _run(root, project, manifest, host, progress, timing, gate)
         return result, {**metrics, "timing": timing}
     except (Exception, KeyboardInterrupt) as exc:
         exc.publication_timing = timing
         raise
 
 
-def _run(root, project, manifest, host, progress, timing):
+def _run(root, project, manifest, host, progress, timing, gate=None):
     if not project.get("publication", {}).get("enabled", False):
         return {"status": "disabled"}, {"reused": True}
     host = host or github_pages.GitHubPages(project["github_owner"], progress)
@@ -313,6 +316,13 @@ def _run(root, project, manifest, host, progress, timing):
     if state and state["phase"] != "complete":
         if state["owner"] != project["github_owner"]:
             raise ContractError("Pending publication belongs to another namespace")
+        if gate is not None:
+            # An interruption can follow saving the immutable receipt. Preserve
+            # its original shape, including receipts made before the gate existed.
+            if not within(root, f"publications/{state['release_id']}.json").exists():
+                state.setdefault("gate", gate)
+            state["last_gate"] = gate
+            save(path, state)
         with measure(timing, "resume"):
             resumed = resume(root, state, path, host, workers, timing)
         if resumed["release_id"] == manifest["release_id"]:
@@ -341,6 +351,8 @@ def _run(root, project, manifest, host, progress, timing):
         return current, {"reused": True}
     with measure(timing, "prepare"):
         state = prepare(root, project, manifest, host)
+    if gate is not None:
+        state["gate"] = gate
     save(path, state)
     with measure(timing, "resume"):
         result = resume(root, state, path, host, workers, timing)

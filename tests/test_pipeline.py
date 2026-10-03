@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import test_extraction
 import wiki
-from wikibuild import extraction, history, model, pipeline, workspace
+from wikibuild import extraction, github_pages, history, model, pipeline, publication, workspace
 from wikibuild.adapters import items_loot
 from wikibuild.storage import ContractError, git, json_bytes, writer_lock
 
@@ -18,7 +18,12 @@ from wikibuild.storage import ContractError, git, json_bytes, writer_lock
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_extraction.ExtractionTests()
-        self.fixture.setUp()
+        # Keep full-reader fixture paths below the existing Windows 260-char limit.
+        parent = test_extraction.ROOT / ".local/t"
+        parent.mkdir(parents=True, exist_ok=True)
+        temporary = test_extraction.tempfile.mkdtemp
+        with patch.object(test_extraction.tempfile, "mkdtemp", side_effect=lambda **options: temporary(dir=parent)):
+            self.fixture.setUp()
         self.addCleanup(self.fixture.tearDown)
         self.root, self.source = self.fixture.wiki, self.fixture.source
         registry = self.root / "presentation/fields.json"
@@ -50,7 +55,7 @@ class PipelineTests(unittest.TestCase):
     def test_timings_are_append_only_and_do_not_change_run_or_request_identity(self):
         first = self.run_pipeline()
         stages = {"register", "availability", "external-articles", "normalize", "identity", "project",
-                  "verify", "release", "publish", "retention", "reader-retention", "promote"}
+                  "verify", "release", "retention", "reader-retention", "promote"}
         self.assertEqual(set(first["timings"]), stages)
         self.assertTrue(all(seconds >= 0 for seconds in first["timings"].values()))
         self.assertGreaterEqual(first["total_seconds"], sum(first["timings"].values()))
@@ -113,28 +118,26 @@ class PipelineTests(unittest.TestCase):
                     self.run_pipeline()
         self.assertEqual(stderr.getvalue().count("Wiki timing could not be saved"), 2)
 
-    def test_failed_publication_breakdown_reaches_timing_file_without_changing_receipt(self):
-        failure = ContractError("publication fault")
-        failure.publication_timing = {"repositories": {"items": {"push_main": 1.0}}, "resume": 1.0}
-        with patch.object(pipeline.publication, "run", side_effect=failure):
-            with self.assertRaisesRegex(ContractError, "stage publish failed") as raised:
-                self.run_pipeline()
-        timing = json.loads(next((self.root / ".local/pipeline/timings").glob("*-execution-failure.json")).read_text())
-        self.assertEqual(timing["publication"], failure.publication_timing)
-        self.assertEqual(raised.exception.metrics["publish"]["timing"], timing["publication"])
-        self.assertIn("publish", raised.exception.timings)
-        receipt = json.loads(next((self.root / ".local/pipeline/failures").glob("*.json")).read_text())
-        self.assertNotIn("publication_timing", receipt)
+    def test_update_never_publishes_or_constructs_a_live_host(self):
+        (self.root / "project.json").write_bytes(json_bytes(test_extraction.PROJECT))
+        with patch.object(publication, "run", side_effect=AssertionError("Unexpected publication")), \
+                patch.object(github_pages, "GitHubPages", side_effect=AssertionError("Unexpected live host")):
+            result = wiki.run(self.root, SimpleNamespace(command="update", source=str(self.source)))
+            self.assertEqual(result["run_id"], self.run_pipeline()["run_id"])
+        self.assertEqual(result["release_id"], result["wiki_release"])
+        self.assertIn(f"py -3 wiki.py publish --release {result['release_id']}", result["next_step"])
+        self.assertIn("After successful rehearsal", pipeline.operator_report(self.root, result))
+        self.assertNotIn("publish", result["timings"])
 
     def test_operator_time_section_preserves_existing_text_and_labels_parallel_sums(self):
         result = self.run_pipeline()
         legacy = dict(result)
         legacy.pop("timings")
         original = pipeline.operator_report(self.root, legacy)
-        result["metrics"]["publish"]["timing"] = {
+        result["metrics"]["publish"] = {"timing": {
             "repositories": {"items": {"push_main": 2, "push_pages": 3, "configure": 1,
                                         "pages_build": 8, "verify": 4, "total": 18}},
-            "phases": {"topics-1": 18}, "prepare": 2, "resume": 18}
+            "phases": {"topics-1": 18}, "prepare": 2, "resume": 18}}
         text = pipeline.operator_report(self.root, result)
         self.assertTrue(text.startswith(original + "\nTime\n"))
         for stage in result["timings"]:
@@ -157,7 +160,7 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('"MaxStack":19', facts)
         self.assertNotIn("DO NOT EXPORT", facts)
         self.assertIn("new-field", pipeline.operator_report(self.root, result))
-        self.assertEqual(result['remaining'], ['content-exceptions'])
+        self.assertEqual(result['remaining'], ['content-exceptions', 'publish'])
 
     def test_repeat_keeps_same_receipt_pointer_and_reuses_all_stages(self):
         first = self.run_pipeline()
@@ -167,8 +170,8 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(pointer, (self.latest().read_bytes(), self.latest().stat().st_mtime_ns))
         self.assertTrue(all(value["reused"] for value in second["metrics"].values()))
         self.assertEqual(sum(value.get("source_bytes_read", 0) for value in second["metrics"].values()), 0)
-        self.assertEqual(first['remaining'], [])
-        self.assertEqual(second['remaining'], [])
+        self.assertEqual(first['remaining'], ['publish'])
+        self.assertEqual(second['remaining'], ['publish'])
         self.assertFalse(pipeline.read(self.root, second['run_id'])['completed']['verify']['gameplay_verified'])
         self.assertNotIn('unfinished', pipeline.operator_report(self.root, second))
 
@@ -228,7 +231,7 @@ class PipelineTests(unittest.TestCase):
             result = self.run_pipeline()
         saved = pipeline.read(self.root, result["run_id"])
         self.assertEqual(saved["status"], "git-release-ready")
-        self.assertIn("publish", saved["completed"])
+        self.assertNotIn("publish", saved["completed"])
         self.assertNotIn("protected reader cache", json.dumps(saved["exceptions"]))
         self.assertIn("Reader cache cleanup issue", pipeline.operator_report(self.root, result))
         self.assertIn("protected reader cache", pipeline.operator_report(self.root, result))
@@ -337,7 +340,6 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(before, self.latest().read_bytes())
 
     def test_full_pipeline_commits_all_topics_despite_content_exceptions(self):
-        from test_publication import Host
         self.release_patch.stop()
         workspace.initialize(self.root, test_extraction.PROJECT)
         for repo in test_extraction.PROJECT['repositories']:
@@ -351,20 +353,21 @@ class PipelineTests(unittest.TestCase):
         project = json.loads(json.dumps(test_extraction.PROJECT))
         project['publication']['enabled'] = True
         workspace.checkout_lock(self.root, project)
-        host = Host(project['github_owner'])
-        with patch.object(pipeline.publication.github_pages, 'GitHubPages', return_value=host):
+        with patch.object(publication, 'run', side_effect=AssertionError('Unexpected publication')), \
+                patch.object(github_pages, 'GitHubPages', side_effect=AssertionError('Unexpected live host')):
             result = pipeline.run(self.root, project, self.source)
         saved = pipeline.read(self.root, result['run_id'])
         released = pipeline.release.read(self.root, saved['wiki_release'])
         self.assertEqual(len(released['repositories']), 13)
         self.assertGreater(result['exception_groups'], 0)
-        self.assertEqual(result['status'], 'published')
-        self.assertEqual(len(pipeline.publication.published(self.root)['repositories']), 13)
+        self.assertEqual(result['status'], 'git-release-ready')
+        self.assertIsNone(publication.published(self.root))
         self.assertGreater(result['metrics']['retention']['removed_files'], 0)
         self.assertFalse(result['metrics']['retention']['retained'])
         self.assertTrue((self.root / 'repositories/items-equipment/site/reader.json').is_file())
         pipeline.release.verify(self.root, released)
-        with patch.object(pipeline.publication.github_pages, 'GitHubPages', return_value=host):
+        with patch.object(publication, 'run', side_effect=AssertionError('Unexpected publication')), \
+                patch.object(github_pages, 'GitHubPages', side_effect=AssertionError('Unexpected live host')):
             repeated = pipeline.run(self.root, project, self.source)
             self.assertEqual(result['run_id'], repeated['run_id'])
             self.assertTrue(repeated['metrics']['retention']['reused'])

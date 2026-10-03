@@ -83,6 +83,10 @@ class PublicationTests(unittest.TestCase):
         self.root, self.project = self.fixture.root, self.fixture.project
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = Host(self.project["github_owner"])
+        # Gate refusals and real Git preflight are covered by test_publish_gate.
+        gate = patch.object(publication.publish_gate, "check", return_value={"rehearsal": {"fixture": True}})
+        self.gate = gate.start()
+        self.addCleanup(gate.stop)
         self.make_release()
 
     def make_release(self):
@@ -97,8 +101,26 @@ class PublicationTests(unittest.TestCase):
         self.project["official_links"] = [{"title": "Changed", "url": "https://example.invalid/"}]
         self.make_release()
 
+    def test_gate_preserves_legacy_receipt_after_interrupted_final_promotion(self):
+        result, _ = self.run_publish()
+        legacy = {key: value for key, value in result.items() if key != "gate"}
+        receipt = self.root / "publications" / (result["release_id"] + ".json")
+        publication.save(receipt, legacy)
+        before = receipt.read_bytes()
+        pending = self.root / ".local/publication/pending.json"
+        state = publication.load(pending)
+        state.pop("gate")
+        state["phase"] = "hub"
+        publication.save(pending, state)
+        resumed, _ = self.run_publish()
+        self.assertEqual(resumed, legacy)
+        self.assertEqual(receipt.read_bytes(), before)
+        self.assertEqual(publication.load(pending)["last_gate"], {"rehearsal": {"fixture": True}})
+
     def test_topics_verify_before_hub_and_repeat_is_stable(self):
         result, metrics = self.run_publish()
+        self.assertEqual(result["gate"], {"rehearsal": {"fixture": True}})
+        self.assertEqual(publication.load(self.root / ".local/publication/pending.json")["gate"], result["gate"])
         timing = metrics["timing"]
         self.assertEqual(set(timing["repositories"]), set(result["repositories"]))
         for row in timing["repositories"].values():
@@ -115,6 +137,7 @@ class PublicationTests(unittest.TestCase):
         before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in (self.root / "publications").glob("*.json")}
         pushes = [e for e in self.host.events if e[0] == "push"]
         again, metrics = self.run_publish()
+        self.assertEqual(self.gate.call_count, 2)
         self.assertTrue(metrics["reused"])
         self.assertEqual(set(metrics["timing"]["repositories"]), set(result["repositories"]))
         self.assertIn("current", metrics["timing"]["phases"])

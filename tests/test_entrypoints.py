@@ -43,6 +43,9 @@ class EntrypointReleaseTests(unittest.TestCase):
         self.root, self.project = self.fixture.root, self.fixture.project
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = test_publication.Host(self.project["github_owner"])
+        gate = patch.object(publication.publish_gate, "check", return_value={"rehearsal": {"fixture": True}})
+        gate.start()
+        self.addCleanup(gate.stop)
 
     def make(self, title):
         self.project["official_links"] = [{"title": title, "url": "https://example.invalid/"}]

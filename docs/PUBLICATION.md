@@ -1,15 +1,50 @@
 # Publish and recover a coordinated release
 
-The normal decompile command runs publication after the local Git release. Enable
-it once with `publication.enabled` in `project.json`; `publication.workers` bounds
-concurrent topic deployments. The current project enables publication under
-`rk-gamemods`. The operator receives content exceptions after supported publication
-finishes. Execution failures retain a separate failure receipt.
+The normal decompile command stops at a local Git release and retention. Live sites
+change only through the separate `py -3 wiki.py publish --release <id>` operator
+command, after code review, merge and successful rehearsal against live state.
+`publication.enabled` in `project.json` enables this explicit command;
+`publication.workers` bounds concurrent topic deployments. Content exceptions are
+reported after the local update. Execution failures retain a separate failure receipt.
+
+## Production gate
+
+`wikibuild/publish_gate.py` fails closed on the first failed check, in this order,
+before any remote effect, pending-publication resume or provisioning:
+
+1. The HumanHostWiki workspace has no tracked changes or non-ignored untracked files.
+2. A bounded fetch of `origin` main updates `origin/main`, and `HEAD` equals that commit.
+3. A read-only `GET /repos/rk-gamemods/HumanHostWiki/actions/runs?head_sha=<sha>`
+   finds workflow `CI` completed with conclusion `success` for that exact commit.
+   The newest matching run/attempt must succeed; absent or unfinished CI is refused.
+4. `.local/publication/rehearsals/<release-id>.json` is a valid successful rehearsal
+   receipt for the requested release, current workspace commit and
+   `publication.contract()`. Its UTC timestamp must be at most 24 hours old and
+   cannot be in the future. The gate re-reads every recorded destination branch
+   ref and refuses drift. Both `main` and `gh-pages` must be covered for every
+   current destination and any earlier pending publication destination.
+
+The rehearsal command requires `--release <id>`. It reads live GitHub state and
+simulates pushes, builds and verification locally. Only success, after restoring
+publication state, writes a hash-checked receipt. The receipt records release id,
+workspace commit, publication contract, UTC timestamp and each repository name,
+branch and observed commit SHA (or `null` for an absent branch). It records actual
+remote observations, never simulated branch tips. Receipt validity does not prove
+that GitHub Pages will build; publication retains its deployment checks.
+
+Publication journals the gate record and rehearsal receipt. Every invocation,
+including recovery and unchanged publication checks, passes the gate. If live refs
+changed during an interrupted deployment, rehearse again before resuming. There is
+no override flag. A bypass requires a code change through a reviewed PR; branch
+protection is unavailable for this private repository on GitHub Free.
+Gate Git commands have a 120-second timeout and GitHub reads reuse the existing
+bounded API adapter and authentication. No new credentials or dependencies are used.
 
 ## Owners and requirements
 
 | Owner | Responsibility |
 | --- | --- |
+| `wikibuild/publish_gate.py` | Clean merged commit, exact-commit CI and rehearsal/live-ref preflight |
 | `wikibuild/publication.py` | Provisioning identity receipts, prepared plans, topic verification, hub promotion and recovery |
 | `wikibuild/publication_git.py` | Public history audit and Pages commit trees without another checkout |
 | `wikibuild/github_pages.py` | GitHub CLI/API calls, fast-forward pushes, build observation and public HTTP hashes |
@@ -98,13 +133,15 @@ entry shells; unchanged packs retain their earlier verification evidence.
 
 ```powershell
 py -3 wiki.py update --operator-report
-py -3 wiki.py publish
+py -3 tools/rehearse_publication.py --release <id>
+py -3 wiki.py publish --release <id>
 py -3 -m unittest discover -s tests -p test_publication.py -v
 ```
 
-`publish` is a recovery/diagnostic entrypoint for the latest local release. Normal
-maintenance uses the integrated update. On a transient network failure, rerun the
-same command; completed stage receipts and confirmed pushes are reused. A queued
+`publish` selects an explicit local release; it never falls back to the latest
+pointer. Review and merge workspace changes, wait for CI, then rehearse and publish.
+On a transient network failure, rerun the same command after refreshing the
+rehearsal if required; completed receipts and confirmed pushes are reused. A queued
 or running build is polled without restarting it, up to the 30-minute build deadline.
 Once GitHub returns a build identity, subsequent reads address that build. If the
 latest record belongs to another commit, the adapter checks the recent build

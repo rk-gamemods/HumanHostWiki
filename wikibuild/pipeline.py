@@ -7,7 +7,7 @@ import sys
 from time import perf_counter
 import traceback
 
-from . import availability, curation, external_links, extraction, history, physical, publication, reader, reader_retention, release, release_retention, snapshots
+from . import availability, curation, external_links, extraction, history, physical, reader, reader_retention, release, release_retention, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -93,7 +93,7 @@ def run(root, project, source, progress=None):
                      "reader_retention": reader_retention.contract(),
                      "external_articles": external_links.contract(),
                      "extraction": extraction.contract(root, project), "identity": history.contract(),
-                     "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}
+                     "reader": reader.contract(), "release": release.contract()}
         reviewed = history.corrections(root)
         authored = curation.definition_inputs(curation.definitions(root, project))
         request_key = digest(json_bytes([receipt, project, contracts, reviewed, observed, articles, authored]))
@@ -148,7 +148,7 @@ def run(root, project, source, progress=None):
                          "reader_retention": reader_retention.contract(),
                          "external_articles": external_links.contract(),
                          "extraction": extraction.contract(root, project), "identity": history.contract(),
-                         "reader": reader.contract(), "release": release.contract(), "publication": publication.contract()}:
+                         "reader": reader.contract(), "release": release.contract()}:
             raise ContractError("Pipeline rules changed during processing")
         if history.corrections(root) != reviewed:
             raise ContractError("Reviewed mappings changed during processing")
@@ -164,13 +164,6 @@ def run(root, project, source, progress=None):
             progress(stage)
         released, metrics[stage] = release.run(root, project, projected)
         completed[stage] = {"release_id": released["release_id"], "publication": released["publication"]}
-        enter("publish")
-        if progress:
-            progress(stage)
-        published, metrics[stage] = publication.run(root, project, released, progress=progress)
-        completed[stage] = {"status": published["status"]}
-        if published["status"] == "published":
-            completed[stage]["hub"] = published["hub"]
         enter("retention")
         if progress:
             progress(stage)
@@ -185,15 +178,16 @@ def run(root, project, source, progress=None):
             remaining.append("content-exceptions")
         if articles and (completed["external-articles"]["unresolved"] or not completed["external-articles"]["inventory_complete"]):
             remaining.append("external-article-issues")
-        if project.get("publication", {}).get("enabled") and published["status"] != "published":
-            remaining.append("publish")
+        remaining.append("publish")
+        next_step = f"After successful rehearsal: py -3 wiki.py publish --release {released['release_id']}"
         result = {"schema_version": 1, "request_key": request_key,
                   "previous_run": previous["run_id"] if previous else None,
                   "source_commit": receipt["source_commit"], "snapshot_id": receipt["snapshot_id"],
                   "diff_base": previous["source_commit"] if previous else None,
                   "contracts": contracts, "completed": completed,
                   "exceptions": content_report,
-                  "status": "published" if published["status"] == "published" else "git-release-ready", "wiki_release": released["release_id"],
+                  "status": "git-release-ready", "wiki_release": released["release_id"],
+                  "release_id": released["release_id"], "next_step": next_step,
                   "remaining": remaining}
         run_id = digest(json_bytes(result))
         result["run_id"] = run_id
@@ -204,7 +198,8 @@ def run(root, project, source, progress=None):
         invocation = {"run_id": run_id, "snapshot_id": result["snapshot_id"], "status": result["status"],
                 "report": str(within(root, f".local/pipeline/runs/{run_id}.json")),
                 "reader": projected["path"], "exception_groups": result["exceptions"]["group_count"],
-                "wiki_release": result["wiki_release"], "remaining": result["remaining"], "metrics": metrics,
+                "wiki_release": result["wiki_release"], "release_id": result["release_id"],
+                "next_step": result["next_step"], "remaining": result["remaining"], "metrics": metrics,
                 "timings": timings}
         status = result["status"]
         return invocation
@@ -286,6 +281,8 @@ def operator_report(root, result):
         if articles["unresolved"] or not articles["inventory_complete"]:
             lines.append("Present these external article issues to the user and ask how to proceed.")
     lines.append(saved["exceptions"]["next_action"])
+    if "next_step" in saved:
+        lines.append(saved["next_step"])
     for retained in result.get("metrics", {}).get("retention", {}).get("retained", []):
         lines.append(f"Staging cleanup issue [{retained['stage']}]: {retained['reason']}")
     for retained in result.get("metrics", {}).get("reader-retention", {}).get("retained", []):

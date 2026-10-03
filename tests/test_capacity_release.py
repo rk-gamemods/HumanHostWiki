@@ -21,6 +21,9 @@ class CapacityReleaseTests(unittest.TestCase):
                                     "site_reserve_bytes": 30_000, "history_reserve_bytes": 30_000}
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = test_publication.Host(self.project["github_owner"])
+        gate = patch.object(publication.publish_gate, "check", return_value={"rehearsal": {"fixture": True}})
+        gate.start()
+        self.addCleanup(gate.stop)
         workspace.checkout_lock(self.root, self.project)
         self.candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
 
