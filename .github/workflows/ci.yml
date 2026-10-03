@@ -63,7 +63,8 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
-          python tools/run_tests.py --changed "origin/$env:BASE_REF" --windows-relevant
+          # Production runs on Windows: PRs run the same affected tests here as on Ubuntu.
+          python tools/run_tests.py --changed "origin/$env:BASE_REF"
       - name: Full integration suite
         if: github.event_name != 'pull_request'
         run: python tools/run_tests.py --all

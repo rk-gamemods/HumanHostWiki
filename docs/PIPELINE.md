@@ -116,9 +116,16 @@ or `reused`. Both arrays contain `{name: string, seconds: number, outcome}`.
 Unknown fields are ignored. A missing or invalid receipt emits one warning;
 the wiki continues without capture timing.
 
-The watchdog allows up to one second to save partial timing before its existing process exit.
-Abrupt process termination, loss of storage access or a blocked filesystem can
-prevent a record. Repeated finalization cannot create a second record.
+The watchdog claims `timed-out`, fences new child launches and supervises registered
+process-tree, writer owner metadata and registered temporary-file cleanup before
+exiting 124. The recorder-lock wait is limited to five seconds; an unavailable lock
+is reported and cannot prevent exit. Cleanup has a 60-second grace, with unresolved
+child PIDs and unfinished work reported before exit. Unconfirmed Windows jobs stay
+registered and open for bounded cleanup retries. Timing saves run alongside cleanup,
+with a final bounded diagnostic wait. Journals
+and stage artifacts remain for update recovery; a timed-out publication requires
+`abandon-publication`. Abrupt termination or blocked storage can prevent a timing
+record. Repeated finalization cannot create a second record.
 `wiki.py timing [--last N]` reads the latest records across both commands without
 loading project configuration or acquiring the writer lock.
 

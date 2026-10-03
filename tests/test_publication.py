@@ -25,6 +25,12 @@ class Host:
         self.events, self.verified = [], []
         self.fail_name = None
         self.interrupt_name = None
+        self.pages = {}
+
+    def api(self, method, path, **kwargs):
+        if method != "GET" or not path.endswith("/pages"):
+            raise AssertionError(f"Unexpected fake API call: {method} {path}")
+        return self.pages.get(path.split("/")[2])
 
     def repository(self, name):
         return self.repos.get(name)
@@ -42,7 +48,9 @@ class Host:
     def gate(self, root, project, manifest):
         return {"rehearsal": {"fixture": True, "remote_refs": [
             {"repository": name, "branch": branch, "commit": self.ref(name, branch)}
-            for name, branch in sorted(publication.publish_gate.destinations(root, project, manifest))]}}
+            for name, branch in sorted(publication.publish_gate.destinations(root, project, manifest))],
+            "destination_observations": [github_pages.observe_configuration(self, self.owner, name)
+                for name in sorted({name for name, branch in publication.publish_gate.destinations(root, project, manifest)})]}}
 
     def install_gate(self, test):
         # Each private host supplies its own refs. A template-bound mock would
@@ -68,8 +76,17 @@ class Host:
             self.interrupt_name = None
             raise KeyboardInterrupt("Interrupted after remote accepted push")
 
-    def configure(self, name):
+    def configure(self, name, *, defer=False):
+        def enable():
+            self.pages[name] = {"source": {"branch": "gh-pages", "path": "/"}, "build_type": "legacy",
+                                "cname": None, "html_url": f"https://{self.owner}.github.io/{name}/"}
+            self.events.append(("configure", name))
+            return self.pages[name]
+        if name not in self.pages:
+            return enable if defer else enable()
+        github_pages.validate_configuration(self.owner, name, self.repository(name), self.pages[name])
         self.events.append(("configure", name))
+        return self.pages[name]
 
     def wait(self, name, commit):
         if self.ref(name, "gh-pages") != commit:
@@ -110,6 +127,8 @@ class RecoveryHost(Host):
         self.adapter.ref = lambda name, branch, **kwargs: self.ref(name, branch)
 
     def api(self, method, path, **kwargs):
+        if path.endswith("/pages"):
+            return super().api(method, path, **kwargs)
         if method != "GET":
             raise AssertionError("Recovery must never cancel, delete or rerun a workflow")
         commit = self.waited[-1]
@@ -232,6 +251,82 @@ class PublicationTests(unittest.TestCase):
     def next_release(self):
         self.project["official_links"] = [{"title": "Changed", "url": "https://example.invalid/"}]
         self.make_release()
+
+    def test_shared_configuration_rejects_cname_and_url_before_destination_push(self):
+        self.run_publish()
+        self.next_release()
+        for key, value, message in (("cname", "other.example", "Pages configuration"),
+                                    ("html_url", "https://other.example/", "Pages URL")):
+            with self.subTest(key=key):
+                old = self.host.pages["Wiki-items"][key]
+                self.host.pages["Wiki-items"][key] = value
+                with patch.object(self.host, "push") as push:
+                    with self.assertRaisesRegex(ContractError, message):
+                        self.run_publish()
+                    push.assert_not_called()
+                self.host.pages["Wiki-items"][key] = old
+
+    def test_configuration_drift_before_first_destination_push_is_rejected(self):
+        self.run_publish()
+        self.next_release()
+        real_prepare = publication.prepare
+
+        def drift(*args, **kwargs):
+            state = real_prepare(*args, **kwargs)
+            self.host.pages["Wiki-items"]["cname"] = "drift.example"
+            return state
+
+        with patch.object(publication, "prepare", side_effect=drift), \
+                patch.object(self.host, "push", wraps=self.host.push) as push:
+            with self.assertRaisesRegex(ContractError, "Pages configuration"):
+                self.run_publish()
+        self.assertFalse(any(call.args[1] in {"Wiki-items", "Wiki-hub"} for call in push.call_args_list))
+
+    def test_configuration_drift_before_hub_promotion_is_rejected(self):
+        self.run_publish()
+        self.next_release()
+        real_verify = self.host.verify
+
+        def drift(base, *args, **kwargs):
+            result = real_verify(base, *args, **kwargs)
+            if base.endswith("/Wiki-items/"):
+                self.host.pages["Wiki-hub"]["html_url"] = "https://drift.example/"
+            return result
+
+        with patch.object(self.host, "verify", side_effect=drift), \
+                patch.object(self.host, "push", wraps=self.host.push) as push:
+            with self.assertRaisesRegex(ContractError, "Pages URL"):
+                self.run_publish()
+        self.assertFalse(any(call.args[1] == "Wiki-hub" for call in push.call_args_list))
+
+    def test_verified_topic_configuration_drift_blocks_hub_promotion(self):
+        self.run_publish()
+        self.next_release()
+        real_verify = self.host.verify
+
+        def drift(base, *args, **kwargs):
+            result = real_verify(base, *args, **kwargs)
+            if base.endswith("/Wiki-items/"):
+                self.host.repos["Wiki-items"]["private"] = True
+            return result
+
+        with patch.object(self.host, "verify", side_effect=drift), \
+                patch.object(self.host, "push", wraps=self.host.push) as push:
+            with self.assertRaisesRegex(ContractError, "identity or permissions"):
+                self.run_publish()
+        self.assertFalse(any(call.args[1] == "Wiki-hub" for call in push.call_args_list))
+
+    def test_production_provisions_missing_repositories_and_enables_disabled_pages(self):
+        self.run_publish()
+        self.assertEqual({event[1] for event in self.host.events if event[0] == "create"},
+                         {"Wiki-hub", "Wiki-items", "Wiki-loot"})
+        self.next_release()
+        self.host.pages.pop("Wiki-items")
+        before = self.host.repos["Wiki-items"]["id"]
+        result, _ = self.run_publish()
+        self.assertEqual(result["status"], "published")
+        self.assertEqual(result["repositories"]["items"]["repository_id"], before)
+        self.assertEqual(github_pages.observe_configuration(self.host, self.host.owner, "Wiki-items")["observed"], "present")
 
     def recover(self, mode="built"):
         self.host = RecoveryHost(self.project["github_owner"], self.root, mode)
@@ -641,7 +736,7 @@ class TimingTests(unittest.TestCase):
                 self.elapsed += 1 if branch == "main" else 2
                 self.refs[branch] = commit
 
-            def configure(self, name):
+            def configure(self, name, **kwargs):
                 self.elapsed += 3
 
             def wait(self, name, commit):
@@ -691,7 +786,7 @@ class RecoveryBoundaryTests(unittest.TestCase):
                 if self.recovering and mode == "rejected":
                     raise ContractError("successor rejected before push")
 
-            def configure(self, name):
+            def configure(self, name, **kwargs):
                 pass
 
             def wait(self, name, commit, **kwargs):

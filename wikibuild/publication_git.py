@@ -1,12 +1,124 @@
 """Prepare Pages trees in existing Git object storage without a second checkout."""
 
 import hashlib
+import os
+from pathlib import Path
 import re
+import shutil
+import stat
 import subprocess
+import tempfile
 
 from . import bounded
 from .git_transaction import command
 from .storage import ContractError, git
+
+
+def disposable_environment(*, identity=False):
+    # No caller-supplied Git routing, injected config, trace paths or attributes.
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.upper().startswith("GIT_")}
+    environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_SYSTEM=os.devnull,
+                       GIT_ATTR_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+    # The read-only identity query may use the operator's global user identity.
+    # Every object/ref operation ignores global config, including arbitrary filters.
+    if not identity:
+        environment["GIT_CONFIG_GLOBAL"] = os.devnull
+    return environment
+
+
+def disposable_git(path, *arguments, data=None, hooks=None, identity=False):
+    options = ["-c", "core.fsmonitor=false", "-c", f"core.attributesFile={os.devnull}",
+               "-c", "filter.lfs.smudge=", "-c", "filter.lfs.clean=",
+               "-c", "filter.lfs.process=", "-c", "filter.lfs.required=false"]
+    if hooks is not None:
+        options += ["-c", f"core.hooksPath={hooks}"]
+    try:
+        result = bounded.run(["git", "-C", str(path), *options, *arguments], timeout=120,
+                             input=data, env=disposable_environment(identity=identity))
+    except subprocess.TimeoutExpired:
+        raise ContractError("Rehearsal Git storage command timed out") from None
+    if result.returncode:
+        raise ContractError(f"Rehearsal Git storage command failed: {result.stderr.decode(errors='replace')[:1200]}")
+    return result.stdout
+
+
+def storage_snapshot(path):
+    """Exact read-only evidence; porcelain status cannot detect rehearsal lineage."""
+    common = Path(disposable_git(path, "rev-parse", "--path-format=absolute", "--git-common-dir").decode().strip())
+    pins = common / "refs/wiki-publications"
+    files = {file.relative_to(common).as_posix(): file.read_bytes()
+             for file in sorted(pins.rglob("*")) if file.is_file()}
+    packed = common / "packed-refs"
+    if packed.exists():
+        files["packed-refs"] = packed.read_bytes()
+    return {"refs": disposable_git(path, "for-each-ref"), "pins": files,
+            "objects": disposable_git(path, "count-objects", "-v")}
+
+
+def disposable_clone(source, destination, revision):
+    """Borrow existing objects read-only; all new objects and refs belong to the clone."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    hooks = destination.parent / (destination.name + "-empty-hooks")
+    hooks.mkdir()
+    disposable_git(source, "clone", "--shared", "--template=", "--no-checkout",
+                   "-c", f"core.hooksPath={hooks}", "--", str(source), str(destination), hooks=hooks)
+    # Normal clone omits publication pins and other private refs. They are input
+    # evidence, but any pins the engine adds here must never become production input.
+    refs = disposable_git(source, "for-each-ref", "--format=%(objectname) %(refname)")
+    disposable_git(destination, "update-ref", "--no-deref", "--stdin", hooks=hooks,
+            data=b"".join(b"update " + name + b" " + oid + b"\n"
+                          for oid, name in (row.split() for row in refs.splitlines())))
+    identity = disposable_git(source, "var", "GIT_COMMITTER_IDENT", identity=True).decode().strip()
+    match = re.fullmatch(r"(.*) <(.*)> \d+ [+-]\d{4}", identity)
+    if not match:
+        raise ContractError("Unable to read rehearsal Git identity")
+    for key, value in {"user.name": match[1], "user.email": match[2], "core.autocrlf": "false",
+                       "core.fsmonitor": "false", "core.attributesFile": os.devnull,
+                       "filter.lfs.smudge": "", "filter.lfs.clean": "", "filter.lfs.process": "",
+                       "filter.lfs.required": "false"}.items():
+        disposable_git(destination, "config", key, value, hooks=hooks)
+    disposable_git(destination, "checkout", "--detach", revision, hooks=hooks)
+
+
+def remove_disposable(root, *, marker=None):
+    """Delete an owned temp tree, retrying only Git's read-only object files."""
+    root = Path(root).resolve()
+    if (root.parent != Path(tempfile.gettempdir()).resolve()
+            or not re.fullmatch(r"hhwiki-(?:rehearsal|publication)-[0-9a-f]{32}", root.name)):
+        raise ContractError(f"Refusing disposable cleanup outside an owned temp root: {root}")
+
+    def retry_readonly(function, filename, error):
+        path = Path(filename).resolve()
+        if not path.is_relative_to(root):
+            raise error[1]
+        parts = path.relative_to(root).parts
+        mode = path.stat().st_mode
+        if (os.name != "nt" or not isinstance(error[1], PermissionError)
+                or function not in {os.unlink, os.remove} or not stat.S_ISREG(mode)
+                or mode & stat.S_IWRITE or not any(parts[i:i + 2] == (".git", "objects")
+                                                 for i in range(len(parts) - 1))):
+            raise error[1]
+        path.chmod(mode | stat.S_IWRITE)
+        function(filename)
+
+    if root.exists():
+        if marker is None:
+            shutil.rmtree(root, onerror=retry_readonly)
+        else:
+            if Path(marker).name != marker or marker in {".", ".."}:
+                raise ContractError("Disposable marker must be a filename")
+            # Keep the ownership proof until all other contents are gone. A
+            # crash after unlinking the marker leaves only an empty root.
+            for child in root.iterdir():
+                if child.name == marker:
+                    continue
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child, onerror=retry_readonly)
+                else:
+                    child.unlink()
+            (root / marker).unlink(missing_ok=True)
+            root.rmdir()
 
 
 def commit(path, tree, parent, message):

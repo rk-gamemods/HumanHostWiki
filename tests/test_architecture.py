@@ -405,8 +405,10 @@ class ArchitectureTests(unittest.TestCase):
             else:
                 # A dead orphan can briefly await init's reap; it cannot hold fixtures.
                 status = Path(f"/proc/{pid}/stat")
-                if status.exists():
+                try:
                     self.assertEqual(status.read_text().split()[2], "Z")
+                except (FileNotFoundError, ProcessLookupError):
+                    pass  # Already reaped, possibly between listing and reading.
 
     def test_failure_fast_reaps_hanging_worker_and_descendant(self):
         pids = self.hanging_worker()
