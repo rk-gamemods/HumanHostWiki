@@ -55,7 +55,9 @@ class GitHubPages:
                 return None
             if empty and "HTTP 409" in message and "Git Repository is empty" in result.stdout.decode(errors="replace"):
                 return None
-            if attempt < 3 and any(code in message for code in ("HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504")):
+            # A POST that failed with a 5xx may still have taken effect; only 429 proves it did not run.
+            retryable = ("HTTP 429", "HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504") if method == "GET" else ("HTTP 429",)
+            if attempt < 3 and any(code in message for code in retryable):
                 self.progress(f"GitHub temporarily unavailable: retry {attempt + 1} for {path}")
                 time.sleep(2 ** attempt)
                 continue

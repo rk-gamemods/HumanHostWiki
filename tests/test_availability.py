@@ -75,10 +75,7 @@ class AvailabilityTests(unittest.TestCase):
                 (b"x" * (steam_build.MAX_OUTPUT + 1), 0, "exceeds")]:
             process = Mock(stdout=io.BytesIO(output))
             process.wait.return_value = status
-            context = Mock()
-            context.__enter__ = Mock(return_value=process)
-            context.__exit__ = Mock(return_value=False)
-            with patch.object(steam_build.subprocess, "Popen", return_value=context), \
+            with patch.object(steam_build.subprocess, "Popen", return_value=process), \
                     patch.object(steam_build.bounded, "kill_tree") as kill:
                 with self.assertRaisesRegex(ContractError, error):
                     steam_build.fetch(client, "2393970", "public")

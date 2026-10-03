@@ -27,12 +27,20 @@ The `gh-pages` branch uses the exact site subtree as its root, sharing existing 
 objects. `.nojekyll` avoids an additional rendering step. Builds are observed for
 the exact pushed commit, followed by HTTP content-hash checks.
 
-Every external wait has a bound. Each `gh api` call times out after 120 seconds
-and is retried up to four times; each `git push` times out after 600 seconds,
-and the remote ref then decides whether it landed. A Pages build still queued or
-building after 30 minutes, ours or one ahead of it, stops the run with the
-publication left pending. The next run reconciles that commit. On 2026-09-29 a
-run without these bounds waited three days on a build GitHub never finished.
+Every external wait has a bound. `wikibuild/bounded.py` runs `gh` and `git push`
+with all pipe I/O on daemon threads and kills the whole process tree at the
+deadline, so a descendant holding a pipe cannot outlast it. Each `gh api` call
+times out after 120 seconds. A GET is retried up to four times; a POST is not
+repeated after a timeout or 5xx, because it may have taken effect, and its caller
+reconciles instead. Each `git push` times out after 600 seconds, and the remote
+ref then decides whether it landed. A Pages build still queued or building after
+30 minutes, ours or one ahead of it, stops the run with the publication left
+pending. The next run reconciles that commit. SteamCMD's metadata check stops
+after 300 seconds and is reported as unavailable. As a backstop for any wait
+without its own bound, `wiki.py update` and `publish` stop themselves after four
+hours; the OS then releases the writer lock and the journaled stages recover on
+the next run. On 2026-09-29 a run without these bounds waited three days on a
+build GitHub never finished.
 
 ## Durable state and recovery
 

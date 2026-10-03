@@ -28,15 +28,47 @@ class BoundedRunTests(unittest.TestCase):
             bounded.run([sys.executable, "-c", HOLDS_PIPE], timeout=2)
         self.assertLess(time.monotonic() - started, 30)
 
-    @unittest.skipUnless(os.name == "nt", "The SteamCMD stand-in is a Windows batch file")
+    def test_child_that_never_reads_input_cannot_block_the_write(self):
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            bounded.run([sys.executable, "-c", "import time; time.sleep(120)"], timeout=2, input=b"x" * (8 << 20))
+        self.assertLess(time.monotonic() - started, 30)
+
+    def test_orphan_output_is_capped(self):
+        with patch.object(bounded, "MAX_CAPTURE", 1000):
+            result = bounded.run([sys.executable, "-c", "import sys; sys.stdout.write('y' * 100000)"], timeout=60)
+        self.assertEqual(len(result.stdout), 1000)
+
+    @unittest.skipUnless(os.name == "nt", "The SteamCMD stand-ins are Windows batch files")
     def test_stalled_steamcmd_reports_unavailable_metadata(self):
-        with tempfile.TemporaryDirectory() as temp:
-            steamcmd = Path(temp) / "steamcmd.cmd"
-            steamcmd.write_text("@echo Loading Steam API...OK\r\n@ping -n 120 127.0.0.1 >nul\r\n")
-            started = time.monotonic()
-            with patch.object(steam_build, "DEADLINE", 2), self.assertRaisesRegex(ContractError, "timed out"):
-                steam_build.fetch(steamcmd, "2393970", "public")
-            self.assertLess(time.monotonic() - started, 30)
+        # The second stand-in exits at once and leaves a detached child holding stdout.
+        for body in ("@echo Loading Steam API...OK\r\n@ping -n 120 127.0.0.1 >nul\r\n",
+                     "@echo Loading Steam API...OK\r\n@start /b ping -n 120 127.0.0.1\r\n"):
+            with self.subTest(body=body), tempfile.TemporaryDirectory() as temp:
+                steamcmd = Path(temp) / "steamcmd.cmd"
+                steamcmd.write_text(body)
+                started = time.monotonic()
+                with patch.object(steam_build, "DEADLINE", 2), self.assertRaisesRegex(ContractError, "timed out"):
+                    steam_build.fetch(steamcmd, "2393970", "public")
+                self.assertLess(time.monotonic() - started, 30)
+                subprocess.run(["taskkill", "/IM", "PING.EXE", "/F"], capture_output=True)
+
+
+class UpdateDeadlineTests(unittest.TestCase):
+    def test_overdue_update_is_stopped(self):
+        import wiki
+        stopped = []
+        timer = wiki.deadline(0.1, "update", stop=stopped.append)
+        timer.join(10)
+        self.assertEqual(stopped, [124])
+
+    def test_finished_update_cancels_its_deadline(self):
+        import wiki
+        stopped = []
+        timer = wiki.deadline(0.5, "update", stop=stopped.append)
+        timer.cancel()
+        time.sleep(1)
+        self.assertEqual(stopped, [])
 
 
 if __name__ == "__main__":

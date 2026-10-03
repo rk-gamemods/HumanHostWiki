@@ -3,9 +3,11 @@
 import json
 import hashlib
 import os
+import queue
 import re
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from . import bounded
@@ -88,38 +90,46 @@ def fetch(executable, app_id, branch, progress=None):
     # Preserve SteamCMD's network retry policy and bounded diagnostic progress.
     # Limit bytes while reading, before an unexpected response can consume RAM.
     output = bytearray()
-    with subprocess.Popen([str(executable), "+login", "anonymous", "+app_info_update", "1",
-                           "+app_info_print", app_id, "+quit"], cwd=executable.parent,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0) as process:
-        # A stalled login or update would otherwise block readline forever. Killing the
-        # tree closes the pipe, so the read loop ends and the timeout is reported.
-        fired = threading.Event()
+    process = subprocess.Popen([str(executable), "+login", "anonymous", "+app_info_update", "1",
+                                "+app_info_print", app_id, "+quit"], cwd=executable.parent,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    # A daemon thread reads, so a stalled login, or a descendant that keeps the pipe
+    # open after SteamCMD exits, can only delay this function until the deadline.
+    # The pipe is never closed under a blocked reader, which can deadlock on Windows.
+    lines = queue.Queue()
 
-        def expire():
-            fired.set()
-            bounded.kill_tree(process)
-
-        watchdog = threading.Timer(DEADLINE, expire)
-        watchdog.start()
+    def read():
         try:
-            while line := process.stdout.readline(MAX_OUTPUT - len(output) + 1):
-                output.extend(line)
-                if len(output) > MAX_OUTPUT:
-                    raise ContractError("SteamCMD metadata response exceeds the limit")
-                if progress and line.startswith((b"[", b"Connecting anonymously", b"Waiting for", b"Loading Steam API")):
-                    progress(line.decode("utf-8", errors="replace").strip()[:240])
-            status = process.wait(timeout=DEADLINE + bounded.DRAIN_SECONDS)
+            while line := process.stdout.readline(MAX_OUTPUT + 1):
+                lines.put(line)
+        except (OSError, ValueError):
+            pass
+        lines.put(None)
+
+    threading.Thread(target=read, daemon=True).start()
+    deadline = time.monotonic() + DEADLINE
+    try:
+        while True:
+            try:
+                line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
+            except queue.Empty:
+                raise ContractError(f"SteamCMD metadata request timed out after {DEADLINE}s") from None
+            if line is None:
+                process.stdout.close()  # The reader has finished; nothing blocks on the pipe.
+                break
+            output.extend(line)
+            if len(output) > MAX_OUTPUT:
+                raise ContractError("SteamCMD metadata response exceeds the limit")
+            if progress and line.startswith((b"[", b"Connecting anonymously", b"Waiting for", b"Loading Steam API")):
+                progress(line.decode("utf-8", errors="replace").strip()[:240])
+        try:
+            status = process.wait(timeout=max(0.0, deadline - time.monotonic()) + bounded.DRAIN_SECONDS)
         except subprocess.TimeoutExpired:
-            bounded.kill_tree(process)
-            fired.set()
-        except BaseException:
-            bounded.kill_tree(process)
-            raise
-        finally:
-            watchdog.cancel()
-        if fired.is_set():
-            raise ContractError(f"SteamCMD metadata request timed out after {DEADLINE}s")
+            raise ContractError(f"SteamCMD metadata request timed out after {DEADLINE}s") from None
+    except BaseException:
+        bounded.kill_tree(process)
+        raise
     if status:
         raise ContractError(f"SteamCMD metadata request exited with status {status}")
     text = output.decode("utf-8", errors="strict")

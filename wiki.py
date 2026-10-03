@@ -3,11 +3,33 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
+import threading
 
 from wikibuild import extraction, history, manifest, navigation, pipeline, publication, reader, release, snapshots, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
+
+# Backstop for every wait without its own bound. A normal update takes minutes; the
+# slowest legitimate publication (every topic at its 30-minute Pages deadline) is
+# about two hours.
+UPDATE_DEADLINE = 4 * 3600
+
+
+def deadline(seconds, command, stop=os._exit):
+    """End an overdue update. Exiting releases the OS writer lock; every stage,
+    publication included, is journaled and recovers on the next run."""
+    def expire():
+        try:
+            print(f"ERROR: wiki {command} exceeded its {seconds / 3600:g}-hour deadline and was stopped. "
+                  "Its stages are journaled; rerun the normal command to recover.", file=sys.stderr, flush=True)
+        finally:
+            stop(124)
+    timer = threading.Timer(seconds, expire)
+    timer.daemon = True
+    timer.start()
+    return timer
 
 
 def run(root, args):
@@ -87,11 +109,15 @@ def main():
     update.add_argument("--source", help="Captured local codebase; default from project.json")
     update.add_argument("--operator-report", action="store_true", help="Print the grouped exception list after supported stages finish")
     args = parser.parse_args()
+    watchdog = deadline(UPDATE_DEADLINE, args.command) if args.command in {"update", "publish"} else None
     try:
         result = run(Path(__file__).resolve().parent, args)
     except (ContractError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if watchdog:
+            watchdog.cancel()
     if args.command == "update" and args.operator_report:
         sys.stdout.buffer.write(pipeline.operator_report(Path(__file__).resolve().parent, result).encode("utf-8"))
     else:

@@ -533,6 +533,14 @@ class AdapterTests(unittest.TestCase):
                 host.api("POST", "repos/fixture/wiki/actions/runs/9/rerun-failed-jobs")
             self.assertEqual(calls.call_count, 1)
 
+    def test_post_that_fails_with_server_error_is_not_repeated(self):
+        host = github_pages.GitHubPages("fixture")
+        failure = subprocess.CompletedProcess([], 1, b'', b'gh: Gateway timeout (HTTP 504)')
+        with patch.object(github_pages.bounded, "run", return_value=failure) as calls, patch.object(github_pages.time, "sleep"):
+            with self.assertRaisesRegex(ContractError, "HTTP 504"):
+                host.api("POST", "repos/fixture/wiki/actions/runs/9/rerun-failed-jobs")
+            self.assertEqual(calls.call_count, 1)
+
     def test_rerun_request_with_unknown_outcome_leaves_publication_pending(self):
         host = github_pages.GitHubPages("fixture")
         path = "repos/fixture/wiki/pages/builds/17"

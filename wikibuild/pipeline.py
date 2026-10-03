@@ -252,7 +252,10 @@ def run(root, project, source, progress=None):
                     "total_seconds": total, "stages": timings, "failed_stage": failed_stage,
                     "publication": metrics.get("publish", {}).get("timing", {})}))
         except (Exception, KeyboardInterrupt) as timing_error:
-            print(f"Wiki timing could not be saved: {timing_error}", file=sys.stderr)
+            try:
+                print(f"Wiki timing could not be saved: {timing_error}", file=sys.stderr)
+            except (Exception, KeyboardInterrupt):
+                pass  # Timing is diagnostic; it must never change the run's outcome.
 
 
 def operator_report(root, result):
