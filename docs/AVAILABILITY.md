@@ -33,9 +33,17 @@ Run once on this Windows workspace:
 pwsh -NoProfile -File tools/Install-SteamMetadataClient.ps1
 ```
 
-The setup script downloads Valve's bootstrap package into
-`.local/tools/steamcmd/`, verifies its Authenticode signer before execution and
-after updating, then saves the executable path in `.local/steamcmd.json`.
+The setup script downloads Valve's bootstrap package into a unique
+`.local/tools/steamcmd.staging-<guid>/` directory with a 60-second request timeout
+and a 120-second overall download deadline. Each bootstrap invocation has a
+600-second deadline; a timeout kills the process tree. If the first invocation
+exits nonzero after updating, a second invocation must succeed. Setup verifies
+the Valve Authenticode signature before execution and after updating, atomically
+renames the staging directory to `.local/tools/steamcmd/`, writes its
+`.install-complete` marker, then saves the path in `.local/steamcmd.json`.
+The next run removes leftover staging directories and replaces an unmarked
+installation only when every entry matches the installer's SteamCMD allowlist;
+unknown files or linked directories require inspection and are preserved.
 It preserves a different existing configured path. SteamCMD updates itself, so
 its binary is recorded by hash per observation instead of being a pinned runtime
 package. This is an optional metadata dependency; reader generation remains
