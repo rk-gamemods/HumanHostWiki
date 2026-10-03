@@ -291,6 +291,8 @@ class TimingTests(unittest.TestCase):
                 release_writer.wait(5)
                 super().run()
         def writer(*args, **kwargs):
+            if kwargs.get("name") != "wiki-timeout-timing":
+                return original_thread(*args, **kwargs)
             thread = DelayedWriter(*args, **kwargs)
             writers.append(thread)
             return thread

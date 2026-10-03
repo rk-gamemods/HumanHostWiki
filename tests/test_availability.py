@@ -75,12 +75,16 @@ class AvailabilityTests(unittest.TestCase):
                 (b"x" * (steam_build.MAX_OUTPUT + 1), 0, "exceeds")]:
             process = Mock(stdout=io.BytesIO(output))
             process.wait.return_value = status
-            with patch.object(steam_build.subprocess, "Popen", return_value=process), \
+            # This test owns the SteamCMD output stand-in, not OS job setup.
+            # Real children still use bounded.start's mandatory tree ownership.
+            with patch.object(steam_build.bounded, "start", return_value=process) as start, \
                     patch.object(steam_build.bounded, "kill_tree") as kill:
                 with self.assertRaisesRegex(ContractError, error):
                     steam_build.fetch(client, "2393970", "public")
-            if error == "exceeds":
-                kill.assert_called_once_with(process)
+            start.assert_called_once()
+            self.assertEqual(start.call_args.args[0], [str(client), "+login", "anonymous",
+                "+app_info_update", "1", "+app_info_print", "2393970", "+quit"])
+            kill.assert_called_once_with(process)
 
     def test_repeat_is_byte_stable_and_expired_observation_is_replaced(self):
         first, metrics = self.refresh()

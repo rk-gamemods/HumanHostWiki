@@ -90,7 +90,7 @@ def fetch(executable, app_id, branch, progress=None):
     # Preserve SteamCMD's network retry policy and bounded diagnostic progress.
     # Limit bytes while reading, before an unexpected response can consume RAM.
     output = bytearray()
-    process = subprocess.Popen([str(executable), "+login", "anonymous", "+app_info_update", "1",
+    process = bounded.start([str(executable), "+login", "anonymous", "+app_info_update", "1",
                                 "+app_info_print", app_id, "+quit"], cwd=executable.parent,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
@@ -105,18 +105,20 @@ def fetch(executable, app_id, branch, progress=None):
                 lines.put(line)
         except (OSError, ValueError):
             pass
-        lines.put(None)
+        finally:
+            process.stdout.close()
+            lines.put(None)
 
-    threading.Thread(target=read, daemon=True).start()
+    worker = threading.Thread(target=read, daemon=True)
     deadline = time.monotonic() + DEADLINE
     try:
+        worker.start()
         while True:
             try:
                 line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
             except queue.Empty:
                 raise ContractError(f"SteamCMD metadata request timed out after {DEADLINE}s") from None
             if line is None:
-                process.stdout.close()  # The reader has finished; nothing blocks on the pipe.
                 break
             output.extend(line)
             if len(output) > MAX_OUTPUT:
@@ -127,9 +129,12 @@ def fetch(executable, app_id, branch, progress=None):
             status = process.wait(timeout=max(0.0, deadline - time.monotonic()) + bounded.DRAIN_SECONDS)
         except subprocess.TimeoutExpired:
             raise ContractError(f"SteamCMD metadata request timed out after {DEADLINE}s") from None
-    except BaseException:
-        bounded.kill_tree(process)
-        raise
+    finally:
+        try:
+            bounded.kill_tree(process)
+        finally:
+            if worker.ident is not None:
+                worker.join(bounded.DRAIN_SECONDS)
     if status:
         raise ContractError(f"SteamCMD metadata request exited with status {status}")
     text = output.decode("utf-8", errors="strict")

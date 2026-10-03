@@ -6,25 +6,77 @@ import os
 from pathlib import Path
 import sys
 import threading
+import time
 
-from wikibuild import extraction, history, manifest, navigation, pipeline, publication, reader, release, run_timing, snapshots, workspace
+from wikibuild import bounded, extraction, history, manifest, navigation, pipeline, publication, reader, release, run_timing, snapshots, storage, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 # Backstop for every wait without its own bound. A normal update takes minutes; the
 # slowest legitimate publication (every topic at its 30-minute Pages deadline) is
 # about two hours.
 UPDATE_DEADLINE = 4 * 3600
+CLEANUP_GRACE = 60
+_cleanup_files = set()
+_cleanup_lock = threading.Lock()
+
+
+def register_cleanup(path):
+    """Register a command-owned temporary file, never journaled staging."""
+    path = Path(path).absolute()
+    with _cleanup_lock:
+        _cleanup_files.add(path)
+    return path
+
+
+def unregister_cleanup(path):
+    with _cleanup_lock:
+        _cleanup_files.discard(Path(path).absolute())
+
+
+def cleanup_registered_files():
+    with _cleanup_lock:
+        paths = list(_cleanup_files)
+    errors = []
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+            unregister_cleanup(path)
+        except OSError as exc:
+            errors.append(f"temporary file {path}: {exc}")
+    return errors
 
 
 def deadline(seconds, command, stop=os._exit, timing=None, report=False):
-    """End an overdue run and release the OS writer lock. Stages are journaled;
-    failed publications must be abandoned before a fresh run."""
+    """Supervise timeout cleanup, then exit 124 even if cleanup blocks.
+
+    Stages remain journaled; failed publications must be abandoned before a fresh run.
+    The returned Timer retains cancel/join compatibility with existing callers.
+    """
     def expire():
         # Claim synchronously: a delayed diagnostic worker cannot lose to success
         # and still terminate that successfully finalized command with exit 124.
         if timing is not None and not timing.claim("timed-out"):
             return
+        previous = bounded.begin_shutdown()
+        expires = time.monotonic() + CLEANUP_GRACE
+        pending = {"owned child trees", "writer owner metadata", "registered temporary files"}
+        errors = []
+
+        def clean():
+            for label, action in (("owned child trees", bounded.terminate_all),
+                                  ("writer owner metadata", storage.cleanup_writer_owners),
+                                  ("registered temporary files", cleanup_registered_files)):
+                try:
+                    errors.extend(action())
+                except BaseException as exc:
+                    errors.append(f"{label}: {exc}")
+                finally:
+                    pending.discard(label)
+
         try:
+            cleanup = threading.Thread(target=clean, name="wiki-timeout-cleanup", daemon=True)
+            cleanup.start()
+            attempt = None
             if timing is not None:
                 def save_timeout():
                     try:
@@ -35,15 +87,32 @@ def deadline(seconds, command, stop=os._exit, timing=None, report=False):
                         run_timing.warning(f"Wiki timeout timing could not be saved: {exc}")
                 # Diagnostics must not defeat the watchdog on a blocked filesystem
                 # while another thread is already saving the selected terminal record.
-                attempt = threading.Thread(target=save_timeout, daemon=True)
+                attempt = threading.Thread(target=save_timeout, name="wiki-timeout-timing", daemon=True)
                 attempt.start()
-                attempt.join(1)
-            print(f"ERROR: wiki {command} exceeded its {seconds / 3600:g}-hour deadline and was stopped. "
-                  + ("Run py -3 wiki.py abandon-publication before rehearsing and publishing afresh."
-                     if command == "publish" else "Its stages are journaled; rerun the normal command to recover."),
-                  file=sys.stderr, flush=True)
+            cleanup.join(max(0.0, expires - time.monotonic()))
+            if attempt is not None:
+                attempt.join(min(1.0, max(0.0, expires - time.monotonic())))
+                if attempt.is_alive():
+                    errors.append("timeout timing record: save did not finish")
+            errors.extend(f"{label}: cleanup did not finish within {CLEANUP_GRACE:g}s" for label in sorted(pending))
+
+            def diagnostic():
+                for error in errors:
+                    print(f"WARNING: Wiki timeout could not clean {error}", file=sys.stderr, flush=True)
+                print(f"ERROR: wiki {command} exceeded its {seconds / 3600:g}-hour deadline and was stopped. "
+                      + ("Run py -3 wiki.py abandon-publication before rehearsing and publishing afresh."
+                         if command == "publish" else "Its stages are journaled; rerun the normal command to recover."),
+                      file=sys.stderr, flush=True)
+
+            # A blocked diagnostic pipe must not defeat the cleanup grace either.
+            reporter = threading.Thread(target=diagnostic, name="wiki-timeout-report", daemon=True)
+            reporter.start()
+            reporter.join(1)
         finally:
-            stop(124)
+            try:
+                stop(124)
+            finally:
+                bounded.end_shutdown(previous)
     timer = threading.Timer(seconds, expire)
     timer.daemon = True
     timer.start()
@@ -174,6 +243,10 @@ def main():
     finally:
         if watchdog:
             watchdog.cancel()
+            if timing.outcome == "timed-out":
+                # Main may unwind after child termination. Keep the supervisor
+                # alive until it has cleaned up and issued its terminal exit.
+                watchdog.join(CLEANUP_GRACE + 2)
         if show_timing and timing.record is not None:
             try:
                 sys.stdout.buffer.write(run_timing.table(timing.record).encode("utf-8"))

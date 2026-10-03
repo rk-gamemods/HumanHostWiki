@@ -8,7 +8,34 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import uuid
+
+_writer_owners = {}
+_writer_owners_lock = threading.RLock()
+
+
+def _remove_writer_owner(owner, record):
+    """Remove only metadata belonging to this still-registered acquisition."""
+    with _writer_owners_lock:
+        if _writer_owners.get(owner) is not record:
+            return
+        if owner.exists() and owner.read_bytes() == record:
+            owner.unlink()
+        _writer_owners.pop(owner, None)
+
+
+def cleanup_writer_owners():
+    """Watchdog cleanup leaves the OS lock held until its owning process exits."""
+    with _writer_owners_lock:
+        owners = list(_writer_owners.items())
+    errors = []
+    for owner, record in owners:
+        try:
+            _remove_writer_owner(owner, record)
+        except OSError as exc:
+            errors.append(f"writer owner metadata {owner}: {exc}")
+    return errors
 
 
 class ContractError(ValueError):
@@ -113,12 +140,15 @@ def writer_lock(root):
         except OSError as exc:
             raise ContractError(f"Another wiki writer holds .local/writer.lock, {lock_holder(owner)} "
                                 "Retry after it exits.") from exc
+        record = json_bytes({"pid": os.getpid(), "command": " ".join(sys.argv),
+                             "started": datetime.now(timezone.utc).isoformat(timespec="seconds")})
         try:
-            write_changed(owner, json_bytes({"pid": os.getpid(), "command": " ".join(sys.argv),
-                                             "started": datetime.now(timezone.utc).isoformat(timespec="seconds")}))
+            with _writer_owners_lock:
+                _writer_owners[owner] = record
+                write_changed(owner, record)
             yield
         finally:
-            owner.unlink(missing_ok=True)
+            _remove_writer_owner(owner, record)
             handle.seek(0)
             if os.name == "nt":
                 msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
