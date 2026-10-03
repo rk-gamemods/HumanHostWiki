@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -108,6 +109,137 @@ class BoundedRunTests(unittest.TestCase):
         self.assertTrue(processes[0].stderr.closed)
 
     @unittest.skipUnless(os.name == "nt", "Windows suspended launch")
+    def test_launch_interruption_reaps_suspended_child(self):
+        def registry_available():
+            acquired = []
+            def probe():
+                available = bounded._children_lock.acquire(timeout=1)
+                acquired.append(available)
+                if available:
+                    bounded._children_lock.release()
+            observer = threading.Thread(target=probe)
+            observer.start()
+            observer.join(2)
+            self.assertEqual(acquired, [True], "Launch and reap must leave the registry available")
+        for boundary in ("assign", "resume"):
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory(dir=ROOT) as folder:
+                processes = []
+                original, original_wait = subprocess.Popen, subprocess.Popen.wait
+                def launch(*args, **kwargs):
+                    registry_available()
+                    process = original(*args, **kwargs)
+                    processes.append(process)
+                    return process
+                def wait(process, *args, **kwargs):
+                    registry_available()
+                    return original_wait(process, *args, **kwargs)
+                def interrupt(*args):
+                    registry_available()
+                    raise KeyboardInterrupt(f"{boundary} interrupted")
+                sentinel = Path(folder) / "must-not-exist"
+                try:
+                    with patch.object(bounded.subprocess, "Popen", side_effect=launch), \
+                            patch.object(original, "wait", new=wait), \
+                            patch.object(bounded._WindowsJob, boundary, side_effect=interrupt):
+                        with self.assertRaises(KeyboardInterrupt):
+                            bounded.start([sys.executable, "-c", f"from pathlib import Path; Path({str(sentinel)!r}).touch()"])
+                    self.assertEqual(len(processes), 1)
+                    self.assertFalse(alive(processes[0].pid))
+                    self.assertFalse(sentinel.exists())
+                finally:
+                    for process in processes:
+                        if hasattr(process, "_wiki_owned"):
+                            bounded.kill_tree(process)
+                        else:
+                            process.kill()
+                            process.wait(timeout=5)
+
+    @unittest.skipUnless(os.name == "nt", "Windows owned-job retry")
+    def test_failed_cleanup_retains_queryable_job_until_confirmed_retry(self):
+        for failure in ("reap", "query"):
+            for retry_fails in (False, True):
+                with self.subTest(failure=failure, retry_fails=retry_fails):
+                    process = bounded.start([sys.executable, "-c", "import time; time.sleep(120)"])
+                    owned, job = process._wiki_owned, process._wiki_owned.job
+                    method, error = (("wait", subprocess.TimeoutExpired(process.args, 0.2)) if failure == "reap"
+                                     else ("QueryInformationJobObject", OSError("job query failed")))
+                    target = process if failure == "reap" else job.kernel
+                    original = getattr(target, method)
+                    calls = 0
+                    def fail_then_retry(*args, **kwargs):
+                        nonlocal calls
+                        calls += 1
+                        if calls == 1 or retry_fails:
+                            raise error
+                        return original(*args, **kwargs)
+                    try:
+                        with patch.object(target, method, side_effect=fail_then_retry), patch.object(bounded, "REAP_SECONDS", 0.2):
+                            with self.assertRaises(type(error)):
+                                bounded.kill_tree(process)
+                            self.assertIsNotNone(job.handle)
+                            self.assertFalse(owned.done)
+                            self.assertEqual(owned.state, "unresolved")
+                            self.assertIn(owned, bounded._children)
+                            if retry_fails:
+                                with self.assertRaises(type(error)):
+                                    bounded.kill_tree(process)
+                                self.assertIsNotNone(job.handle)
+                                self.assertFalse(owned.done)
+                                self.assertIn(owned, bounded._children)
+                            else:
+                                bounded.kill_tree(process)
+                                self.assertTrue(owned.done)
+                                self.assertIsNone(job.handle)
+                                self.assertNotIn(owned, bounded._children)
+                        if retry_fails:
+                            # The retained handle still supports a real OS query.
+                            job.wait(time.monotonic() + 2)
+                    finally:
+                        bounded.kill_tree(process)
+
+    def test_shutdown_sees_a_launch_before_process_creation(self):
+        processes, errors = [], []
+        entered, release = threading.Event(), threading.Event()
+        original = subprocess.Popen
+        def launch(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError("Launch was not released")
+            process = original(*args, **kwargs)
+            processes.append(process)
+            return process
+        def start():
+            try:
+                bounded.start([sys.executable, "-c", "import time; time.sleep(120)"])
+            except BaseException as exc:
+                errors.append(exc)
+        starter = threading.Thread(target=start)
+        previous = bounded._stopping.is_set()
+        try:
+            with patch.object(bounded.subprocess, "Popen", side_effect=launch):
+                starter.start()
+                self.assertTrue(entered.wait(2))
+                bounded.begin_shutdown()
+                with bounded._children_lock:
+                    pending = [child for child in bounded._children if child.process is None]
+                self.assertEqual(len(pending), 1)
+                release.set()
+                self.assertEqual(bounded.terminate_all(), [])
+                starter.join(2)
+                self.assertFalse(starter.is_alive())
+                self.assertEqual(len(errors), 1)
+                self.assertIsInstance(errors[0], RuntimeError)
+                self.assertEqual(len(processes), 1)
+                self.assertFalse(alive(processes[0].pid))
+                self.assertNotIn(pending[0], bounded._children)
+        finally:
+            release.set()
+            starter.join(5)
+            for process in processes:
+                bounded.kill_tree(process)
+            bounded.end_shutdown(previous)
+
+    @unittest.skipUnless(os.name == "nt", "Windows suspended launch")
     def test_job_setup_failure_reaps_child_before_it_can_run(self):
         processes = []
         original = subprocess.Popen
@@ -160,6 +292,50 @@ class BoundedRunTests(unittest.TestCase):
 
 
 class UpdateDeadlineTests(unittest.TestCase):
+    def test_held_recorder_lock_cannot_block_timeout_exit(self):
+        for main_returns in (False, True):
+            with self.subTest(main_returns=main_returns), tempfile.TemporaryDirectory(dir=ROOT) as folder:
+                script = "import sys, time, wiki\nfrom pathlib import Path\nfrom wikibuild import run_timing\n"
+                if main_returns:
+                    script += ("wiki.TIMING_CLAIM_SECONDS = 0.5\nwiki.CLEANUP_GRACE = 1\n"
+                               "wiki.UPDATE_DEADLINE = 0.1\n"
+                               "def execute(root, args, timing):\n"
+                               "    timing.lock.acquire()\n    time.sleep(0.25)\n    return {}\n"
+                               f"wiki.__file__ = {str(Path(folder) / 'wiki.py')!r}\nwiki._run = execute\n"
+                               "sys.argv = ['wiki.py', 'update']\nraise SystemExit(wiki.main())\n")
+                else:
+                    script += ("wiki.TIMING_CLAIM_SECONDS = 0.1\nwiki.CLEANUP_GRACE = 0.5\n"
+                               f"timing = run_timing.Recorder(Path({folder!r}), 'update')\n"
+                               "timing.lock.acquire()\nwiki.deadline(0.1, 'update', timing=timing)\ntime.sleep(120)\n")
+                started = time.monotonic()
+                code, _, errors = self.harness(script)
+                self.assertEqual(code, 124, errors.decode(errors="replace"))
+                self.assertLess(time.monotonic() - started, 3)
+                self.assertIn(b"recorder lock", errors)
+                self.assertIn(b"timing could not be recorded", errors)
+                self.assertIn(b"exceeded its", errors)
+
+    @unittest.skipUnless(os.name == "nt", "Windows unresolved-job diagnostics")
+    def test_watchdog_reports_unresolved_child_and_retains_job(self):
+        import io
+        import wiki
+        process = bounded.start([sys.executable, "-c", "import time; time.sleep(120)"])
+        owned, job = process._wiki_owned, process._wiki_owned.job
+        stopped, diagnostics = [], io.StringIO()
+        try:
+            with patch.object(job.kernel, "QueryInformationJobObject", side_effect=OSError("job query failed")), \
+                    patch.object(wiki.sys, "stderr", diagnostics), patch.object(bounded, "REAP_SECONDS", 0.2):
+                timer = wiki.deadline(0.01, "update", stop=stopped.append)
+                timer.join(3)
+                self.assertEqual(stopped, [124])
+                self.assertIn(f"unresolved child PID {process.pid}: job query failed", diagnostics.getvalue())
+                self.assertIsNotNone(job.handle)
+                self.assertFalse(owned.done)
+                self.assertEqual(owned.state, "unresolved")
+                self.assertIn(owned, bounded._children)
+        finally:
+            bounded.kill_tree(process)
+
     def test_metadata_cleanup_preserves_os_lock_and_foreign_metadata(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as folder:
             root = Path(folder)

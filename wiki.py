@@ -16,6 +16,7 @@ from wikibuild.storage import ContractError, json_bytes, within, writer_lock, wr
 # about two hours.
 UPDATE_DEADLINE = 4 * 3600
 CLEANUP_GRACE = 60
+TIMING_CLAIM_SECONDS = 5
 _cleanup_files = set()
 _cleanup_lock = threading.Lock()
 
@@ -52,15 +53,31 @@ def deadline(seconds, command, stop=os._exit, timing=None, report=False):
     Stages remain journaled; failed publications must be abandoned before a fresh run.
     The returned Timer retains cancel/join compatibility with existing callers.
     """
+    expired = threading.Event()
+
     def expire():
         # Claim synchronously: a delayed diagnostic worker cannot lose to success
         # and still terminate that successfully finalized command with exit 124.
-        if timing is not None and not timing.claim("timed-out"):
-            return
-        previous = bounded.begin_shutdown()
         expires = time.monotonic() + CLEANUP_GRACE
-        pending = {"owned child trees", "writer owner metadata", "registered temporary files"}
         errors = []
+        claimed = timing is None
+        if timing is not None:
+            acquired = timing.lock.acquire(timeout=min(TIMING_CLAIM_SECONDS, CLEANUP_GRACE))
+            if acquired:
+                try:
+                    if not timing.claim("timed-out"):
+                        return
+                    claimed = True
+                except BaseException as exc:
+                    errors.append(f"timeout timing record: timing could not be recorded: {exc}")
+                finally:
+                    timing.lock.release()
+            else:
+                errors.append("timeout timing record: recorder lock was unavailable; timing could not be recorded")
+        # Main must await cleanup even when no recorder state could be claimed.
+        expired.set()
+        previous = bounded.begin_shutdown()
+        pending = {"owned child trees", "writer owner metadata", "registered temporary files"}
 
         def clean():
             for label, action in (("owned child trees", bounded.terminate_all),
@@ -77,7 +94,7 @@ def deadline(seconds, command, stop=os._exit, timing=None, report=False):
             cleanup = threading.Thread(target=clean, name="wiki-timeout-cleanup", daemon=True)
             cleanup.start()
             attempt = None
-            if timing is not None:
+            if timing is not None and claimed:
                 def save_timeout():
                     try:
                         timing.finish("timed-out")
@@ -114,6 +131,7 @@ def deadline(seconds, command, stop=os._exit, timing=None, report=False):
             finally:
                 bounded.end_shutdown(previous)
     timer = threading.Timer(seconds, expire)
+    timer.expired = expired
     timer.daemon = True
     timer.start()
     return timer
@@ -223,11 +241,15 @@ def main():
               if args.command in {"update", "publish"} else None)
     show_timing = args.command == "publish" or (args.command == "update" and args.operator_report)
     watchdog = deadline(UPDATE_DEADLINE, args.command, timing=timing, report=show_timing) if timing else None
+    def timed_out():
+        return timing is not None and (timing.outcome == "timed-out" or watchdog.expired.is_set())
     try:
         result = run(root, args, timing)
         if watchdog:
             watchdog.cancel()
-        if timing is not None and timing.outcome == "timed-out":
+            # Expiry can be waiting for the recorder lock before it sets outcome.
+            watchdog.join(CLEANUP_GRACE + 2)
+        if timed_out():
             return 124
         if args.command == "update" and args.operator_report:
             # The command table replaces the legacy stage-only Time section.
@@ -239,14 +261,12 @@ def main():
             sys.stdout.buffer.write(json_bytes(result))
     except (ContractError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        return 124 if timing is not None and timing.outcome == "timed-out" else 1
+        return 124 if timed_out() else 1
     finally:
         if watchdog:
             watchdog.cancel()
-            if timing.outcome == "timed-out":
-                # Main may unwind after child termination. Keep the supervisor
-                # alive until it has cleaned up and issued its terminal exit.
-                watchdog.join(CLEANUP_GRACE + 2)
+            # Keep an active supervisor alive through claim, cleanup and exit.
+            watchdog.join(CLEANUP_GRACE + 2)
         if show_timing and timing.record is not None:
             try:
                 sys.stdout.buffer.write(run_timing.table(timing.record).encode("utf-8"))

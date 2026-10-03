@@ -20,7 +20,7 @@ _stopping = threading.Event()
 
 class _WindowsJob:
     """Kill-on-close ownership, established while the child is suspended."""
-    def __init__(self, process):
+    def __init__(self):
         from ctypes import wintypes
 
         class Basic(ctypes.Structure):
@@ -52,6 +52,7 @@ class _WindowsJob:
                                                      wintypes.DWORD, ctypes.c_void_p]
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
         self.handle = kernel.CreateJobObjectW(None, None)
+        self.exited = False
         if not self.handle:
             raise ctypes.WinError(ctypes.get_last_error())
         try:
@@ -59,11 +60,14 @@ class _WindowsJob:
             limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             if not kernel.SetInformationJobObject(self.handle, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
                 raise ctypes.WinError(ctypes.get_last_error())
-            if not kernel.AssignProcessToJobObject(self.handle, wintypes.HANDLE(process._handle)):
-                raise ctypes.WinError(ctypes.get_last_error())
         except BaseException:
             self.close()
             raise
+
+    def assign(self, process):
+        from ctypes import wintypes
+        if not self.kernel.AssignProcessToJobObject(self.handle, wintypes.HANDLE(process._handle)):
+            raise ctypes.WinError(ctypes.get_last_error())
 
     def resume(self, process):
         from ctypes import wintypes
@@ -78,12 +82,15 @@ class _WindowsJob:
             raise ctypes.WinError(ctypes.get_last_error())
 
     def wait(self, expires):
+        if not self.handle and not self.exited:
+            raise RuntimeError("Owned Windows job closed before exit was confirmed")
         while self.handle:
             counters = self.accounting()
             if not self.kernel.QueryInformationJobObject(self.handle, 1, ctypes.byref(counters),
                                                          ctypes.sizeof(counters), None):
                 raise ctypes.WinError(ctypes.get_last_error())
             if not counters.ActiveProcesses:
+                self.exited = True
                 return
             remaining = expires - time.monotonic()
             if remaining <= 0:
@@ -102,6 +109,47 @@ class _Owned:
         self.process, self.job = process, None
         self.lock = threading.Lock()
         self.done = False
+        self.state = "starting"
+        self.error = None
+
+
+def _terminate_suspended(process):
+    """Use the real process handle even when ownership setup was interrupted."""
+    if os.name == "nt":
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel.TerminateProcess.restype = wintypes.BOOL
+        if not kernel.TerminateProcess(wintypes.HANDLE(process._handle), 124):
+            error = ctypes.get_last_error()
+            if process.poll() is None:
+                raise ctypes.WinError(error)
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _finish_tree(owned, expires):
+    """Keep an unresolved job open until both parent and tree exit are confirmed."""
+    process = owned.process
+    try:
+        if process is not None:
+            if owned.job is not None:
+                owned.job.terminate()
+            else:
+                _terminate_suspended(process)
+            process.wait(timeout=max(0.0, expires - time.monotonic()))
+        if owned.job is not None:
+            owned.job.wait(expires)
+            owned.job.close()
+        with _children_lock:
+            _children.discard(owned)
+        owned.done, owned.state, owned.error = True, "done", None
+    except BaseException as exc:
+        owned.done, owned.state, owned.error = False, "unresolved", str(exc)
+        raise
 
 
 def begin_shutdown():
@@ -119,32 +167,73 @@ def end_shutdown(previous):
 
 def start(command, **options):
     """Start a registered, owned tree; callers must finish it with kill_tree."""
-    with _children_lock:
-        if _stopping.is_set():
-            raise RuntimeError("Wiki child launch refused during timeout cleanup")
-        if os.name == "nt":
-            options["creationflags"] = options.get("creationflags", 0) | 0x4 | subprocess.CREATE_NO_WINDOW
-        else:
-            options["start_new_session"] = True
-        process = subprocess.Popen(command, **options)
-        owned = process._wiki_owned = _Owned(process)
-        _children.add(owned)
-        try:
-            if os.name == "nt":
-                owned.job = _WindowsJob(process)
+    if _stopping.is_set():
+        raise RuntimeError("Wiki child launch refused during timeout cleanup")
+    if os.name == "nt":
+        options["creationflags"] = options.get("creationflags", 0) | 0x4 | subprocess.CREATE_NO_WINDOW
+    else:
+        options["start_new_session"] = True
+    process, owned, locked = None, _Owned(None), False
+    try:
+        # The per-tree lock prevents cleanup from racing assignment/resume.
+        # Register before creation so shutdown also sees an in-flight launch.
+        owned.lock.acquire()
+        locked = True
+        with _children_lock:
             if _stopping.is_set():
-                raise RuntimeError("Wiki child launch interrupted by timeout cleanup")
-            if owned.job is not None:
-                owned.job.resume(process)
-        except BaseException:
-            try:
-                kill_tree(process)
-            finally:
+                raise RuntimeError("Wiki child launch refused during timeout cleanup")
+            _children.add(owned)
+        process = subprocess.Popen(command, **options)
+        owned.process = process
+        process._wiki_owned = owned
+        if os.name == "nt":
+            owned.job = _WindowsJob()
+            owned.job.assign(process)
+        if _stopping.is_set():
+            raise RuntimeError("Wiki child launch interrupted by timeout cleanup")
+        if owned.job is not None:
+            owned.job.resume(process)
+        owned.state = "owned"
+        return process
+    except BaseException as original:
+        try:
+            expires = time.monotonic() + REAP_SECONDS
+            if process is not None:
+                owned.process = process
+                _terminate_suspended(process)
+            _finish_tree(owned, expires)
+        except BaseException as exc:
+            child = process.pid if process is not None else "launch pending"
+            original.add_note(f"Suspended child PID {child} cleanup unresolved: {exc}")
+            owned.state, owned.error = "unresolved", str(exc)
+            with _children_lock:
+                _children.add(owned)
+        finally:
+            if process is not None:
                 for stream in (process.stdin, process.stdout, process.stderr):
                     if stream is not None:
-                        stream.close()
-            raise
-        return process
+                        try:
+                            stream.close()
+                        except (OSError, ValueError):
+                            pass
+        raise
+    finally:
+        if locked:
+            owned.lock.release()
+
+
+def _kill_owned(owned):
+    expires = time.monotonic() + REAP_SECONDS
+    if not owned.lock.acquire(timeout=REAP_SECONDS):
+        owned.state, owned.error = "unresolved", "ownership setup or cleanup lock did not finish"
+        command = owned.process.args if owned.process is not None else "pending wiki child launch"
+        raise subprocess.TimeoutExpired(command, REAP_SECONDS)
+    try:
+        if owned.done:
+            return
+        _finish_tree(owned, expires)
+    finally:
+        owned.lock.release()
 
 
 def kill_tree(process):
@@ -153,43 +242,7 @@ def kill_tree(process):
     Concurrent cleanup is idempotent. POSIX orphans are reaped by the OS;
     the caller reaps its direct child. Descendants that leave the group escape it.
     """
-    owned = process._wiki_owned
-    expires = time.monotonic() + REAP_SECONDS
-    if not owned.lock.acquire(timeout=REAP_SECONDS):
-        raise subprocess.TimeoutExpired(process.args, REAP_SECONDS)
-    try:
-        if owned.done:
-            return
-        error = None
-        try:
-            if owned.job is not None:
-                owned.job.terminate()
-            elif os.name != "nt":
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            elif process.poll() is None:
-                process.kill()  # Job setup failed with the child still suspended.
-        except OSError as exc:
-            error = exc
-        finally:
-            if error is not None and owned.job is not None:
-                owned.job.close()  # Kill-on-close is also the termination fallback.
-        try:
-            process.wait(timeout=max(0.0, expires - time.monotonic()))
-            if owned.job is not None:
-                owned.job.wait(expires)
-        finally:
-            if owned.job is not None:
-                owned.job.close()
-        if error is not None:
-            raise error
-        owned.done = True
-        with _children_lock:
-            _children.discard(owned)
-    finally:
-        owned.lock.release()
+    _kill_owned(process._wiki_owned)
 
 
 def terminate_all():
@@ -200,9 +253,10 @@ def terminate_all():
 
     def stop(owned):
         try:
-            kill_tree(owned.process)
+            _kill_owned(owned)
         except BaseException as exc:
-            errors.append(f"child PID {owned.process.pid}: {exc}")
+            child = owned.process.pid if owned.process is not None else "launch pending"
+            errors.append(f"unresolved child PID {child}: {exc}")
 
     expires = time.monotonic() + REAP_SECONDS
     workers = [(owned, threading.Thread(target=stop, args=(owned,), daemon=True)) for owned in children]
@@ -211,7 +265,8 @@ def terminate_all():
     for owned, worker in workers:
         worker.join(max(0.0, expires - time.monotonic()))
         if worker.is_alive():
-            errors.append(f"child PID {owned.process.pid}: cleanup did not finish within {REAP_SECONDS}s")
+            child = owned.process.pid if owned.process is not None else "launch pending"
+            errors.append(f"unresolved child PID {child}: cleanup did not finish within {REAP_SECONDS}s")
     return errors
 
 

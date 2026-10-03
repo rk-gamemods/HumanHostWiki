@@ -118,8 +118,11 @@ the wiki continues without capture timing.
 
 The watchdog claims `timed-out`, fences new child launches and supervises registered
 process-tree, writer owner metadata and registered temporary-file cleanup before
-exiting 124. Cleanup has a 60-second grace, with unfinished work reported before
-exit; timing saves run alongside cleanup, with a final bounded diagnostic wait. Journals
+exiting 124. The recorder-lock wait is limited to five seconds; an unavailable lock
+is reported and cannot prevent exit. Cleanup has a 60-second grace, with unresolved
+child PIDs and unfinished work reported before exit. Unconfirmed Windows jobs stay
+registered and open for bounded cleanup retries. Timing saves run alongside cleanup,
+with a final bounded diagnostic wait. Journals
 and stage artifacts remain for update recovery; a timed-out publication requires
 `abandon-publication`. Abrupt termination or blocked storage can prevent a timing
 record. Repeated finalization cannot create a second record.
