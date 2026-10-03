@@ -5,8 +5,12 @@ import subprocess
 import threading
 import time
 
+# Worst-case cleanup must fit inside any caller's elapsed deadline.
+TASKKILL_SECONDS = 30
+REAP_SECONDS = 30
 # After the process exits or is killed, how long to wait for its pipes to close.
 DRAIN_SECONDS = 10
+CLEANUP_SECONDS = TASKKILL_SECONDS + REAP_SECONDS + DRAIN_SECONDS
 # A descendant that outlives a killed parent can keep writing; stop keeping its bytes.
 MAX_CAPTURE = 64 * 1024 * 1024
 
@@ -17,10 +21,16 @@ def kill_tree(process):
         # taskkill walks the tree from the live parent, so it runs before kill().
         try:
             subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True,
-                           timeout=30, check=False)
+                           timeout=TASKKILL_SECONDS, check=False)
         except (OSError, subprocess.SubprocessError):
             pass
     process.kill()
+    # TerminateProcess is asynchronous on Windows. The writer must not release
+    # its lock while a killed child is still exiting, but it must not wait forever.
+    try:
+        process.wait(timeout=REAP_SECONDS)
+    except subprocess.TimeoutExpired:
+        raise OSError(f"Process {process.pid} did not exit within {REAP_SECONDS} s of being killed") from None
 
 
 def _collect(stream, sink):
@@ -41,7 +51,7 @@ def _feed(stream, data):
 
 
 def run(command, timeout, *, input=None, env=None, cwd=None):
-    """subprocess.run(capture_output=True) that returns or raises within timeout + DRAIN_SECONDS.
+    """subprocess.run(capture_output=True) bounded by timeout + CLEANUP_SECONDS.
 
     All pipe I/O happens on daemon threads; the caller only ever waits with a deadline.
     subprocess.run cannot promise that on Windows: it writes stdin before its timeout
