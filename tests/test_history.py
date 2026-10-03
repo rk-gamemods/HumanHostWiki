@@ -2,9 +2,10 @@
 
 import json
 from pathlib import Path
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from tests._support import fixture_dir
 
 from test_identity import observation
 from wikibuild import extraction, history, identity, model
@@ -13,8 +14,7 @@ from wikibuild.storage import ContractError, json_bytes, writer_lock
 
 class HistoryTests(unittest.TestCase):
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
-        self.root = Path(self.folder.name)
+        self.root = fixture_dir(self, "history")
         self.source = self.root / "source"
         self.metadata = {"bundle#1": {"type": "MonoBehaviour", "class": "Icon_Info", "assembly": "Item_Info", "paths": []}}
         self.check_source = patch("wikibuild.extraction.ensure_source")
@@ -23,7 +23,6 @@ class HistoryTests(unittest.TestCase):
         self.catalog.start()
         self.addCleanup(self.check_source.stop)
         self.addCleanup(self.catalog.stop)
-        self.addCleanup(self.folder.cleanup)
         self.set_input([observation()])
 
     def set_input(self, rows, build="100", inventory=None):

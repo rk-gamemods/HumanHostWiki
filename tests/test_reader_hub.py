@@ -14,8 +14,8 @@ from wikibuild.storage import ContractError, digest, json_bytes
 class HubProjectionTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_reader.ReaderTests()
+        self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
         self.root = self.fixture.root
         self.project = self.fixture.project
         self.project["relationships"] = [{"from": "items", "to": "loot", "label": "Found in"}]

@@ -1,19 +1,25 @@
 """External processes stop at their deadline even when a descendant keeps the output pipe open."""
-import os
 import json
+import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import unittest
 from unittest.mock import patch
 
+from tests._support import fixture_dir
 from wikibuild import bounded, steam_build, storage
 from wikibuild.storage import ContractError, process_running, writer_lock
 
-ROOT = Path(__file__).resolve().parents[1]
+
+# The grandchild inherits stdout, like git-remote-https under git.
+HOLDS_PIPE = ("import os, subprocess, sys, time; from pathlib import Path; "
+              "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']); "
+              "Path(sys.argv[1]).write_text(str(os.getpid()) + '\\n' + str(child.pid)); "
+              "time.sleep(120) if '--exit-parent' not in sys.argv[2:] else None")
 
 
 def alive(pid):
@@ -28,54 +34,52 @@ def alive(pid):
     return process_running(pid)
 
 
-def cleanup_pids(path):
+def stop_recorded(path):
     if path.exists():
-        for pid in json.loads(path.read_text()):
-            if alive(pid):
-                if os.name == "nt":
-                    subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=5)
-                else:
-                    import signal
-                    os.kill(pid, signal.SIGKILL)
+        for row in path.read_text().splitlines():
+            pid = int(row)
+            if not alive(pid):
+                continue
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError as error:
+                # Windows reports an already exited PID as invalid.
+                if not isinstance(error, ProcessLookupError) and getattr(error, "winerror", None) != 87:
+                    raise
 
-
-def tree_code(pids, *, exit_parent=False):
-    return ("import json, os, subprocess, sys, time; from pathlib import Path; "
-            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']); "
-            f"Path({str(pids)!r}).write_text(json.dumps([os.getpid(), child.pid])); "
-            + ("" if exit_parent else "time.sleep(120)"))
 
 class BoundedRunTests(unittest.TestCase):
     def test_parent_exit_does_not_leave_a_descendant_holding_the_pipe(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as folder:
-            pids = Path(folder) / "pids.json"
-            started = time.monotonic()
+        folder = fixture_dir(self, "bounded")
+        pids = Path(folder) / "pids.txt"
+        started = time.monotonic()
+        try:
             try:
-                try:
-                    bounded.run([sys.executable, "-c", tree_code(pids, exit_parent=True)], timeout=2)
-                except subprocess.TimeoutExpired:
-                    pass
-                self.assertLess(time.monotonic() - started, 15)
-                self.assertTrue(pids.exists())
-                self.assertTrue(all(not alive(pid) for pid in json.loads(pids.read_text())))
-            finally:
-                cleanup_pids(pids)
+                bounded.run([sys.executable, "-c", HOLDS_PIPE, str(pids), "--exit-parent"], cwd=folder, timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+            self.assertLess(time.monotonic() - started, 15)
+            self.assertTrue(pids.exists())
+            self.assertTrue(all(not alive(pid) for pid in map(int, pids.read_text().splitlines())))
+        finally:
+            stop_recorded(pids)
+
     def test_completed_process_matches_subprocess_run(self):
         result = bounded.run([sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read().upper())"],
                              timeout=60, input=b"ok")
         self.assertEqual((result.returncode, result.stdout), (0, b"OK"))
 
     def test_descendant_holding_the_pipe_cannot_outlast_the_deadline(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as folder:
-            pids = Path(folder) / "pids.json"
-            started = time.monotonic()
-            try:
-                with self.assertRaises(subprocess.TimeoutExpired):
-                    bounded.run([sys.executable, "-c", tree_code(pids)], timeout=2)
-                self.assertLess(time.monotonic() - started, 10)
-                self.assertTrue(all(not alive(pid) for pid in json.loads(pids.read_text())))
-            finally:
-                cleanup_pids(pids)
+        folder = fixture_dir(self, "bounded")
+        pids = Path(folder) / "pids.txt"
+        started = time.monotonic()
+        try:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                bounded.run([sys.executable, "-c", HOLDS_PIPE, str(pids)], cwd=folder, timeout=2)
+            self.assertLess(time.monotonic() - started, 10)
+            self.assertTrue(all(not alive(pid) for pid in map(int, pids.read_text().splitlines())))
+        finally:
+            stop_recorded(pids)
 
     def test_registry_cleanup_is_idempotent_and_refuses_new_launches(self):
         process = bounded.start([sys.executable, "-c", "import time; time.sleep(120)"])
@@ -122,7 +126,8 @@ class BoundedRunTests(unittest.TestCase):
             observer.join(2)
             self.assertEqual(acquired, [True], "Launch and reap must leave the registry available")
         for boundary in ("assign", "resume"):
-            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory(dir=ROOT) as folder:
+            with self.subTest(boundary=boundary):
+                folder = fixture_dir(self, "bounded")
                 processes = []
                 original, original_wait = subprocess.Popen, subprocess.Popen.wait
                 def launch(*args, **kwargs):
@@ -247,15 +252,15 @@ class BoundedRunTests(unittest.TestCase):
             process = original(*args, **kwargs)
             processes.append(process)
             return process
-        with tempfile.TemporaryDirectory(dir=ROOT) as folder:
-            sentinel = Path(folder) / "must-not-exist"
-            with patch.object(bounded.subprocess, "Popen", side_effect=launch), \
-                    patch.object(bounded, "_WindowsJob", side_effect=OSError("job setup failed")):
-                with self.assertRaisesRegex(OSError, "job setup failed"):
-                    bounded.run([sys.executable, "-c", f"from pathlib import Path; Path({str(sentinel)!r}).touch()"], timeout=2)
-            self.assertEqual(len(processes), 1)
-            self.assertFalse(alive(processes[0].pid))
-            self.assertFalse(sentinel.exists())
+        folder = fixture_dir(self, "bounded")
+        sentinel = Path(folder) / "must-not-exist"
+        with patch.object(bounded.subprocess, "Popen", side_effect=launch), \
+                patch.object(bounded, "_WindowsJob", side_effect=OSError("job setup failed")):
+            with self.assertRaisesRegex(OSError, "job setup failed"):
+                bounded.run([sys.executable, "-c", f"from pathlib import Path; Path({str(sentinel)!r}).touch()"], timeout=2)
+        self.assertEqual(len(processes), 1)
+        self.assertFalse(alive(processes[0].pid))
+        self.assertFalse(sentinel.exists())
 
     def test_child_that_never_reads_input_cannot_block_the_write(self):
         started = time.monotonic()
@@ -270,31 +275,54 @@ class BoundedRunTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "The SteamCMD stand-ins are Windows batch files")
     def test_stalled_steamcmd_reports_unavailable_metadata(self):
-        # The second batch parent exits first. Kill only recorded fixture PIDs.
-        for detached in (False, True):
-            with self.subTest(detached=detached), tempfile.TemporaryDirectory(dir=ROOT) as temp:
-                pids = Path(temp) / "pids.json"
-                child = Path(temp) / "child.py"
-                child.write_text("import json, os, sys, time\nfrom pathlib import Path\n"
-                                 "Path(sys.argv[1]).write_text(json.dumps([os.getpid()]))\ntime.sleep(120)\n")
-                steamcmd = Path(temp) / "steamcmd.cmd"
-                body = ('@echo Loading Steam API...OK\n@' + ('start "" /b ' if detached else '')
-                        + f'"{sys.executable}" "{child}" "{pids}"\n')
-                steamcmd.write_text(body)
-                started = time.monotonic()
-                try:
-                    with patch.object(steam_build, "DEADLINE", 2), self.assertRaisesRegex(ContractError, "timed out"):
+        # Keep both parent-exit variants: Python returns, or cmd uses start /b.
+        for parent in ("python", "batch"):
+            for detached in (False, True):
+                with self.subTest(parent=parent, detached=detached):
+                    temp = fixture_dir(self, "steam")
+                    pid_file = temp / "standin.pids"
+                    helper = temp / "standin.py"
+                    if parent == "python":
+                        helper.write_text("import os, subprocess\nfrom pathlib import Path\n"
+                                          "child = subprocess.Popen(['ping', '-n', '120', '127.0.0.1'])\n"
+                                          f"Path({str(pid_file)!r}).write_text(str(child.pid) + '\\n' + str(os.getpid()))\n"
+                                          + ("" if detached else "child.wait()\n"))
+                    else:
+                        helper.write_text("import os, time\nfrom pathlib import Path\n"
+                                          f"Path({str(pid_file)!r}).write_text(str(os.getpid()))\ntime.sleep(120)\n")
+                    self.addCleanup(stop_recorded, pid_file)
+                    steamcmd = temp / "steamcmd.cmd"
+                    prefix = 'start "" /b ' if parent == "batch" and detached else ""
+                    steamcmd.write_text('@echo Loading Steam API...OK\r\n'
+                                        f'@{prefix}"{sys.executable}" "{helper}"\r\n')
+                    popen = subprocess.Popen
+                    processes = []
+
+                    def reap(process):
+                        bounded.kill_tree(process)
+                        process.wait(timeout=5)
+
+                    def record(*args, **kwargs):
+                        process = popen(*args, **kwargs)
+                        processes.append(process)
+                        self.addCleanup(reap, process)
+                        return process
+
+                    started = time.monotonic()
+                    with patch.object(steam_build.subprocess, "Popen", side_effect=record), \
+                            patch.object(steam_build, "DEADLINE", 2), self.assertRaisesRegex(ContractError, "timed out"):
                         steam_build.fetch(steamcmd, "2393970", "public")
                     self.assertLess(time.monotonic() - started, 10)
-                    self.assertTrue(all(not alive(pid) for pid in json.loads(pids.read_text())))
-                finally:
-                    cleanup_pids(pids)
+                    self.assertTrue(pid_file.exists())
+                    self.assertTrue(all(not alive(pid) for pid in map(int, pid_file.read_text().splitlines())))
+                    self.assertTrue(all(process.poll() is not None for process in processes))
 
 
 class UpdateDeadlineTests(unittest.TestCase):
     def test_held_recorder_lock_cannot_block_timeout_exit(self):
         for main_returns in (False, True):
-            with self.subTest(main_returns=main_returns), tempfile.TemporaryDirectory(dir=ROOT) as folder:
+            with self.subTest(main_returns=main_returns):
+                folder = fixture_dir(self, "bounded")
                 script = "import sys, time, wiki\nfrom pathlib import Path\nfrom wikibuild import run_timing\n"
                 if main_returns:
                     script += ("wiki.TIMING_CLAIM_SECONDS = 0.5\nwiki.CLEANUP_GRACE = 1\n"
@@ -305,10 +333,10 @@ class UpdateDeadlineTests(unittest.TestCase):
                                "sys.argv = ['wiki.py', 'update']\nraise SystemExit(wiki.main())\n")
                 else:
                     script += ("wiki.TIMING_CLAIM_SECONDS = 0.1\nwiki.CLEANUP_GRACE = 0.5\n"
-                               f"timing = run_timing.Recorder(Path({folder!r}), 'update')\n"
+                               f"timing = run_timing.Recorder(Path({str(folder)!r}), 'update')\n"
                                "timing.lock.acquire()\nwiki.deadline(0.1, 'update', timing=timing)\ntime.sleep(120)\n")
                 started = time.monotonic()
-                code, _, errors = self.harness(script)
+                code, _, errors = self.harness(script, cwd=folder)
                 self.assertEqual(code, 124, errors.decode(errors="replace"))
                 self.assertLess(time.monotonic() - started, 3)
                 self.assertIn(b"recorder lock", errors)
@@ -337,21 +365,25 @@ class UpdateDeadlineTests(unittest.TestCase):
             bounded.kill_tree(process)
 
     def test_metadata_cleanup_preserves_os_lock_and_foreign_metadata(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as folder:
-            root = Path(folder)
-            owner = root / ".local/writer.lock.owner.json"
-            with writer_lock(root):
-                self.assertEqual(storage.cleanup_writer_owners(), [])
-                self.assertFalse(owner.exists())
-                with self.assertRaisesRegex(ContractError, "Another wiki writer"):
-                    with writer_lock(root):
-                        self.fail("Metadata cleanup must not release the OS lock")
-                self.assertEqual(storage.cleanup_writer_owners(), [])
-                owner.write_bytes(b"foreign owner metadata")
-            self.assertEqual(owner.read_bytes(), b"foreign owner metadata")
+        folder = fixture_dir(self, "bounded")
+        root = Path(folder)
+        owner = root / ".local/writer.lock.owner.json"
+        with writer_lock(root):
+            self.assertEqual(storage.cleanup_writer_owners(), [])
+            self.assertFalse(owner.exists())
+            with self.assertRaisesRegex(ContractError, "Another wiki writer"):
+                with writer_lock(root):
+                    self.fail("Metadata cleanup must not release the OS lock")
+            self.assertEqual(storage.cleanup_writer_owners(), [])
+            owner.write_bytes(b"foreign owner metadata")
+        self.assertEqual(owner.read_bytes(), b"foreign owner metadata")
 
-    def harness(self, code):
-        process = subprocess.Popen([sys.executable, "-c", code], cwd=ROOT,
+    def harness(self, code, *, cwd=None):
+        cwd = fixture_dir(self, "watchdog") if cwd is None else cwd
+        environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+        environment["PYTHONPATH"] = os.pathsep.join(
+            [str(Path(__file__).resolve().parents[1]), environment.get("PYTHONPATH", "")])
+        process = subprocess.Popen([sys.executable, "-c", code], cwd=cwd, env=environment,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         try:
@@ -366,9 +398,10 @@ class UpdateDeadlineTests(unittest.TestCase):
 
     def test_real_timeout_cleans_tree_metadata_and_registered_file(self):
         for command, unwind in (("update", True), ("publish", True), ("update", False)):
-            with self.subTest(command=command, unwind=unwind), tempfile.TemporaryDirectory(dir=ROOT) as folder:
+            with self.subTest(command=command, unwind=unwind):
+                folder = fixture_dir(self, "bounded")
                 root = Path(folder)
-                pids = root / "pids.json"
+                pids = root / "pids.txt"
                 temporary = root / "command.tmp"
                 staging = root / "journaled-stage"
                 argv = ["wiki.py", command] + (["--release", "fixture"] if command == "publish" else [])
@@ -380,16 +413,16 @@ class UpdateDeadlineTests(unittest.TestCase):
                           f"        temporary = wiki.register_cleanup({str(temporary)!r})\n"
                           "        temporary.write_text('owned temporary')\n"
                           f"        Path({str(staging)!r}).mkdir()\n"
-                          f"        bounded.run([{sys.executable!r}, '-c', {tree_code(pids)!r}], timeout=120)\n"
+                          f"        bounded.run([{sys.executable!r}, '-c', {HOLDS_PIPE!r}, {str(pids)!r}], timeout=120)\n"
                           + ("" if unwind else "        time.sleep(120)\n")
                           + "    return {}\n"
                           # Actual CLI/watchdog control flow, wholly fake command work.
                           f"wiki.__file__ = {str(root / 'wiki.py')!r}\nwiki._run = execute\n"
                           f"wiki.UPDATE_DEADLINE = 2\nsys.argv = {argv!r}\nraise SystemExit(wiki.main())\n")
                 try:
-                    code, _, errors = self.harness(script)
+                    code, _, errors = self.harness(script, cwd=folder)
                     self.assertEqual(code, 124, errors.decode(errors="replace"))
-                    self.assertTrue(all(not alive(pid) for pid in json.loads(pids.read_text())))
+                    self.assertTrue(all(not alive(pid) for pid in map(int, pids.read_text().splitlines())))
                     self.assertFalse((root / ".local/writer.lock.owner.json").exists())
                     self.assertTrue((root / ".local/writer.lock").exists())
                     self.assertFalse(temporary.exists())
@@ -402,7 +435,7 @@ class UpdateDeadlineTests(unittest.TestCase):
                     self.assertIn(b"exceeded its", errors)
                     self.assertIn(b"abandon-publication" if command == "publish" else b"rerun the normal command", errors)
                 finally:
-                    cleanup_pids(pids)
+                    stop_recorded(pids)
 
     def test_hanging_cleanup_still_exits_within_grace(self):
         script = ("import time, wiki\nwiki.CLEANUP_GRACE = 0.25\n"

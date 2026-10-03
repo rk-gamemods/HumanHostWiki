@@ -27,8 +27,8 @@ def options(topic="items"):
 class ExternalIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_reader.ReaderTests()
+        self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
         f = self.fixture
         f.old = f.make_run("100", [f.observation(f.a, "Axe"), f.observation(f.b, "Old item")])
         f.new = f.make_run("200", [f.observation(f.a, "Axe")], absent={f.b: "not-present"})
@@ -145,8 +145,8 @@ class ExternalIntegrationTests(unittest.TestCase):
 
     def test_provider_failure_does_not_stop_pipeline_and_reaches_final_operator_report(self):
         f = test_pipeline.PipelineTests()
+        f.addCleanup = self.addCleanup
         f.setUp()
-        self.addCleanup(f.doCleanups)
         project = deepcopy(test_pipeline.test_extraction.PROJECT)
         project["external_articles"] = options("items-equipment")
         provider = test_external_links.Provider()

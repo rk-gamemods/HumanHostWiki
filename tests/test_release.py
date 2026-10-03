@@ -4,9 +4,10 @@ import copy
 import json
 from pathlib import Path
 import shutil
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from tests._support import cache_git_queries, fixture_dir
 
 import test_reader
 from wikibuild import git_transaction, reader, release, workspace
@@ -14,40 +15,132 @@ from wikibuild.storage import ContractError, git, json_bytes
 from tools.check_release import check as independent_check
 
 
-class ReleaseTests(unittest.TestCase):
-    def setUp(self):
-        self.fixture = test_reader.ReaderTests()
-        self.fixture.setUp()
-        test_reader.install_guide(self.fixture)
-        self.root = self.fixture.root
-        self.project = copy.deepcopy(self.fixture.project)
-        self.project['github_owner'] = 'wiki-fixture'
-        for repo in self.project['repositories']:
-            repo.update(path='repositories/' + repo['id'], role='hub' if repo['id'] == 'hub' else 'topic', github_name='Wiki-' + repo['id'])
-        workspace.initialize(self.root, self.project)
-        for repo in self.project['repositories']:
-            path = self.root / repo['path']
+class _ModuleFixtures:
+    """Imported release fixtures live until the current unittest module finishes."""
+    addCleanup = staticmethod(unittest.addModuleCleanup)
+
+
+_CHILD_TEMPLATE = None
+_RELEASE_TEMPLATE = None
+_PREPARED_TEMPLATE = None
+
+
+class _FixtureCheckpoint(OSError):
+    pass
+
+
+def clone_fixture(test, template, label):
+    """Copy a complete local release baseline, including independent Git objects."""
+    target = ReleaseTests()
+    target.root = fixture_dir(test, label)
+    shutil.copytree(template.root, target.root, dirs_exist_ok=True)
+    target.project = copy.deepcopy(template.project)
+    target.candidate = copy.deepcopy(template.candidate)
+    target.candidate['path'] = str(target.root / Path(template.candidate['path']).relative_to(template.root))
+    target.fixture = test_reader.ReaderTests()
+    target.fixture.root = target.root
+    target.fixture.registry_path = target.root / 'presentation/fields.json'
+    target.fixture.__dict__.update(copy.deepcopy({name: getattr(template.fixture, name)
+        for name in ('project', 'a', 'b', 'c', 'old', 'new', 'runs')}))
+    cache_git_queries(test, target.root)
+    return target
+
+
+def copy_children(root, project):
+    global _CHILD_TEMPLATE
+    if _CHILD_TEMPLATE is None or not _CHILD_TEMPLATE.exists():
+        template = fixture_dir(_ModuleFixtures(), "children")
+        workspace.initialize(template, project)
+        for repo in project['repositories']:
+            path = template / repo['path']
             git(path, 'config', 'user.name', 'Wiki fixture')
             git(path, 'config', 'user.email', 'wiki@example.invalid')
             git(path, 'add', '.')
             git(path, 'commit', '-m', 'Initialize fixture')
-        workspace.checkout_lock(self.root, self.project)
-        self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
-        self.addCleanup(self.cleanup)
+        # Publish the cache only after every child has been initialized.
+        _CHILD_TEMPLATE = template
+    shutil.copytree(_CHILD_TEMPLATE / 'repositories', root / 'repositories')
 
-    def cleanup(self):
-        try:
-            shutil.rmtree(self.root)
-        except PermissionError:
-            # Windows Git object protection is not overridden for test cleanup.
-            print(f'Retained protected release fixture: {self.root}')
-        self.fixture.folder._finalizer.detach()
+
+class ReleaseTests(unittest.TestCase):
+    def setUp(self, *, build_candidate=True):
+        global _RELEASE_TEMPLATE, _PREPARED_TEMPLATE
+        prepared = {'test_failure_after_ref_update_is_detected_as_completed_on_retry',
+                    'test_failure_during_file_promotion_resumes_exact_prepared_commit',
+                    'test_interrupted_transaction_refuses_unexpected_edits_and_modified_journal',
+                    'test_resume_preserves_unrelated_staged_edits'}
+        if self._testMethodName in prepared:
+            if _PREPARED_TEMPLATE is None or not _PREPARED_TEMPLATE.root.exists():
+                template = ReleaseTests()
+                template.addCleanup = _ModuleFixtures().addCleanup
+                template.setUp()
+                with patch.object(git_transaction, 'promote', side_effect=_FixtureCheckpoint('prepared fixture')):
+                    try:
+                        template.run_release()
+                    except _FixtureCheckpoint:
+                        pass
+                    else:
+                        raise AssertionError('Fixture did not stop before promotion')
+                _PREPARED_TEMPLATE = template
+            cloned = clone_fixture(self, _PREPARED_TEMPLATE, 'prepared')
+            self.root, self.project = cloned.root, cloned.project
+            self.candidate, self.fixture = cloned.candidate, cloned.fixture
+            return
+        baselines = {'test_font_links_and_exact_bytes_survive_release_and_repeat',
+                     'test_prior_release_data_and_runtime_remain_available_without_pack_duplication',
+                     'test_reviewed_explanation_after_published_baseline_preserves_old_release_and_repeats',
+                     'test_reviewed_successor_cannot_change_generated_outputs',
+                     'test_failure_between_children_preserves_previous_release_then_resumes'}
+        if self._testMethodName in baselines:
+            if _RELEASE_TEMPLATE is None or not _RELEASE_TEMPLATE.root.exists():
+                template = ReleaseTests()
+                template.addCleanup = _ModuleFixtures().addCleanup
+                template.setUp()
+                template.run_release()
+                _RELEASE_TEMPLATE = template
+            cloned = clone_fixture(self, _RELEASE_TEMPLATE, 'released')
+            self.root, self.project = cloned.root, cloned.project
+            self.candidate, self.fixture = cloned.candidate, cloned.fixture
+            return
+        self.fixture = test_reader.ReaderTests()
+        self.fixture.addCleanup = self.addCleanup
+        self.fixture.setUp()
+        test_reader.install_guide(self.fixture)
+        self.root = self.fixture.root
+        cache_git_queries(self, self.root)
+        self.project = copy.deepcopy(self.fixture.project)
+        self.project['github_owner'] = 'wiki-fixture'
+        for repo in self.project['repositories']:
+            repo.update(path='repositories/' + repo['id'], role='hub' if repo['id'] == 'hub' else 'topic', github_name='Wiki-' + repo['id'])
+        copy_children(self.root, self.project)
+        self.candidate = None
+        if build_candidate:
+            workspace.checkout_lock(self.root, self.project)
+            self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
 
     def run_release(self):
         return release.run(self.root, self.project, self.candidate)
 
     def heads(self):
         return {repo['id']: git(self.root / repo['path'], 'rev-parse', 'HEAD') for repo in self.project['repositories']}
+
+    def test_cached_children_have_private_worktrees_and_git_objects(self):
+        second = fixture_dir(self, 'copy')
+        before = self.heads()
+        with patch.object(workspace, 'initialize', side_effect=AssertionError('rebuilt template')):
+            copy_children(second, self.project)
+        path = self.root / 'repositories/items'
+        (path / 'private.md').write_text('Private mutable fixture')
+        git(path, 'add', '.')
+        git(path, 'commit', '-m', 'Private mutation')
+        for repo in self.project['repositories']:
+            self.assertEqual(git(second / repo['path'], 'rev-parse', 'HEAD'), before[repo['id']])
+            self.assertEqual(git(_CHILD_TEMPLATE / repo['path'], 'rev-parse', 'HEAD'), before[repo['id']])
+        self.assertFalse((second / 'repositories/items/private.md').exists())
+        commit = git(path, 'rev-parse', 'HEAD')
+        obj = Path('.git/objects') / commit[:2] / commit[2:]
+        self.assertTrue((path / obj).exists())
+        self.assertFalse((second / 'repositories/items' / obj).exists())
 
     def new_candidate(self):
         self.project['official_links'] = [{'title': 'Fixture', 'url': 'https://example.invalid/'}]

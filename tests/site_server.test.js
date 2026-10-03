@@ -3,14 +3,13 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const http = require("node:http");
-const os = require("node:os");
 const path = require("node:path");
 const {test} = require("node:test");
 const {createStaticServer, staticTarget} = require("../tools/check_site.js");
 
 test("reader server serves files and each site's fallback shell", async t => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hhwiki-site-server-"));
-  t.after(() => fs.rmSync(root, {recursive: true}));
+  const root = path.join(process.env.HHWIKI_TEST_ROOT, "site-server");
+  fs.mkdirSync(root);
   for (const site of ["hub", "items-equipment"]) fs.mkdirSync(path.join(root, site));
   fs.writeFileSync(path.join(root, "hub", "index.html"), "HUB HOME");
   fs.writeFileSync(path.join(root, "hub", "404.html"), "HUB FALLBACK");

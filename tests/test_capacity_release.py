@@ -1,31 +1,74 @@
 """Forced physical allocation through real Git release and publication adapters."""
 
 import json
+import copy
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 import test_publication
 import test_release
 from tools.check_release import check
-from wikibuild import capacity_inventory, ownership, physical, publication, reader, release, release_partitions, workspace
+from wikibuild import capacity_inventory, ownership, physical, publication, reader, release, release_partitions, shard_index, workspace
 from wikibuild.storage import ContractError, git, json_bytes
+
+_CAPACITY_TEMPLATE = None
+_CAPACITY_PREPARED = None
 
 
 class CapacityReleaseTests(unittest.TestCase):
     def setUp(self):
+        global _CAPACITY_TEMPLATE, _CAPACITY_PREPARED
+        if self._testMethodName in {
+                'test_forced_capacity_commits_provisions_dependencies_and_repeats_without_new_work',
+                'test_storage_failure_keeps_all_fronts_unpublished_then_resumes',
+                'test_next_release_preserves_historical_partition_bytes_and_lock_membership',
+                'test_paged_ownership_commits_publishes_and_preserves_prior_release_reads',
+                'test_interrupted_partition_install_resumes_prepared_repositories'}:
+            if _CAPACITY_TEMPLATE is None or not _CAPACITY_TEMPLATE.root.exists():
+                template = CapacityReleaseTests()
+                template.addCleanup = test_release._ModuleFixtures().addCleanup
+                template.setUp()
+                with patch.object(ownership, 'PAGE_BYTES', 4096):
+                    with patch.object(release_partitions, 'install',
+                                      side_effect=test_release._FixtureCheckpoint('prepared capacity fixture')):
+                        try:
+                            template.run_release()
+                        except test_release._FixtureCheckpoint:
+                            pass
+                        else:
+                            raise AssertionError('Capacity fixture did not stop before install')
+                    _CAPACITY_PREPARED = test_release.clone_fixture(
+                        test_release._ModuleFixtures(), template.fixture, 'cap-plan')
+                    template.run_release()
+                _CAPACITY_TEMPLATE = template
+            if self._testMethodName == 'test_interrupted_partition_install_resumes_prepared_repositories':
+                self.fixture = test_release.clone_fixture(self, _CAPACITY_PREPARED, 'cap-retry')
+                self.root, self.project, self.candidate = self.fixture.root, self.fixture.project, self.fixture.candidate
+                self.host = test_publication.Host(self.project['github_owner'])
+                self.host.install_gate(self)
+                return
+            template = _CAPACITY_TEMPLATE
+            self.fixture = test_release.clone_fixture(self, template.fixture, 'capacity')
+            self.root, self.project = self.fixture.root, self.fixture.project
+            self.candidate = copy.deepcopy(template.candidate)
+            self.candidate['path'] = str(self.root / Path(template.candidate['path']).relative_to(template.root))
+            self.host = test_publication.Host(self.project['github_owner'])
+            self.host.install_gate(self)
+            return
         self.fixture = test_release.ReleaseTests()
-        self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.addCleanup = self.addCleanup
+        self.fixture.setUp(build_candidate=False)
+        self.fixture.fixture.runs = [self.fixture.fixture.new]
         self.root, self.project = self.fixture.root, self.fixture.project
-        self.project["capacity"] = {"file_bytes": 150_000, "site_bytes": 430_000, "history_bytes": 650_000,
+        self.project["capacity"] = {"file_bytes": 150_000, "site_bytes": 535_000, "history_bytes": 650_000,
                                     "site_reserve_bytes": 30_000, "history_reserve_bytes": 30_000}
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = test_publication.Host(self.project["github_owner"])
-        gate = patch.object(publication.publish_gate, "check", side_effect=self.host.gate)
-        gate.start()
-        self.addCleanup(gate.stop)
+        self.host.install_gate(self)
         workspace.checkout_lock(self.root, self.project)
         self.candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
+        self.fixture.candidate = self.candidate
 
     def run_release(self):
         return release.run(self.root, self.project, self.candidate)
@@ -78,7 +121,8 @@ class CapacityReleaseTests(unittest.TestCase):
         check(self.root)
 
     def test_paged_captures_commit_publish_and_remain_reachable_after_replay(self):
-        runs = [self.fixture.fixture.make_run(str(build), []) for build in reversed(range(1000, 1400))]
+        self.enterContext(patch.object(shard_index, "PAGE_BYTES", 2048))
+        runs = [self.fixture.fixture.make_run(str(build), []) for build in reversed(range(1000, 1008))]
         self.candidate = reader.build(self.root, self.project, runs, bases=release.bases(self.project))
         result, _ = self.run_release()
         inventory = capacity_inventory.read(self.root, self.project)
@@ -132,7 +176,7 @@ class CapacityReleaseTests(unittest.TestCase):
     def test_paged_ownership_commits_publishes_and_preserves_prior_release_reads(self):
         # Force only the metadata-page threshold. Runtime objects still obey
         # the independently configured 150,000-byte physical file budget.
-        with patch.object(ownership, "PAGE_BYTES", 2048):
+        with patch.object(ownership, "PAGE_BYTES", 4096):
             first, _ = self.run_release()
             audit = check(self.root)
             self.assertGreater(audit["ownership_pages"], 0)

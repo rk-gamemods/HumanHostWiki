@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 import json
 import io
 from pathlib import Path
-import tempfile
 import unittest
 from unittest.mock import Mock, patch
+
+from tests._support import fixture_dir
 
 from wikibuild import availability, manifest, reader, steam_build
 from wikibuild.storage import ContractError, json_bytes
@@ -33,9 +34,7 @@ Unloading Steam API...OK
 
 class AvailabilityTests(unittest.TestCase):
     def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = fixture_dir(self, "avail")
         self.project = {"availability": {"enabled": True, "cache_seconds": 3600, "retry_seconds": 60}}
         self.steam = {"app_id": "2393970", "build_id": "25548639", "branch": "public"}
         self.now = datetime(2026, 9, 27, 9, tzinfo=timezone.utc)
@@ -146,8 +145,8 @@ class AvailabilityTests(unittest.TestCase):
 
     def test_freshness_change_reuses_projection_and_hardlinks_immutable_packs(self):
         fixture = test_reader.ReaderTests()
+        fixture.addCleanup = self.addCleanup
         fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
         self.root = fixture.root
         fixture.project.update(self.project)
         settings = self.root / ".local/steamcmd.json"
@@ -176,8 +175,8 @@ class AvailabilityTests(unittest.TestCase):
 
     def test_unavailable_check_does_not_block_supported_pipeline_or_hide_exceptions(self):
         fixture = test_pipeline.PipelineTests()
+        fixture.addCleanup = self.addCleanup
         fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
         project = json.loads(json.dumps(test_pipeline.test_extraction.PROJECT))
         project.update(self.project)
         result = test_pipeline.pipeline.run(fixture.root, project, fixture.source)

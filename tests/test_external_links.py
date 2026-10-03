@@ -6,9 +6,10 @@ from email.message import Message
 import io
 import json
 from pathlib import Path
-import tempfile
 import unittest
 from unittest.mock import Mock, patch
+
+from tests._support import fixture_dir
 
 from wikibuild import external_links, mediawiki
 from wikibuild.storage import ContractError, digest, json_bytes, writer_lock
@@ -17,6 +18,17 @@ PREFIX = "Human Host:Items"
 SOURCE = {"api_url": "https://wiki.example/api.php", "namespace": 3000, "namespace_name": "Human Host",
           "prefixes": [PREFIX], "titles": ["Human Host:Biomes"]}
 BODY = "== Axe ==\nThis tool repairs damaged structures and harvests wood from trees.\n\nDamage: 10"
+
+
+class Clock:
+    def __init__(self):
+        self.now = 0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
 
 
 def page(number, leaf, body=BODY, revision=None, redirect=False):
@@ -46,9 +58,7 @@ class Provider:
 
 class ExternalLinkTests(unittest.TestCase):
     def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = fixture_dir(self, "external")
         self.source = deepcopy(SOURCE)
         self.now = datetime(2026, 9, 27, 12, tzinfo=timezone.utc)
         self.provider = Provider(page(1, "Axe"), page(2, "Empty", "== Empty ==\nComing soon."))
@@ -210,6 +220,35 @@ class ExternalLinkTests(unittest.TestCase):
 
 
 class ProviderTests(unittest.TestCase):
+    def test_mediawiki_reads_exhaust_elapsed_budget(self):
+        clock = Clock()
+
+        class Slow(io.BytesIO):
+            def read1(self, size):
+                clock.sleep(1)
+                return b"x"
+
+        response = Slow()
+        response.url = "https://example.invalid/file"
+        response.status = 200
+        response.headers = Message()
+        response.headers["Content-Type"] = "application/json"
+        client = mediawiki.Client("https://example.invalid/api.php", clock=clock)
+        with patch.object(client.opener, "open", return_value=response) as opened:
+            with self.assertRaisesRegex(mediawiki.RemoteError, "deadline"):
+                client({}, deadline=3)
+        self.assertEqual(opened.call_args.kwargs["timeout"], 3)
+        self.assertEqual(clock.now, 3)
+        self.assertTrue(response.closed)
+
+    def test_exhausted_mediawiki_budget_prevents_a_new_request(self):
+        clock = Clock()
+        client = mediawiki.Client("https://example.invalid/api.php", deadline=0, clock=clock)
+        with patch.object(client.opener, "open") as opened:
+            with self.assertRaisesRegex(mediawiki.RemoteError, "deadline"):
+                client({})
+        opened.assert_not_called()
+
     def test_pagination_and_revision_batches_complete_independently(self):
         provider = Provider(*(page(n, "Item" + str(n)) for n in range(1, 12)))
 

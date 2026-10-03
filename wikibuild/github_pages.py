@@ -12,7 +12,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from . import bounded
-from .mediawiki import response_deadline
+from .bounded_http import response_deadline
 from .storage import ContractError
 
 

@@ -1,16 +1,14 @@
 """Bounded, read-only MediaWiki observations. No article bodies leave this adapter."""
 
 from collections import deque
-from contextlib import contextmanager
 from html import unescape
 import json
 import re
-import socket
-from threading import Event, Timer
 import time
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .bounded_http import close_response, response_deadline
 from .storage import ContractError, digest, json_bytes
 
 MAX_RESPONSE = 1024 * 1024
@@ -28,47 +26,6 @@ class RemoteError(ValueError):
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise RemoteError("api-redirect")
-
-
-def close_response(response):
-    """Interrupt a blocked HTTP read before closing its buffered response."""
-    stream = getattr(response, "fp", None)
-    sock = getattr(getattr(stream, "raw", None), "_sock", None)
-    if sock is not None:
-        try:
-            sock.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-    response.close()
-
-
-@contextmanager
-def response_deadline(response, deadline, clock):
-    """Read in the caller; the watchdog closes the socket instead of abandoning it."""
-    expired = Event()
-
-    def stop():
-        expired.set()
-        close_response(response)
-
-    timer = Timer(max(0, deadline - clock()), stop)
-    timer.daemon = True
-    started = False
-    try:
-        timer.start()
-        started = True
-        if clock() >= deadline:
-            raise TimeoutError("elapsed deadline exhausted")
-        yield response
-        if expired.is_set() or clock() >= deadline:
-            raise TimeoutError("elapsed deadline exhausted")
-    finally:
-        timer.cancel()
-        try:
-            close_response(response)
-        finally:
-            if started:
-                timer.join()
 
 
 def validate(options):

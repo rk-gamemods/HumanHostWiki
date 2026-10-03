@@ -2,9 +2,10 @@
 
 import json
 from pathlib import Path
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from tests._support import fixture_dir
 
 from wikibuild import game_text, history, model, packs, presentation, reader
 from wikibuild.storage import ContractError, digest, json_bytes, writer_lock
@@ -22,9 +23,7 @@ def install_guide(fixture):
 
 class ReaderTests(unittest.TestCase):
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
-        self.addCleanup(self.folder.cleanup)
-        self.root = Path(self.folder.name)
+        self.root = fixture_dir(self, "reader")
         self.registry_path = self.root / "presentation/fields.json"
         self.registry_path.parent.mkdir()
         (self.registry_path.parent / "site.json").write_bytes(json_bytes({"guides": []}))

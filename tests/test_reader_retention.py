@@ -3,11 +3,11 @@
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from tests._support import fixture_dir
 
 from wikibuild import reader, reader_retention as retention
 from wikibuild.storage import digest, json_bytes, writer_lock
@@ -15,8 +15,7 @@ from wikibuild.storage import digest, json_bytes, writer_lock
 
 class ReaderRetentionTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp()).resolve()
-        self.addCleanup(shutil.rmtree, self.root)
+        self.root = fixture_dir(self, "retain")
         self.payloads = {"items/data/shared.json": b"facts\n" * 200000,
                          "items/app.js": b"runtime\n", "items/.nojekyll": b""}
         self.first = self.candidate("first")

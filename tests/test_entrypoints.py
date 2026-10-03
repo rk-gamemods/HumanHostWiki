@@ -38,8 +38,9 @@ class EntrypointPlanTests(unittest.TestCase):
 class EntrypointReleaseTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_release.ReleaseTests()
-        self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.addCleanup = self.addCleanup
+        self.fixture.setUp(build_candidate=False)
+        self.fixture.fixture.runs = [self.fixture.fixture.new]
         self.root, self.project = self.fixture.root, self.fixture.project
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = test_publication.Host(self.project["github_owner"])
@@ -51,6 +52,7 @@ class EntrypointReleaseTests(unittest.TestCase):
         self.project["official_links"] = [{"title": title, "url": "https://example.invalid/"}]
         workspace.checkout_lock(self.root, self.project)
         candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
+        self.fixture.candidate = candidate
         return candidate, release.run(self.root, self.project, candidate)[0]
 
     def force_next_fronts(self):
