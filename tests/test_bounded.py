@@ -335,7 +335,11 @@ class ProcessGroupExitTests(unittest.TestCase):
     def test_unreaped_member_keeps_the_group_open_until_reaped(self):
         process = self.start_group()
         os.killpg(process.pid, signal.SIGKILL)
-        time.sleep(0.2)
+        # WNOWAIT confirms the exit while leaving the child unreaped.
+        deadline = time.monotonic() + 10
+        while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is None:
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(0.01)
         # Without positive proof from the OS, cleanup stays unresolved.
         self.assertFalse(bounded._group_exited(process.pid))
         process.wait(timeout=10)
@@ -355,9 +359,13 @@ class ProcessGroupExitTests(unittest.TestCase):
 
     def test_group_that_outlives_the_reap_budget_stays_owned(self):
         process = self.start_owned()
-        with patch.object(bounded, "REAP_SECONDS", 0.3), patch.object(bounded, "_group_exited", return_value=False):
-            with self.assertRaises(subprocess.TimeoutExpired):
+        with patch.object(bounded, "REAP_SECONDS", 0.3), \
+                patch.object(bounded, "_group_exited", return_value=False) as observed:
+            with self.assertRaises(subprocess.TimeoutExpired) as raised:
                 bounded.kill_tree(process)
+        # The group wait, not the parent wait, spent the budget.
+        self.assertTrue(observed.called)
+        self.assertIn("process group", str(raised.exception.cmd))
         self.assertIn(process._wiki_owned, bounded._children)
         self.assertEqual(process._wiki_owned.state, "unresolved")
 

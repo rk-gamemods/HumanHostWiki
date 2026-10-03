@@ -139,6 +139,9 @@ def _group_exited(group):
 
     The caller has already reaped the direct child, and PID 1 reaps orphaned
     descendants, so any member the OS still reports means cleanup is unresolved.
+    This needs a working orphan reaper: a container without one (for example
+    Docker without --init) leaves zombie members, and cleanup reports them as
+    unresolved at the deadline.
     """
     try:
         os.killpg(group, 0)
