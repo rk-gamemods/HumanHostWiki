@@ -23,11 +23,14 @@ protects capture; pinned source identity is rechecked before wiki promotion.
 | Project | Validated static reader candidate |
 | Verify | Stage artifact checks, stable source and unchanged rules |
 | Release | Exact child commits, output hashes and immutable coordinated Git manifest |
-| Publish | Verified topic targets, hub promotion and immutable publication receipt |
+| Retention | Remove verified duplicate release staging payloads, preserving committed releases |
+| Reader retention | Share identical immutable reader files, preserving candidate paths |
 
-The runner includes [coordinated Git release](RELEASE.md) and configured
-[Pages publication](PUBLICATION.md). Complete gameplay coverage, gameplay
-verification and capacity allocation remain required delivery work. A local release
+The runner ends after [coordinated Git release](RELEASE.md), release retention and
+reader retention. [Pages publication](PUBLICATION.md) is a separate gated operator
+command after a successful rehearsal: `py -3 wiki.py publish --release <id>`.
+Routine updates never construct a live publication host. Complete gameplay coverage,
+gameplay verification and capacity allocation remain required delivery work. A local release
 alone cannot establish public availability or gameplay verification.
 
 [Build availability](AVAILABILITY.md) is checked independently after source
@@ -65,19 +68,20 @@ repository's previous commit. Failed or skipped captures therefore cannot hide
 changes from a later successful run. The first pipeline run has no comparison
 baseline. Public release coordination must retain its separate publication state.
 
-After supported publication work, [release-staging retention](RETENTION.md)
+After the local release, [release-staging retention](RETENTION.md)
 removes verified duplicate payloads under the same writer lock. Its counts appear
 in invocation metrics, outside immutable pipeline results. Preserved cleanup
-issues are recorded separately from content exceptions and do not undo completed
-publication. Pending release transactions remain untouched.
+issues are recorded separately from content exceptions and do not undo the completed
+release. Pending release transactions remain untouched. Retention removes only
+verified staging duplicates; published releases and the newest local release
+awaiting publication retain their manifests, committed objects and reader paths.
 
 ## Operator report
 
-The final Time section shows total and stage wall-clock seconds, publication
-upload, Pages processing, public verification and other work, and the slowest
-repository for each category.
-It reports parallel phase wall-clock separately because summed repository seconds
-can exceed elapsed time when workers overlap.
+The report keeps its existing fields and adds `release_id` and `next_step`, naming
+the explicit publish command after rehearsal. `--operator-report` remains compatible
+with the decompile wrapper. The final Time section shows total and stage wall-clock
+seconds. Legacy publication timing fields remain readable in older reports.
 
 The `external-articles` stage records bounded community-wiki checks as a versioned
 input. Its configured source and routes are owned by [EXTERNAL_LINKS.md](EXTERNAL_LINKS.md).

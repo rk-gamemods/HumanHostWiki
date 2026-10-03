@@ -2,7 +2,6 @@
 """Human Host Wiki local workspace commands. Python standard library only."""
 
 import argparse
-import json
 import os
 from pathlib import Path
 import sys
@@ -18,12 +17,14 @@ UPDATE_DEADLINE = 4 * 3600
 
 
 def deadline(seconds, command, stop=os._exit):
-    """End an overdue update. Exiting releases the OS writer lock; every stage,
-    publication included, is journaled and recovers on the next run."""
+    """End an overdue run and release the OS writer lock. Stages are journaled;
+    failed publications must be abandoned before a fresh run."""
     def expire():
         try:
             print(f"ERROR: wiki {command} exceeded its {seconds / 3600:g}-hour deadline and was stopped. "
-                  "Its stages are journaled; rerun the normal command to recover.", file=sys.stderr, flush=True)
+                  + ("Run py -3 wiki.py abandon-publication before rehearsing and publishing afresh."
+                     if command == "publish" else "Its stages are journaled; rerun the normal command to recover."),
+                  file=sys.stderr, flush=True)
         finally:
             stop(124)
     timer = threading.Timer(seconds, expire)
@@ -41,7 +42,7 @@ def run(root, args):
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in workspace.repositories(root, project)]}
     if args.command == "plan":
-        return {"stages": project["pipeline"], "note": "The decompile command runs capture, selected extraction, identity history, rendering, capacity allocation, coordinated release and configured Pages publication. Reports distinguish unresolved content from execution failures. Verification is limited to recorded checks; roadmap items are not run failures. See docs/ACCEPTANCE.md for the delivery evidence."}
+        return {"stages": project["pipeline"], "note": "The decompile command runs capture, selected extraction, identity history, rendering, capacity allocation and a coordinated local release, followed by release and reader retention. Publication is a separate operator step: rehearse the explicit release against live state, then run py -3 wiki.py publish --release <id> from clean, merged, CI-green main. See docs/PUBLICATION.md for the gate and docs/ACCEPTANCE.md for delivery evidence."}
     if args.command == "check-lock":
         result = workspace.checkout_lock(root, project, check=True)
         return {"lock": "current", "repositories": len(result["repositories"])}
@@ -56,8 +57,10 @@ def run(root, args):
             changed = write_changed(output, data)
         return {"map": str(output), "changed": changed}
     with writer_lock(root):
+        if args.command == "abandon-publication":
+            return publication.abandon(root)
         if args.command == "publish":
-            identity = json.loads((root / "releases/latest.json").read_text())["release_id"]
+            identity = args.release
             result, metrics = publication.run(root, project, release.read(root, identity),
                 progress=lambda message: print(message, file=sys.stderr, flush=True))
             return {"status": result["status"], "release_id": identity, "hub": result.get("hub"), "metrics": metrics}
@@ -93,8 +96,10 @@ def run(root, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ["validate", "status", "plan", "init-repositories", "lock", "check-lock", "publish"]:
+    for command in ["validate", "status", "plan", "init-repositories", "lock", "check-lock"]:
         sub.add_parser(command)
+    sub.add_parser("publish", help="Publish a rehearsed release from clean, CI-green main").add_argument("--release", required=True)
+    sub.add_parser("abandon-publication", help="Scrap an incomplete publication journal locally; no remote calls")
     sub.add_parser("map").add_argument("--check", action="store_true")
     refresh = sub.add_parser("refresh", help="Register the current local catalog input; does not re-extract game data")
     refresh.add_argument("--source", help="Existing local codebase repository; default from project.json")

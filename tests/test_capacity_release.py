@@ -21,6 +21,9 @@ class CapacityReleaseTests(unittest.TestCase):
                                     "site_reserve_bytes": 30_000, "history_reserve_bytes": 30_000}
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = test_publication.Host(self.project["github_owner"])
+        gate = patch.object(publication.publish_gate, "check", side_effect=self.host.gate)
+        gate.start()
+        self.addCleanup(gate.stop)
         workspace.checkout_lock(self.root, self.project)
         self.candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
 
@@ -93,7 +96,7 @@ class CapacityReleaseTests(unittest.TestCase):
         self.assertTrue(stats["reused"])
         self.assertEqual(before, {identity: value["commit"] for identity, value in repeated["repositories"].items()})
 
-    def test_storage_failure_keeps_all_fronts_unpublished_then_resumes(self):
+    def test_storage_failure_keeps_all_fronts_unpublished_then_requires_abandonment(self):
         result, _ = self.run_release()
         identity = next(repo["id"] for repo in physical.repositories(self.project, result["physical"])
                         if repo["role"] == "partition" and repo["id"] in result["capacity"]["new_repositories"])
@@ -102,6 +105,9 @@ class CapacityReleaseTests(unittest.TestCase):
             publication.run(self.root, self.project, result, host=self.host)
         for repo in self.project["repositories"]:
             self.assertIsNone(self.host.ref(repo["github_name"], "gh-pages"))
+        with self.assertRaisesRegex(ContractError, "abandon-publication"):
+            publication.run(self.root, self.project, result, host=self.host)
+        publication.abandon(self.root)
         self.assertEqual(publication.run(self.root, self.project, result, host=self.host)[0]["status"], "published")
 
     def test_next_release_preserves_historical_partition_bytes_and_lock_membership(self):

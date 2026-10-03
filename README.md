@@ -21,9 +21,10 @@ refresh/release pipeline, failure recovery and delivery sequence.
 The [public reader](https://rk-gamemods.github.io/HumanHost-Wiki/) serves selected
 facts in every topic with source evidence, search, relationships and capture
 selection. The existing decompile command invokes an integrated update that
-reuses unchanged work, commits a coordinated release and publishes topic sites
-before advancing the hub. Unresolved content is reported after supported work
-finishes. See [publication and recovery](docs/PUBLICATION.md).
+reuses unchanged work and commits a coordinated local release, then runs retention.
+Publication is a separate gated operator step after review, merge, CI and rehearsal.
+It publishes topic sites before advancing the hub. Unresolved content is reported
+after supported work finishes. See [publication and recovery](docs/PUBLICATION.md).
 
 The [delivery acceptance inventory](docs/ACCEPTANCE.md) records implemented
 requirements, finite checks and evidence limitations. The original 193 content

@@ -21,7 +21,7 @@ the [capacity contract](CAPACITY.md) defines their ownership, allocation and rec
 | Construction | `repositories/construction` | `HumanHost-Wiki-Construction` | Building pieces, materials, durability, destruction and structural relationships |
 | Vehicles | `repositories/vehicles` | `HumanHost-Wiki-Vehicles` | Vehicle families, parts, assembly, controls and operating mechanics |
 | World systems | `repositories/world-systems` | `HumanHost-Wiki-World` | Weather, time, environmental conditions and world organization |
-| Technical reference | `repositories/technical-reference` | `HumanHost-Wiki-Technical` | Every asset identity, component types, configuration fields, tags, layers and visible coverage gaps |
+| Game files | `repositories/technical-reference` | `HumanHost-Wiki-Technical` | Every asset identity, component types, configuration fields, tags, layers and visible coverage gaps |
 
 ## Navigation and topic relationships
 
@@ -50,7 +50,7 @@ flowchart LR
   hub --> vehicles
   world_systems["World systems"]
   hub --> world_systems
-  technical_reference["Technical reference"]
+  technical_reference["Game files"]
   hub --> technical_reference
   items_equipment -. acquired-from .-> loot_acquisition
   loot_acquisition -. yields .-> items_equipment
@@ -94,8 +94,10 @@ flowchart LR
   project --> verify
   release["release: implemented"]
   verify --> release
-  publish["publish: implemented"]
-  release --> publish
+  retention["retention: implemented"]
+  release --> retention
+  reader-retention["reader-retention: implemented"]
+  retention --> reader-retention
 ```
 
 | Stage | Owner | Implementation |
@@ -109,6 +111,7 @@ flowchart LR
 | project | wikibuild/reader.py, curation.py, curated_rules.py, external_links.py, packs.py, pages.py and web/ | implemented |
 | verify | reader artifact checks, declared claim checks and independent tools/check_*.py; runtime verification remains explicitly scoped | implemented |
 | release | wikibuild/release.py and git_transaction.py; selected-fact Git releases | implemented |
-| publish | wikibuild/publication.py, publication_git.py and github_pages.py | implemented |
+| retention | wikibuild/release_retention.py; local update housekeeping | implemented |
+| reader-retention | wikibuild/reader_retention.py; final local update stage | implemented |
 
-The navigation preview is an independent foundation build, not the publish stage above.
+The navigation preview is an independent foundation build. Production publication is a separate gated operator command; see [PUBLICATION.md](PUBLICATION.md).
