@@ -78,11 +78,12 @@ class AvailabilityTests(unittest.TestCase):
             context = Mock()
             context.__enter__ = Mock(return_value=process)
             context.__exit__ = Mock(return_value=False)
-            with patch.object(steam_build.subprocess, "Popen", return_value=context):
+            with patch.object(steam_build.subprocess, "Popen", return_value=context), \
+                    patch.object(steam_build.bounded, "kill_tree") as kill:
                 with self.assertRaisesRegex(ContractError, error):
                     steam_build.fetch(client, "2393970", "public")
             if error == "exceeds":
-                process.kill.assert_called_once()
+                kill.assert_called_once_with(process)
 
     def test_repeat_is_byte_stable_and_expired_observation_is_replaced(self):
         first, metrics = self.refresh()

@@ -162,8 +162,9 @@ class Document:
                     continue
                 if selector["kind"] == "field":
                     declaration = next((child for child in node.named_children if child.type == "variable_declaration"), None)
+                    # Parser error recovery can yield a nameless (tuple-pattern) declarator; skip it.
                     names = [self.text(child.child_by_field_name("name")) for child in declaration.named_children
-                             if child.type == "variable_declarator"] if declaration else []
+                             if child.type == "variable_declarator" and child.child_by_field_name("name") is not None] if declaration else []
                 else:
                     name = node.child_by_field_name("name")
                     names = [self.text(name)] if name is not None else []

@@ -19,6 +19,11 @@ class CodeDependencyTests(unittest.TestCase):
         self.assertNotEqual(expected, self.fingerprint(original.replace('0.15f', '0.20f')))
         self.assertNotEqual(expected, self.fingerprint(original.replace('+=', '-=')))
 
+    def test_nameless_tuple_declarator_does_not_break_field_selection(self):
+        # Parser error recovery can produce a field declarator with no name (build 25675256).
+        selector = {"kind": "field", "type": "A", "member": "count"}
+        self.assertTrue(self.fingerprint('class A { public int count; var (x, y) = pair; }', selector))
+
     def test_alias_and_enclosing_type_changes_are_dependencies(self):
         original = 'using Fuel = Model.A; namespace Game { class Generator : First { void Generate(float factor) { } } }'
         expected = self.fingerprint(original)

@@ -5,11 +5,15 @@ import hashlib
 import os
 import re
 import subprocess
+import threading
 from pathlib import Path
 
+from . import bounded
 from .storage import ContractError, digest
 
 MAX_OUTPUT = 1024 * 1024
+# SteamCMD may update itself first; a run past this is treated as unavailable metadata.
+DEADLINE = 300
 TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|[{}]')
 
 
@@ -88,6 +92,16 @@ def fetch(executable, app_id, branch, progress=None):
                            "+app_info_print", app_id, "+quit"], cwd=executable.parent,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                           creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0) as process:
+        # A stalled login or update would otherwise block readline forever. Killing the
+        # tree closes the pipe, so the read loop ends and the timeout is reported.
+        fired = threading.Event()
+
+        def expire():
+            fired.set()
+            bounded.kill_tree(process)
+
+        watchdog = threading.Timer(DEADLINE, expire)
+        watchdog.start()
         try:
             while line := process.stdout.readline(MAX_OUTPUT - len(output) + 1):
                 output.extend(line)
@@ -95,10 +109,17 @@ def fetch(executable, app_id, branch, progress=None):
                     raise ContractError("SteamCMD metadata response exceeds the limit")
                 if progress and line.startswith((b"[", b"Connecting anonymously", b"Waiting for", b"Loading Steam API")):
                     progress(line.decode("utf-8", errors="replace").strip()[:240])
-            status = process.wait()
+            status = process.wait(timeout=DEADLINE + bounded.DRAIN_SECONDS)
+        except subprocess.TimeoutExpired:
+            bounded.kill_tree(process)
+            fired.set()
         except BaseException:
-            process.kill()
+            bounded.kill_tree(process)
             raise
+        finally:
+            watchdog.cancel()
+        if fired.is_set():
+            raise ContractError(f"SteamCMD metadata request timed out after {DEADLINE}s")
     if status:
         raise ContractError(f"SteamCMD metadata request exited with status {status}")
     text = output.decode("utf-8", errors="strict")

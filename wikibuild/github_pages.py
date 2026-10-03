@@ -11,6 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from . import bounded
 from .storage import ContractError
 
 
@@ -39,13 +40,14 @@ class GitHubPages:
             data = json.dumps(body).encode()
         for attempt in range(4):
             try:
-                result = subprocess.run(command, input=data, capture_output=True, timeout=self.API_TIMEOUT)
+                result = bounded.run(command, timeout=self.API_TIMEOUT, input=data)
             except subprocess.TimeoutExpired:
-                if attempt < 3:
+                # A timed-out POST may have taken effect; its caller reconciles instead of repeating it.
+                if attempt < 3 and method == "GET":
                     self.progress(f"GitHub call timed out after {self.API_TIMEOUT}s: retry {attempt + 1} for {path}")
                     time.sleep(2 ** attempt)
                     continue
-                raise ContractError(f"GitHub {method} {path}: timed out after {self.API_TIMEOUT}s, 4 attempts")
+                raise ContractError(f"GitHub {method} {path}: timed out after {self.API_TIMEOUT}s, attempt {attempt + 1}")
             if result.returncode == 0:
                 return json.loads(result.stdout) if result.stdout.strip() else None
             message = result.stderr.decode(errors="replace")
@@ -88,9 +90,8 @@ class GitHubPages:
         environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         for attempt in range(3):
             try:
-                result = subprocess.run(["git", "-C", str(path), "push", "--porcelain", url,
-                                         f"{commit}:refs/heads/{branch}"], capture_output=True, env=environment,
-                                        timeout=self.PUSH_TIMEOUT)
+                result = bounded.run(["git", "-C", str(path), "push", "--porcelain", url,
+                                      f"{commit}:refs/heads/{branch}"], timeout=self.PUSH_TIMEOUT, env=environment)
                 failure = result.stderr.decode(errors="replace")
             except subprocess.TimeoutExpired:
                 # The push may still have landed; the remote ref decides.
@@ -195,7 +196,11 @@ class GitHubPages:
                             raise ContractError(f"Pages deployment for {name} failed after 3 reruns: {run.get('html_url')}")
                         reruns += 1
                         self.progress(f"Pages {name}: GitHub's deployment failed; rerun {reruns} of 3")
-                        self.api("POST", f"repos/{self.owner}/{name}/actions/runs/{run['id']}/rerun-failed-jobs")
+                        try:
+                            self.api("POST", f"repos/{self.owner}/{name}/actions/runs/{run['id']}/rerun-failed-jobs")
+                        except ContractError as exc:
+                            # GitHub may have accepted the rerun; keep the commit pending, do not roll back.
+                            raise BuildObservationError(f"Rerun request for Pages {name} has an unknown outcome: {exc}") from exc
             elif active:
                 missing = 0
             else:

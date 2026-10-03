@@ -97,7 +97,7 @@ py -3 -m unittest discover -s tests -p test_publication.py -v
 `publish` is a recovery/diagnostic entrypoint for the latest local release. Normal
 maintenance uses the integrated update. On a transient network failure, rerun the
 same command; completed stage receipts and confirmed pushes are reused. A queued
-or running build is polled without restarting it or imposing an execution deadline.
+or running build is polled without restarting it, up to the 30-minute build deadline.
 Once GitHub returns a build identity, subsequent reads address that build. If the
 latest record belongs to another commit, the adapter checks the recent build
 inventory before treating the target as unobserved. Twelve consecutive successful

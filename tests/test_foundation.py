@@ -268,6 +268,13 @@ class FoundationTests(unittest.TestCase):
                     self.fail("Second writer acquired lock")
         self.assertFalse((self.root / ".local/writer.lock.owner.json").exists())
 
+    def test_unqueryable_holder_is_not_reported_as_stopped(self):
+        from wikibuild import storage
+        with writer_lock(self.root), patch.object(storage, "process_running", return_value=None):
+            with self.assertRaisesRegex(ContractError, r"status unknown"):
+                with writer_lock(self.root):
+                    self.fail("Second writer acquired lock")
+
     def test_atomic_write_does_not_rewrite_unchanged_file(self):
         path = self.root / "result.json"
         self.assertTrue(write_changed(path, b"{}\n"))

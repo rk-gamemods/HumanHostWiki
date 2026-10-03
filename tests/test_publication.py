@@ -466,17 +466,36 @@ class AdapterTests(unittest.TestCase):
         host = github_pages.GitHubPages("fixture")
         hung = subprocess.TimeoutExpired(["gh"], 1)
         success = subprocess.CompletedProcess([], 0, b'{"id":1}', b'')
-        with patch.object(github_pages.subprocess, "run", side_effect=[hung, success]) as calls, patch.object(github_pages.time, "sleep"):
+        with patch.object(github_pages.bounded, "run", side_effect=[hung, success]) as calls, patch.object(github_pages.time, "sleep"):
             self.assertEqual(host.repository("wiki"), {"id": 1})
             self.assertIsNotNone(calls.call_args_list[0].kwargs.get("timeout"))
-        with patch.object(github_pages.subprocess, "run", side_effect=hung), patch.object(github_pages.time, "sleep"):
+        with patch.object(github_pages.bounded, "run", side_effect=hung), patch.object(github_pages.time, "sleep"):
             with self.assertRaisesRegex(ContractError, "timed out"):
                 host.repository("wiki")
+
+    def test_timed_out_post_is_not_repeated(self):
+        host = github_pages.GitHubPages("fixture")
+        hung = subprocess.TimeoutExpired(["gh"], 1)
+        with patch.object(github_pages.bounded, "run", side_effect=hung) as calls, patch.object(github_pages.time, "sleep"):
+            with self.assertRaisesRegex(ContractError, "timed out"):
+                host.api("POST", "repos/fixture/wiki/actions/runs/9/rerun-failed-jobs")
+            self.assertEqual(calls.call_count, 1)
+
+    def test_rerun_request_with_unknown_outcome_leaves_publication_pending(self):
+        host = github_pages.GitHubPages("fixture")
+        path = "repos/fixture/wiki/pages/builds/17"
+        building = {"commit": "abc", "status": "building", "url": "https://api.github.com/" + path}
+        failed = {"workflow_runs": [{"id": 9, "name": "pages build and deployment", "status": "completed",
+                                     "conclusion": "failure", "html_url": "https://github.com/run/9"}]}
+        states = [building] * 61 + [failed, ContractError("GitHub POST timed out")]
+        with patch.object(host, "api", side_effect=states), patch.object(host, "ref", return_value="abc"), patch.object(github_pages.time, "sleep"):
+            with self.assertRaisesRegex(github_pages.BuildObservationError, "unknown outcome"):
+                host.wait("wiki", "abc")
 
     def test_hung_push_is_confirmed_by_the_remote_ref(self):
         host = github_pages.GitHubPages("fixture")
         hung = subprocess.TimeoutExpired(["git"], 1)
-        with patch.object(github_pages.subprocess, "run", side_effect=hung) as calls, \
+        with patch.object(github_pages.bounded, "run", side_effect=hung) as calls, \
                 patch.object(host, "ref", side_effect=["old", "new"]):
             host.push(".", "wiki", "new", "main", "old")
             self.assertIsNotNone(calls.call_args_list[0].kwargs.get("timeout"))
@@ -484,11 +503,11 @@ class AdapterTests(unittest.TestCase):
     def test_empty_remote_response_and_transient_get_retry(self):
         host = github_pages.GitHubPages("fixture")
         empty = subprocess.CompletedProcess([], 1, b'{"message":"Git Repository is empty."}', b'gh: Git Repository is empty. (HTTP 409)')
-        with patch.object(github_pages.subprocess, "run", return_value=empty):
+        with patch.object(github_pages.bounded, "run", return_value=empty):
             self.assertIsNone(host.ref("wiki", "main"))
         failure = subprocess.CompletedProcess([], 1, b'', b'gh: Service unavailable (HTTP 503)')
         success = subprocess.CompletedProcess([], 0, b'{"id":1}', b'')
-        with patch.object(github_pages.subprocess, "run", side_effect=[failure, success]) as calls, patch.object(github_pages.time, "sleep"):
+        with patch.object(github_pages.bounded, "run", side_effect=[failure, success]) as calls, patch.object(github_pages.time, "sleep"):
             self.assertEqual(host.repository("wiki"), {"id": 1})
             self.assertEqual(calls.call_count, 2)
 

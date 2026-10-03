@@ -55,6 +55,7 @@ def git(path, *arguments):
 
 
 def process_running(pid):
+    """True, False, or None when the OS will not say."""
     # os.kill(pid, 0) terminates the process on Windows, so ask the OS instead.
     if os.name != "nt":
         try:
@@ -65,11 +66,11 @@ def process_running(pid):
             return True
         return True
     import ctypes
-    kernel = ctypes.WinDLL("kernel32")
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.OpenProcess.restype = ctypes.c_void_p
     handle = kernel.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
     if not handle:
-        return False
+        return None if ctypes.get_last_error() == 5 else False  # ERROR_ACCESS_DENIED: alive, not ours
     try:
         code = ctypes.c_ulong()
         return bool(kernel.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code))) and code.value == 259
@@ -84,7 +85,9 @@ def lock_holder(owner):
         pid, started = int(record["pid"]), datetime.fromisoformat(record["started"])
     except (OSError, ValueError, KeyError, TypeError):
         return "its holder is not recorded."
-    state = "running" if process_running(pid) else "not running; the PID may have been reused"
+    running = process_running(pid)
+    state = ("status unknown" if running is None else "running" if running
+             else "not running; the PID may have been reused")
     minutes = int((datetime.now(timezone.utc) - started).total_seconds() // 60)
     return (f"held by PID {pid} ({state}) since {record['started']} for {minutes} min "
             f"(command: {record.get('command', 'unknown')}).")
