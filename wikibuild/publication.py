@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from time import perf_counter
 
-from . import entrypoints, github_pages, ownership, physical, publication_git, publish_gate, release
+from . import entrypoints, github_pages, ownership, physical, publication_git, publish_gate, release, run_timing
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
 
 
@@ -266,14 +266,18 @@ def prepare(root, project, manifest, host, refs):
 def measure(timing, key):
     started = perf_counter()
     try:
-        yield
+        if isinstance(timing, run_timing.Values):
+            with timing.observe(key):
+                yield
+        else:
+            yield
     finally:
         if timing is not None:
             timing[key] = timing.get(key, 0.0) + (perf_counter() - started)
 
 
 def repository_timing():
-    return dict.fromkeys(("push_main", "push_pages", "configure", "pages_build", "verify", "total"), 0.0)
+    return run_timing.Values(dict.fromkeys(("push_main", "push_pages", "configure", "pages_build", "verify", "total"), 0.0))
 
 
 def deploy(root, plan, host, timing=None, refs=None):
@@ -400,13 +404,16 @@ def execute(root, state, path, host, workers, refs, timing=None):
     return result
 
 
-def run(root, project, manifest, *, host=None, progress=None):
+def run(root, project, manifest, *, host=None, progress=None, timing_sink=None):
     """Caller holds the shared OS writer lock. Production always passes the gate."""
-    timing = {"repositories": {}, "rollback": {}, "phases": {}, "prepare": 0.0, "resume": 0.0}
+    timing = run_timing.Values({"repositories": {}, "rollback": {}, "phases": run_timing.Values(), "prepare": 0.0, "resume": 0.0})
+    if timing_sink is not None:
+        timing_sink.publication = timing
     try:
         with measure(timing, "total"):
-            refuse_pending(root)
-            gate = publish_gate.check(root, project, manifest)
+            with measure(timing, "gate"):
+                refuse_pending(root)
+                gate = publish_gate.check(root, project, manifest)
             result, metrics = _run(root, project, manifest, host, progress, timing, gate)
         return result, {**metrics, "timing": timing}
     except (Exception, KeyboardInterrupt) as exc:

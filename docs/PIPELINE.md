@@ -76,12 +76,58 @@ release. Pending release transactions remain untouched. Retention removes only
 verified staging duplicates; published releases and the newest local release
 awaiting publication retain their manifests, committed objects and reader paths.
 
+## Run timing schema
+
+`wikibuild/run_timing.py` owns command diagnostics. Each `update` and `publish`
+exclusively creates one complete JSON file under
+`.local/runs/wiki-<command>-<UTC>-<8 hex>.json`. A flushed staging file is linked
+atomically to the final name without replacing existing records. Timing is
+excluded from requests, immutable pipeline results and release identities.
+Save failures produce a warning without changing the command outcome.
+
+| Key | Type and meaning |
+| --- | --- |
+| `schema` | String, `humanhost.wiki-timing.v1` |
+| `command` | String, `update` or `publish` |
+| `started_at`, `finished_at` | UTC ISO 8601 strings |
+| `seconds` | Nonnegative wiki wall time from a monotonic clock |
+| `outcome` | `succeeded`, `failed` or `timed-out` |
+| `release_id` | Release identity string when known, otherwise null |
+| `stages` | Array of `{name, seconds, outcome, basis}` |
+| `capture` | Null, or `{seconds, outcome, phases: [{name, seconds, outcome}]}` |
+
+Update stages follow the pipeline, including partial duration of the active
+stage on failure or timeout. Publish stages include gate, preparation, topic
+phases, hub and other observed phases. Each repository also records push
+(`push_main + push_pages`), Pages wait (`pages_build`) and verification seconds,
+including rollback work. Stage outcomes are `succeeded`, `failed`, `timed-out`
+or `not-run`. `basis` is `wall` for stages/phases and `repository-sum` for
+repository details. Repository sums overlap parallel wall phases; adding all
+rows does not yield elapsed time. The three largest items use capture phases
+and wiki wall stages only, divided by capture total plus wiki wall time.
+
+`update --capture-timing <path>` validates `humanhost.capture-timing.v1` before
+embedding the summary. Required fields are `schema`, `started_at`, `finished_at`,
+`seconds`, `outcome`, `error`, `output_path`, `output_commit`, `game`, `phases`
+and `assemblies`. Timestamps are strings with timezones; path and game are
+strings; error and commit are strings or null; durations are finite,
+nonnegative numbers, excluding booleans. Outcomes are `succeeded`, `failed`
+or `reused`. Both arrays contain `{name: string, seconds: number, outcome}`.
+Unknown fields are ignored. A missing or invalid receipt emits one warning;
+the wiki continues without capture timing.
+
+The watchdog allows up to one second to save partial timing before its existing process exit.
+Abrupt process termination, loss of storage access or a blocked filesystem can
+prevent a record. Repeated finalization cannot create a second record.
+`wiki.py timing [--last N]` reads the latest records across both commands without
+loading project configuration or acquiring the writer lock.
+
 ## Operator report
 
 The report keeps its existing fields and adds `release_id` and `next_step`, naming
 the explicit publish command after rehearsal. `--operator-report` remains compatible
-with the decompile wrapper. The final Time section shows total and stage wall-clock
-seconds. Legacy publication timing fields remain readable in older reports.
+with the decompile wrapper. The command's final Run timing table shows capture,
+wiki stages and totals. Legacy stage-only timing reports remain readable.
 
 The `external-articles` stage records bounded community-wiki checks as a versioned
 input. Its configured source and routes are owned by [EXTERNAL_LINKS.md](EXTERNAL_LINKS.md).
