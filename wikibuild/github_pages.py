@@ -4,16 +4,15 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
-from queue import Empty, Queue
 import re
 import subprocess
-from threading import Thread
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from . import bounded
+from .mediawiki import response_deadline
 from .storage import ContractError
 
 
@@ -35,11 +34,14 @@ def pages_run(commit, runs):
         raise BuildObservationError("Invalid Pages workflow inventory")
     matching = [run for run in runs if run.get("head_sha") == commit
                 and run.get("name") == "pages build and deployment"]
-    return max(matching, key=lambda run: (run.get("id", 0), run.get("run_attempt", 1)), default=None)
+    if any(type(run.get("id")) is not int or run["id"] <= 0
+           or type(run.get("run_attempt")) is not int or run["run_attempt"] <= 0 for run in matching):
+        raise BuildObservationError("Invalid Pages workflow attempt identity")
+    return max(matching, key=lambda run: (run["id"], run["run_attempt"]), default=None)
 
 
 def classify_pages_state(commit, builds, runs=(), jobs=None):
-    """Classify API observations for one commit; jobs maps run ids to job lists."""
+    """Classify one commit; jobs maps (run id, attempt) pairs to job lists."""
     if not isinstance(builds, (list, tuple)) or any(not isinstance(row, dict) for row in builds):
         raise BuildObservationError("Invalid Pages build inventory")
     build = next((row for row in builds if row.get("commit") == commit), None)
@@ -58,10 +60,17 @@ def classify_pages_state(commit, builds, runs=(), jobs=None):
                 raise BuildObservationError("Completed Pages workflow has no conclusion")
             return "building" if run["conclusion"] == "success" else "failed"
         if state in {"queued", "waiting", "pending"}:
-            observed_jobs = (jobs or {}).get(run.get("id"))
+            observed_jobs = (jobs or {}).get((run["id"], run["run_attempt"]))
             if observed_jobs is not None and (not isinstance(observed_jobs, list)
                     or any(not isinstance(job, dict) for job in observed_jobs)):
                 raise BuildObservationError("Invalid Pages job inventory")
+            if observed_jobs is not None and any(
+                    not isinstance(job.get("status"), str)
+                    or job["status"] not in {"queued", "waiting", "pending", "in_progress", "completed"}
+                    or "started_at" not in job or (job["started_at"] is not None
+                    and (not isinstance(job["started_at"], str) or not job["started_at"]))
+                    for job in observed_jobs):
+                raise BuildObservationError("Unknown Pages job observation")
             if observed_jobs is not None and not any(
                     job.get("started_at") or job.get("status") in {"in_progress", "completed"}
                     for job in observed_jobs):
@@ -71,31 +80,6 @@ def classify_pages_state(commit, builds, runs=(), jobs=None):
             raise BuildObservationError(f"Unknown Pages workflow status: {state!r}")
         return "building"
     return "building" if build else "missing"
-
-
-def before_deadline(operation, deadline, clock):
-    """Bound even slow headers/reads or subprocess pipe cleanup by elapsed time."""
-    remaining = deadline - clock()
-    if remaining <= 0:
-        raise TimeoutError("elapsed deadline exhausted")
-    result = Queue(maxsize=1)
-
-    def work():
-        try:
-            result.put((True, operation()))
-        except BaseException as exc:
-            result.put((False, exc))
-
-    Thread(target=work, daemon=True).start()
-    try:
-        success, value = result.get(timeout=max(0, deadline - clock()))
-    except Empty:
-        raise TimeoutError("elapsed deadline exhausted") from None
-    if clock() >= deadline:
-        raise TimeoutError("elapsed deadline exhausted")
-    if not success:
-        raise value
-    return value
 
 
 class GitHubPages:
@@ -134,16 +118,18 @@ class GitHubPages:
         for attempt in range(4):
             try:
                 timeout = min(self.API_TIMEOUT, remaining())
-                result = before_deadline(lambda: bounded.run(command, timeout=timeout, input=data), deadline, self.clock)
-            except TimeoutError:
-                raise ContractError(f"GitHub {method} {path}: elapsed deadline exhausted") from None
+                # Cancellation must reach bounded.run in this thread so it kills
+                # the process tree before the publisher releases its writer lock.
+                result = bounded.run(command, timeout=timeout, input=data)
             except subprocess.TimeoutExpired:
+                remaining()
                 # A timed-out POST may have taken effect; its caller reconciles instead of repeating it.
                 if attempt < 3 and method == "GET":
                     self.progress(f"GitHub call timed out after {self.API_TIMEOUT}s: retry {attempt + 1} for {path}")
                     pause(attempt)
                     continue
                 raise ContractError(f"GitHub {method} {path}: timed out after {self.API_TIMEOUT}s, attempt {attempt + 1}")
+            remaining()
             if result.returncode == 0:
                 return json.loads(result.stdout) if result.stdout.strip() else None
             message = result.stderr.decode(errors="replace")
@@ -190,8 +176,20 @@ class GitHubPages:
         if result.returncode:
             raise ContractError(f"Fetch failed for {name}/{branch}: {result.stderr.decode(errors='replace')[:1200]}")
 
-    def push(self, path, name, commit, branch, expected):
-        current = self.ref(name, branch)
+    def push(self, path, name, commit, branch, expected, *, deadline=None):
+        def budget():
+            remaining = self.PUSH_TIMEOUT if deadline is None else deadline - self.clock()
+            if remaining <= 0:
+                raise ContractError(f"Push deadline exhausted: {name}/{branch}")
+            return min(self.PUSH_TIMEOUT, remaining)
+
+        def read_ref():
+            budget()
+            value = self.ref(name, branch, **({"deadline": deadline} if deadline is not None else {}))
+            budget()
+            return value
+
+        current = read_ref()
         if current != expected:
             raise ContractError(f"Remote branch changed: {name}/{branch}")
         if current == commit:
@@ -201,7 +199,7 @@ class GitHubPages:
         if current:
             try:
                 ancestry = bounded.run(["git", "-C", str(path), "merge-base", "--is-ancestor", current, commit],
-                                       timeout=self.PUSH_TIMEOUT, env=environment)
+                                       timeout=budget(), env=environment)
             except subprocess.TimeoutExpired:
                 raise ContractError(f"Push ancestry check timed out: {name}/{branch}") from None
             if ancestry.returncode:
@@ -210,19 +208,19 @@ class GitHubPages:
         for attempt in range(3):
             try:
                 result = bounded.run(["git", "-C", str(path), "push", "--porcelain", lease, url,
-                                      f"{commit}:refs/heads/{branch}"], timeout=self.PUSH_TIMEOUT, env=environment)
+                                      f"{commit}:refs/heads/{branch}"], timeout=budget(), env=environment)
                 failure = result.stderr.decode(errors="replace")
             except subprocess.TimeoutExpired:
                 # The push may still have landed; the remote ref decides.
                 failure = f"git push timed out after {self.PUSH_TIMEOUT}s"
-            actual = self.ref(name, branch)
+            actual = read_ref()
             if actual == commit:
                 return
             if actual != expected:
                 raise ContractError(f"Remote branch changed during push: {name}/{branch}")
             if attempt < 2:
                 self.progress(f"Retrying unconfirmed push: {name}/{branch}")
-                time.sleep(2 ** attempt)
+                time.sleep(min(2 ** attempt, budget()))
         raise ContractError(f"Push failed for {name}/{branch}: {failure[:1200]}")
 
     def configure(self, name):
@@ -257,7 +255,7 @@ class GitHubPages:
         endpoint = builds + "/latest"
         observed, ticks, missing, reruns = None, 0, 0, 0
         deadline = self.clock() + self.BUILD_DEADLINE if deadline is None else deadline
-        queued_since = None
+        queued_since, queued_attempt = None, None
 
         def check_deadline():
             if self.clock() >= deadline:
@@ -296,7 +294,7 @@ class GitHubPages:
                         # All jobs must be observed before asserting that none started.
                         page, rows = 1, []
                         while True:
-                            record = self.api("GET", f"repos/{self.owner}/{name}/actions/runs/{run['id']}/jobs?per_page=100&page={page}",
+                            record = self.api("GET", f"repos/{self.owner}/{name}/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100&page={page}",
                                               deadline=deadline)
                             batch = record["jobs"]
                             if (not isinstance(batch, list) or any(not isinstance(job, dict) for job in batch)
@@ -308,7 +306,7 @@ class GitHubPages:
                             if not batch:
                                 raise BuildObservationError("Incomplete Pages job inventory")
                             page += 1
-                        jobs[run["id"]] = rows
+                        jobs[(run["id"], run["run_attempt"])] = rows
             except (ContractError, ValueError, KeyError, TypeError, AttributeError) as exc:
                 raise BuildObservationError(f"Unable to observe Pages build {name} at {commit}: {exc}") from exc
             if value and value.get("commit") != commit:
@@ -347,12 +345,14 @@ class GitHubPages:
             else:
                 missing += 1
             if state == "queued-not-started":
-                queued_since = self.clock() if queued_since is None else queued_since
+                attempt = (run["id"], run["run_attempt"])
+                if attempt != queued_attempt:
+                    queued_since, queued_attempt = self.clock(), attempt
                 if self.clock() - queued_since >= self.QUEUED_GRACE:
                     check_source()
                     raise QueuedPagesError(name, commit, deadline)
             else:
-                queued_since = None
+                queued_since, queued_attempt = None, None
             if ticks % 4 == 0 or state != observed:
                 self.progress(f"Pages {name}: {state}")
                 check_source()
@@ -373,7 +373,8 @@ class GitHubPages:
 
             def read(read_deadline):
                 request = Request(url, headers={"User-Agent": "HumanHostWiki-publisher", "Cache-Control": "no-cache"})
-                with urlopen(request, timeout=max(0.001, read_deadline - self.clock())) as response:
+                with response_deadline(urlopen(request, timeout=max(0.001, read_deadline - self.clock())),
+                                       read_deadline, self.clock) as response:
                     if response.url.split("?", 1)[0] != url:
                         raise ContractError(f"Public target redirected: {url}")
                     value, size = hashlib.sha256(), 0
@@ -391,7 +392,9 @@ class GitHubPages:
             for attempt in range(5):
                 try:
                     read_deadline = min(end, self.clock() + 30)
-                    size, checksum = before_deadline(lambda end=read_deadline: read(end), read_deadline, self.clock)
+                    if self.clock() >= read_deadline:
+                        raise TimeoutError("elapsed deadline exhausted")
+                    size, checksum = read(read_deadline)
                     if size == expected["bytes"] and checksum == expected["sha256"]:
                         return size
                     reason = "content differs"

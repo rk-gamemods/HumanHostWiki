@@ -97,12 +97,13 @@ build GitHub never finished.
 
 Only the pushed commit's Pages build and newest workflow attempt determine its
 state. A workflow queued, waiting or pending with no started job is
-`queued-not-started`; unrelated old queued runs are ignored. After five continuous
-minutes in that state, publication journals one successor commit with the stuck
+`queued-not-started`; unknown job observations fail and unrelated old queued runs
+are ignored. After five continuous minutes for the same run ID and attempt,
+publication journals one successor commit with the stuck
 commit as its parent and exactly the same tree, then pushes with a lease expecting
 the stuck SHA. The confirmed transition becomes this invocation's expected ref.
-It waits for the successor within the original 30-minute deadline and verifies
-the same file hashes. Runs are never cancelled or deleted.
+Recovery ref reads, the push and the successor wait share the original 30-minute
+deadline. Verification checks the same file hashes. Runs are never cancelled or deleted.
 
 Each repository gets one successor attempt per invocation. If the successor also
 stays queued, publication fails and preserves the transition in the journal.

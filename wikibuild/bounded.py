@@ -21,6 +21,12 @@ def kill_tree(process):
         except (OSError, subprocess.SubprocessError):
             pass
     process.kill()
+    # TerminateProcess is asynchronous on Windows. The writer must not release
+    # its lock while a killed child is still exiting, but it must not wait forever.
+    try:
+        process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        raise OSError(f"Process {process.pid} did not exit within 30 s of being killed") from None
 
 
 def _collect(stream, sink):

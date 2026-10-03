@@ -1,8 +1,12 @@
 """Commit-scoped Pages observations and elapsed budgets, without network calls."""
 
 from email.message import Message
+import _thread
 import io
 import subprocess
+import sys
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -22,15 +26,180 @@ class Clock:
 
 
 class PagesStateTests(unittest.TestCase):
+    def test_blocked_api_timeout_and_interruption_leave_no_child_process(self):
+        real_popen = subprocess.Popen
+        for interruption in (False, True):
+            with self.subTest(interruption=interruption):
+                ready, processes = threading.Event(), []
+
+                class ReadyPipe:
+                    def __init__(self, pipe):
+                        self.pipe = pipe
+
+                    def read1(self, size):
+                        block = self.pipe.read1(size)
+                        if b"ready" in block:
+                            ready.set()
+                        return block
+
+                    def close(self):
+                        self.pipe.close()
+
+                def local_process(command, **kwargs):
+                    # Replace gh only; bounded.run's real process-tree cleanup runs.
+                    if command[0] == "gh":
+                        command = [sys.executable, "-c", "import time; print('ready', flush=True); time.sleep(60)"]
+                        process = real_popen(command, **kwargs)
+                        process.stdout = ReadyPipe(process.stdout)
+                        processes.append(process)
+                        return process
+                    return real_popen(command, **kwargs)
+
+                def interrupt():
+                    if ready.wait(1.5):
+                        _thread.interrupt_main()
+
+                interrupter = threading.Thread(target=interrupt) if interruption else None
+                host = github_pages.GitHubPages("fixture")
+                try:
+                    with patch.object(github_pages.bounded.subprocess, "Popen", side_effect=local_process):
+                        if interrupter:
+                            interrupter.start()
+                        with self.assertRaises(KeyboardInterrupt if interruption else ContractError):
+                            host.api("POST", "fixture-only", deadline=host.clock() + 2)
+                    self.assertTrue(ready.is_set())
+                    self.assertEqual(len(processes), 1)
+                    self.assertIsNotNone(processes[0].poll(), "API returned while its child was still running")
+                finally:
+                    if interrupter:
+                        interrupter.join()
+                    for process in processes:
+                        if process.poll() is None:
+                            process.kill()
+                        process.wait()
+                        process.stdout.close()
+                        process.stderr.close()
+
+    def test_blocked_http_read_and_interruption_close_response_and_socket(self):
+        class Response:
+            def __init__(self):
+                self.released = threading.Event()
+                self.closed = False
+                self.active = False
+                from unittest.mock import Mock
+                self.fp = Mock()
+                self.fp.raw._sock.shutdown.side_effect = lambda how: self.released.set()
+
+            def read(self):
+                self.active = True
+                try:
+                    if not self.released.wait(2):
+                        raise AssertionError("Timeout did not shut down the blocked socket")
+                finally:
+                    self.active = False
+
+            def close(self):
+                self.closed = True
+
+        for interruption in (False, True):
+            with self.subTest(interruption=interruption):
+                response, timers = Response(), []
+                real_timer = threading.Timer
+                def timer(*args, **kwargs):
+                    value = real_timer(*args, **kwargs)
+                    timers.append(value)
+                    return value
+                with patch.object(mediawiki, "Timer", side_effect=timer):
+                    with self.assertRaises(KeyboardInterrupt if interruption else TimeoutError):
+                        with mediawiki.response_deadline(response, time.monotonic() + 0.05, time.monotonic):
+                            if interruption:
+                                raise KeyboardInterrupt
+                            response.read()
+                self.assertTrue(response.closed)
+                self.assertFalse(response.active)
+                response.fp.raw._sock.shutdown.assert_called()
+                self.assertTrue(all(not timer.is_alive() for timer in timers))
+
+    def test_api_runs_in_the_calling_thread(self):
+        host = github_pages.GitHubPages("fixture")
+        caller = threading.get_ident()
+        threads = []
+        def operation(command, **kwargs):
+            threads.append(threading.get_ident())
+            return subprocess.CompletedProcess(command, 0, b"{}", b"")
+        with patch.object(github_pages.bounded, "run", side_effect=operation):
+            host.api("POST", "fixture-only")
+        self.assertEqual(threads, [caller])
+
+    def test_unknown_job_observations_are_not_unstarted_jobs(self):
+        run = {"id": 2, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment", "status": "queued"}
+        for job in ({}, {"status": "unknown", "started_at": None}, {"status": None, "started_at": None},
+                    {"status": [], "started_at": None}, {"status": {}, "started_at": None},
+                    {"status": "queued"}, {"status": "queued", "started_at": 123}):
+            with self.subTest(job=job), self.assertRaises(github_pages.BuildObservationError):
+                github_pages.classify_pages_state("abc", [], [run], {(2, 1): [job]})
+
+    def test_push_retries_and_preflight_share_the_remaining_budget(self):
+        clock, host = Clock(), github_pages.GitHubPages("fixture")
+        host.clock = clock
+        invocations, reads = [], []
+        def ref(name, branch, **kwargs):
+            reads.append(kwargs["deadline"])
+            return "stuck"
+        def command(args, **kwargs):
+            invocations.append((args, kwargs["timeout"]))
+            if "push" in args:
+                clock.sleep(0.5)
+                return subprocess.CompletedProcess(args, 1, b"", b"unavailable")
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        with patch.object(host, "ref", side_effect=ref), patch.object(github_pages.bounded, "run", side_effect=command), \
+                patch.object(github_pages.time, "sleep", side_effect=clock.sleep):
+            with self.assertRaisesRegex(ContractError, "deadline"):
+                host.push(".", "wiki", "successor", "gh-pages", "stuck", deadline=2)
+        self.assertEqual(clock.now, 2)
+        self.assertEqual(reads, [2, 2])
+        self.assertEqual([timeout for args, timeout in invocations], [2, 2, 0.5])
+        clock.now = 2
+        with patch.object(host, "ref") as ref, patch.object(github_pages.bounded, "run") as run:
+            with self.assertRaisesRegex(ContractError, "deadline"):
+                host.push(".", "wiki", "successor", "gh-pages", "stuck", deadline=2)
+        ref.assert_not_called()
+        run.assert_not_called()
+
+    def test_queued_grace_resets_for_a_new_run_or_attempt(self):
+        for change in ("id", "run_attempt"):
+            with self.subTest(change=change):
+                clock, host = Clock(), github_pages.GitHubPages("fixture")
+                host.clock, host.QUEUED_GRACE = clock, 10
+                paths = []
+                def api(method, path, **kwargs):
+                    run = {"id": 2, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment", "status": "queued"}
+                    if clock.now >= 5:
+                        run[change] += 1
+                    if "/actions/runs?" in path:
+                        return {"workflow_runs": [run]}
+                    if "/jobs?" in path:
+                        paths.append(path)
+                        return {"total_count": 0, "jobs": []}
+                    return {"commit": "abc", "status": "queued"}
+                with patch.object(host, "api", side_effect=api), patch.object(host, "ref", return_value="abc"), \
+                        patch.object(github_pages.time, "sleep", side_effect=clock.sleep):
+                    with self.assertRaises(github_pages.QueuedPagesError):
+                        host.wait("wiki", "abc")
+                self.assertEqual(clock.now, 15)
+                self.assertIn("/actions/runs/2/attempts/1/jobs?", paths[0])
+                expected = "/actions/runs/3/attempts/1/jobs?" if change == "id" else "/actions/runs/2/attempts/2/jobs?"
+                self.assertIn(expected, paths[-1])
+
     def test_classifies_only_the_requested_commit(self):
-        stale = {"id": 1, "name": "pages build and deployment", "head_sha": "old", "status": "queued"}
+        stale = {"id": 1, "run_attempt": 1, "name": "pages build and deployment", "head_sha": "old", "status": "queued"}
         queued = {**stale, "id": 2, "head_sha": "abc"}
         fixtures = [
             ("built", [{"commit": "abc", "status": "built"}], [stale], {}),
             ("building", [{"commit": "abc", "status": "building"}], [stale], {}),
             ("failed", [{"commit": "abc", "status": "errored"}], [stale], {}),
-            ("queued-not-started", [], [stale, queued], {2: []}),
-            ("building", [], [queued], {2: [{"status": "in_progress", "started_at": "2026-09-30"}]}),
+            ("queued-not-started", [], [stale, queued], {(2, 1): []}),
+            ("building", [], [queued], {(2, 1): [{"status": "in_progress", "started_at": "2026-09-30"}]}),
             ("missing", [{"commit": "old", "status": "queued"}], [stale], {}),
         ]
         for state, builds, runs, jobs in fixtures:
@@ -56,10 +225,10 @@ class PagesStateTests(unittest.TestCase):
         self.assertEqual(timeouts, [3])
 
     def test_all_queued_statuses_and_terminal_conclusions(self):
-        run = {"id": 2, "head_sha": "abc", "name": "pages build and deployment"}
+        run = {"id": 2, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment"}
         for status in ("queued", "waiting", "pending"):
             with self.subTest(status=status):
-                self.assertEqual(github_pages.classify_pages_state("abc", [], [{**run, "status": status}], {2: []}),
+                self.assertEqual(github_pages.classify_pages_state("abc", [], [{**run, "status": status}], {(2, 1): []}),
                                  "queued-not-started")
         for conclusion in ("failure", "cancelled", "timed_out", "action_required", "neutral", "skipped", "stale", "startup_failure"):
             with self.subTest(conclusion=conclusion):
@@ -67,12 +236,12 @@ class PagesStateTests(unittest.TestCase):
                 self.assertEqual(github_pages.classify_pages_state("abc", [{"commit": "abc", "status": "building"}], [terminal]), "failed")
         older = {**run, "id": 1, "status": "completed", "conclusion": "failure"}
         newer = {**run, "status": "queued"}
-        self.assertEqual(github_pages.classify_pages_state("abc", [], [older, newer], {2: []}), "queued-not-started")
+        self.assertEqual(github_pages.classify_pages_state("abc", [], [older, newer], {(2, 1): []}), "queued-not-started")
 
     def test_grace_applies_without_a_pages_build_record(self):
         clock, host = Clock(), github_pages.GitHubPages("fixture")
         host.clock, host.QUEUED_GRACE = clock, 10
-        run = {"id": 2, "head_sha": "abc", "name": "pages build and deployment", "status": "waiting"}
+        run = {"id": 2, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment", "status": "waiting"}
         def api(method, path, **kwargs):
             self.assertEqual(kwargs["deadline"], 1800)
             if path.endswith("/latest"):
@@ -92,7 +261,7 @@ class PagesStateTests(unittest.TestCase):
     def test_unrelated_stale_queued_run_never_triggers_recovery(self):
         clock, host = Clock(), github_pages.GitHubPages("fixture")
         host.clock, host.QUEUED_GRACE = clock, 10
-        stale = {"id": 1, "head_sha": "old", "name": "pages build and deployment", "status": "queued"}
+        stale = {"id": 1, "run_attempt": 1, "head_sha": "old", "name": "pages build and deployment", "status": "queued"}
         def api(method, path, **kwargs):
             if path.endswith("/latest"):
                 return {"commit": "old", "status": "queued"}
@@ -109,7 +278,7 @@ class PagesStateTests(unittest.TestCase):
     def test_building_record_does_not_hide_unstarted_jobs_and_grace_resets(self):
         clock, host = Clock(), github_pages.GitHubPages("fixture")
         host.clock, host.QUEUED_GRACE = clock, 10
-        run = {"id": 2, "head_sha": "abc", "name": "pages build and deployment", "status": "queued"}
+        run = {"id": 2, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment", "status": "queued"}
         def api(method, path, **kwargs):
             if "/actions/runs?" in path:
                 return {"workflow_runs": [run]}
@@ -126,7 +295,7 @@ class PagesStateTests(unittest.TestCase):
     def test_all_job_pages_must_show_no_started_job(self):
         clock, host = Clock(), github_pages.GitHubPages("fixture")
         host.clock, host.QUEUED_GRACE = clock, 10
-        run = {"id": 2, "head_sha": "abc", "name": "pages build and deployment", "status": "pending"}
+        run = {"id": 2, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment", "status": "pending"}
         def api(method, path, **kwargs):
             if "/actions/runs?" in path:
                 return {"workflow_runs": [run]}
@@ -142,7 +311,7 @@ class PagesStateTests(unittest.TestCase):
 
     def test_failed_deployment_uses_the_same_terminal_classifier(self):
         host = github_pages.GitHubPages("fixture")
-        unrelated = {"id": 9, "head_sha": "old", "name": "pages build and deployment", "status": "completed", "conclusion": "failure"}
+        unrelated = {"id": 9, "run_attempt": 1, "head_sha": "old", "name": "pages build and deployment", "status": "completed", "conclusion": "failure"}
         target = {**unrelated, "id": 2, "head_sha": "abc", "conclusion": "timed_out"}
         with patch.object(host, "api", return_value={"workflow_runs": [unrelated, target]}):
             self.assertEqual(host.failed_deployment("wiki", "abc"), target)

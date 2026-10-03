@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import re
 from threading import Lock
-from time import perf_counter
+from time import monotonic, perf_counter
 
 from . import entrypoints, github_pages, ownership, physical, publication_git, publish_gate, release
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
@@ -107,11 +107,18 @@ class RehearsedRefs:
         self.expected = {(row["repository"], row["branch"]): row["commit"] for row in rows}
         self.confirmed = {}
 
-    def observe(self, host, name, branch):
+    @staticmethod
+    def check_deadline(host, deadline):
+        if deadline is not None and getattr(host, "clock", monotonic)() >= deadline:
+            raise github_pages.BuildObservationError("Publication deadline exhausted")
+
+    def observe(self, host, name, branch, *, deadline=None):
+        self.check_deadline(host, deadline)
         key = (name, branch)
         if key not in self.expected:
             raise ContractError(f"Missing rehearsed ref: {name}/{branch}")
-        actual = host.ref(name, branch)
+        actual = host.ref(name, branch, **({"deadline": deadline} if deadline is not None else {}))
+        self.check_deadline(host, deadline)
         if actual != self.expected[key]:
             raise ContractError(f"Remote ref differs from rehearsal or this invocation's confirmed push: {name}/{branch}")
         return actual
@@ -120,13 +127,17 @@ class RehearsedRefs:
         for name, branch in sorted(keys):
             self.observe(host, name, branch)
 
-    def push(self, host, path, name, commit, branch):
-        expected = self.observe(host, name, branch)
+    def push(self, host, path, name, commit, branch, *, deadline=None):
+        expected = self.observe(host, name, branch, deadline=deadline)
         key = (name, branch)
         # The adapter reconciles a lost push response before returning success.
         # A failing call is never authority to adopt a coincidentally matching tip.
-        host.push(path, name, commit, branch, expected)
-        if host.ref(name, branch) != commit:
+        self.check_deadline(host, deadline)
+        host.push(path, name, commit, branch, expected, **({"deadline": deadline} if deadline is not None else {}))
+        self.check_deadline(host, deadline)
+        actual = host.ref(name, branch, **({"deadline": deadline} if deadline is not None else {}))
+        self.check_deadline(host, deadline)
+        if actual != commit:
             raise ContractError(f"Publication push was not confirmed: {name}/{branch}")
         self.expected[key] = self.confirmed[key] = commit
 
@@ -298,7 +309,7 @@ def deploy(root, plan, host, timing=None, refs=None, journal=None):
                     f"Pages {plan['name']} remains queued-not-started; no further successor attempt is allowed. "
                     "Abandon the publication journal and rehearse a fresh run later.") from exc
             stuck = plan["pages"]
-            if refs.observe(host, plan["name"], "gh-pages") != stuck:
+            if refs.observe(host, plan["name"], "gh-pages", deadline=exc.deadline) != stuck:
                 raise ContractError(f"Pages recovery source changed: {plan['name']}")
             tree = git(path, "rev-parse", stuck + "^{tree}")
             if tree != plan["tree"]:
@@ -310,20 +321,7 @@ def deploy(root, plan, host, timing=None, refs=None, journal=None):
             # never reloads this journal to resume a recovery.
             journal(plan, transition)
             with measure(timing, "push_pages"):
-                expected = refs.observe(host, plan["name"], "gh-pages")
-                if expected != stuck:
-                    raise ContractError(f"Pages recovery source changed: {plan['name']}")
-                try:
-                    host.push(path, plan["name"], successor, "gh-pages", stuck)
-                except Exception:
-                    # Only this already-journaled, attempted successor may be
-                    # confirmed after a lost push response.
-                    if host.ref(plan["name"], "gh-pages") != successor:
-                        raise
-                if host.ref(plan["name"], "gh-pages") != successor:
-                    raise ContractError(f"Pages successor push was not confirmed: {plan['name']}")
-                key = (plan["name"], "gh-pages")
-                refs.expected[key] = refs.confirmed[key] = successor
+                refs.push(host, path, plan["name"], successor, "gh-pages", deadline=exc.deadline)
             journal(plan, {**transition, "status": "confirmed"})
             try:
                 with measure(timing, "pages_build"):

@@ -1,11 +1,12 @@
 """Bounded, read-only MediaWiki observations. No article bodies leave this adapter."""
 
 from collections import deque
+from contextlib import contextmanager
 from html import unescape
 import json
-from queue import Empty, Queue
 import re
-from threading import Thread
+import socket
+from threading import Event, Timer
 import time
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -27,6 +28,47 @@ class RemoteError(ValueError):
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise RemoteError("api-redirect")
+
+
+def close_response(response):
+    """Interrupt a blocked HTTP read before closing its buffered response."""
+    stream = getattr(response, "fp", None)
+    sock = getattr(getattr(stream, "raw", None), "_sock", None)
+    if sock is not None:
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+    response.close()
+
+
+@contextmanager
+def response_deadline(response, deadline, clock):
+    """Read in the caller; the watchdog closes the socket instead of abandoning it."""
+    expired = Event()
+
+    def stop():
+        expired.set()
+        close_response(response)
+
+    timer = Timer(max(0, deadline - clock()), stop)
+    timer.daemon = True
+    started = False
+    try:
+        timer.start()
+        started = True
+        if clock() >= deadline:
+            raise TimeoutError("elapsed deadline exhausted")
+        yield response
+        if expired.is_set() or clock() >= deadline:
+            raise TimeoutError("elapsed deadline exhausted")
+    finally:
+        timer.cancel()
+        try:
+            close_response(response)
+        finally:
+            if started:
+                timer.join()
 
 
 def validate(options):
@@ -83,42 +125,29 @@ class Client:
             "User-Agent": USER_AGENT, "Accept": "application/json", "Accept-Encoding": "identity"})
         self.requests += 1
         limit = min(MAX_RESPONSE, MAX_TRANSFER - self.bytes)
-        result = Queue(maxsize=1)
-
-        def read():
-            try:
-                with self.opener.open(request, timeout=max(0.001, deadline - self.clock())) as response:
-                    if response.status != 200 or response.headers.get_content_type() != "application/json":
-                        raise RemoteError("unexpected-http-response")
-                    chunks, size = [], 0
-                    read_block = getattr(response, "read1", response.read)
-                    while size <= limit:
-                        if self.clock() >= deadline:
-                            raise RemoteError("elapsed-deadline-exhausted")
-                        block = read_block(min(65536, limit + 1 - size))
-                        if not block:
-                            break
-                        chunks.append(block)
-                        size += len(block)
-                result.put((True, b"".join(chunks)))
-            except BaseException as exc:
-                result.put((False, exc))
-
-        # A socket timeout bounds an idle read, not a response that trickles forever.
-        Thread(target=read, daemon=True).start()
         try:
-            success, raw = result.get(timeout=max(0, deadline - self.clock()))
-            if self.clock() >= deadline:
-                raise RemoteError("elapsed-deadline-exhausted")
-            if not success:
-                raise raw
+            with response_deadline(self.opener.open(request, timeout=max(0.001, deadline - self.clock())),
+                                   deadline, self.clock) as response:
+                if response.status != 200 or response.headers.get_content_type() != "application/json":
+                    raise RemoteError("unexpected-http-response")
+                chunks, size = [], 0
+                read_block = getattr(response, "read1", response.read)
+                while size <= limit:
+                    if self.clock() >= deadline:
+                        raise RemoteError("elapsed-deadline-exhausted")
+                    block = read_block(min(65536, limit + 1 - size))
+                    if not block:
+                        break
+                    chunks.append(block)
+                    size += len(block)
+                raw = b"".join(chunks)
             self.bytes += len(raw)
             if len(raw) > limit:
                 raise RemoteError("response-budget-exhausted")
             value = json.loads(raw)
             if self.clock() >= deadline:
                 raise RemoteError("elapsed-deadline-exhausted")
-        except Empty:
+        except TimeoutError:
             raise RemoteError("elapsed-deadline-exhausted") from None
         except (OSError, UnicodeError, ValueError, RecursionError) as exc:
             if isinstance(exc, RemoteError):

@@ -35,7 +35,7 @@ class Host:
         self.events.append(("create", name))
         return value
 
-    def ref(self, name, branch):
+    def ref(self, name, branch, *, deadline=None):
         return self.refs.get((name, branch))
 
     def gate(self, root, project, manifest):
@@ -43,7 +43,7 @@ class Host:
             {"repository": name, "branch": branch, "commit": self.ref(name, branch)}
             for name, branch in sorted(publication.publish_gate.destinations(root, project, manifest))]}}
 
-    def push(self, path, name, commit, branch, expected):
+    def push(self, path, name, commit, branch, expected, *, deadline=None):
         current = self.ref(name, branch)
         if current == commit:
             return
@@ -100,8 +100,8 @@ class RecoveryHost(Host):
             raise AssertionError("Recovery must never cancel, delete or rerun a workflow")
         commit = self.waited[-1]
         if "/actions/runs?" in path:
-            return {"workflow_runs": [{"id": 1, "head_sha": "unrelated", "name": "pages build and deployment", "status": "queued"},
-                                      {"id": 2, "head_sha": commit, "name": "pages build and deployment", "status": "queued"}]}
+            return {"workflow_runs": [{"id": 1, "run_attempt": 1, "head_sha": "unrelated", "name": "pages build and deployment", "status": "queued"},
+                                      {"id": 2, "run_attempt": 1, "head_sha": commit, "name": "pages build and deployment", "status": "queued"}]}
         if "/jobs?" in path:
             return {"total_count": 0, "jobs": []}
         return {"commit": commit, "status": "built" if len(self.waited) == 2 and self.mode != "stuck" else "queued"}
@@ -118,16 +118,23 @@ class RecoveryHost(Host):
                     self.refs[(name, "gh-pages")] = "foreign"
                 raise
 
-    def push(self, path, name, commit, branch, expected):
+    def push(self, path, name, commit, branch, expected, *, deadline=None):
         if name == self.target and branch == "gh-pages" and self.waited:
             plan = publication.load(self.root / ".local/publication/pending.json")["repositories"]["items"]
             transition = plan["recovery"]
             if transition != {"stuck": expected, "successor": commit, "status": "prepared"}:
                 raise AssertionError("Transition was not journaled before the leased push")
             self.transitions.append(transition)
-            super().push(path, name, commit, branch, expected)
             if self.mode == "lost":
-                raise RuntimeError("Lost successor push response")
+                def attempted(command, **kwargs):
+                    if "push" in command:
+                        super(RecoveryHost, self).push(path, name, commit, branch, expected)
+                        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+                    return subprocess.CompletedProcess(command, 0, b"", b"")
+                with patch.object(github_pages.bounded, "run", side_effect=attempted):
+                    self.adapter.push(path, name, commit, branch, expected, deadline=deadline)
+            else:
+                super().push(path, name, commit, branch, expected)
             return
         return super().push(path, name, commit, branch, expected)
 
@@ -588,6 +595,79 @@ class TimingTests(unittest.TestCase):
                                      "pages_build": 4, "verify": 0 if fail else 5, "total": 10 if fail else 15})
 
 
+class RecoveryBoundaryTests(unittest.TestCase):
+    def deploy_fixture(self, mode="built"):
+        class BoundaryHost:
+            def __init__(self):
+                self.clock = Clock()
+                self.tips = {"main": None, "gh-pages": None}
+                self.pushes, self.reads = [], []
+                self.recovering = False
+
+            def ref(self, name, branch, **kwargs):
+                if self.recovering:
+                    self.reads.append(kwargs.get("deadline"))
+                    if mode == "read-exhausted":
+                        self.clock.now = 20
+                return self.tips[branch]
+
+            def push(self, path, name, commit, branch, expected, **kwargs):
+                self.pushes.append((commit, expected, kwargs.get("deadline")))
+                self.tips[branch] = commit
+                if self.recovering and mode == "rejected":
+                    raise ContractError("successor rejected before push")
+
+            def configure(self, name):
+                pass
+
+            def wait(self, name, commit, **kwargs):
+                if commit == "stuck":
+                    self.recovering = True
+                    self.clock.now = 20 if mode == "exhausted" else 10
+                    raise github_pages.QueuedPagesError(name, commit, 20)
+
+            def verify(self, base, checks):
+                pass
+
+        host = BoundaryHost()
+        plan = {"path": ".local", "name": "wiki", "main": "main", "pages": "stuck", "tree": "tree",
+                "old_main": None, "old_pages": None, "base": "fixture", "checks": {}}
+        refs = publication.RehearsedRefs([{"repository": "wiki", "branch": branch, "commit": None}
+                                         for branch in ("main", "gh-pages")])
+        def journal(plan, transition):
+            plan["recovery"] = transition
+            plan["pages"] = transition["successor"]
+        return host, plan, refs, journal
+
+    def run_deploy(self, host, plan, refs, journal):
+        with patch.object(publication, "git", return_value="tree"), \
+                patch.object(publication.publication_git, "commit", return_value="successor"), \
+                patch.object(publication, "pin"):
+            publication.deploy(Path(__file__).resolve().parents[1], plan, host, refs=refs, journal=journal)
+
+    def test_failed_recovery_push_cannot_adopt_a_matching_unconfirmed_tip(self):
+        host, plan, refs, journal = self.deploy_fixture("rejected")
+        with self.assertRaisesRegex(ContractError, "successor rejected before push"):
+            self.run_deploy(host, plan, refs, journal)
+        self.assertEqual(refs.confirmed[("wiki", "gh-pages")], "stuck")
+        self.assertEqual(plan["recovery"]["status"], "prepared")
+
+    def test_recovery_propagates_deadline_to_every_read_and_push(self):
+        host, plan, refs, journal = self.deploy_fixture()
+        self.run_deploy(host, plan, refs, journal)
+        self.assertEqual(host.pushes[-1], ("successor", "stuck", 20))
+        self.assertTrue(host.reads)
+        self.assertEqual(set(host.reads), {20})
+
+    def test_spent_recovery_budget_never_starts_a_successor_push(self):
+        for mode in ("exhausted", "read-exhausted"):
+            with self.subTest(mode=mode):
+                host, plan, refs, journal = self.deploy_fixture(mode)
+                with self.assertRaisesRegex(ContractError, "deadline"):
+                    self.run_deploy(host, plan, refs, journal)
+                self.assertEqual(len(host.pushes), 2)
+
+
 class AdapterTests(unittest.TestCase):
     @staticmethod
     def build_records(records):
@@ -647,7 +727,7 @@ class AdapterTests(unittest.TestCase):
         host = github_pages.GitHubPages("fixture")
         path = "repos/fixture/wiki/pages/builds/17"
         building = {"commit": "abc", "status": "building", "url": "https://api.github.com/" + path}
-        failed = {"workflow_runs": [{"id": 9, "head_sha": "abc", "name": "pages build and deployment", "status": "completed",
+        failed = {"workflow_runs": [{"id": 9, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment", "status": "completed",
                                      "conclusion": "failure", "html_url": "https://github.com/run/9"}]}
         polls, reruns, finish = 0, 0, True
         def api(method, endpoint, **kwargs):
@@ -772,7 +852,7 @@ class AdapterTests(unittest.TestCase):
         host = github_pages.GitHubPages("fixture")
         path = "repos/fixture/wiki/pages/builds/17"
         building = {"commit": "abc", "status": "building", "url": "https://api.github.com/" + path}
-        failed = {"workflow_runs": [{"id": 9, "head_sha": "abc", "name": "pages build and deployment", "status": "completed",
+        failed = {"workflow_runs": [{"id": 9, "run_attempt": 1, "head_sha": "abc", "name": "pages build and deployment", "status": "completed",
                                      "conclusion": "failure", "html_url": "https://github.com/run/9"}]}
         def api(method, endpoint, **kwargs):
             if method == "POST":
