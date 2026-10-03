@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 import subprocess
 
 from . import bounded
-from .storage import ContractError, git
+from .storage import ContractError, git, git_records
 from .source_record import read_record
 
 # Metadata enumeration and diffs can traverse the entire pinned source tree.
@@ -25,12 +25,8 @@ class Source:
     def __init__(self, path, revision):
         self.path = Path(path).resolve()
         self.revision = git(self.path, "rev-parse", "--verify", revision + "^{commit}")
-        result = bounded.run(["git", "-C", str(self.path), "ls-tree", "-r", "-z", "-l", self.revision],
-                             timeout=GIT_TREE_TIMEOUT)
-        result.check_returncode()
-        tree = result.stdout
         self.blobs = {}
-        for entry in tree.split(b"\0"):
+        for entry in git_records(self.path, "ls-tree", "-r", "-z", "-l", self.revision, timeout=GIT_TREE_TIMEOUT, checked=True):
             if not entry:
                 continue
             metadata, name = entry.split(b"\t", 1)
@@ -215,9 +211,12 @@ class Source:
     def changed_paths(self, previous):
         if previous is None:
             return {path: "A" for path in self.blobs}
-        result = bounded.run(["git", "-C", str(self.path), "diff", "--name-status", "-z", "--no-renames",
-                              previous, self.revision, "--"], timeout=GIT_TREE_TIMEOUT)
-        result.check_returncode()
-        output = result.stdout
-        fields = output.rstrip(b"\0").split(b"\0") if output else []
-        return {fields[index + 1].decode("utf-8"): fields[index].decode("ascii") for index in range(0, len(fields), 2)}
+        result = {}
+        fields = iter(git_records(self.path, "diff", "--name-status", "-z", "--no-renames",
+                                  previous, self.revision, "--", timeout=GIT_TREE_TIMEOUT, checked=True))
+        for status in fields:
+            name = next(fields, None)
+            if name is None:
+                raise ContractError("Incomplete Git name/status pair")
+            result[name.decode("utf-8")] = status.decode("ascii")
+        return result

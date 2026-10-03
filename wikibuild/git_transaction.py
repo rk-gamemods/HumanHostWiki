@@ -6,7 +6,7 @@ from pathlib import Path
 from . import bounded
 
 from .extraction import file_hash
-from .storage import ContractError, git, within
+from .storage import ContractError, git, git_records, within
 
 # Local object/ref plumbing should finish quickly, including local Git hooks.
 GIT_TIMEOUT = 30
@@ -33,9 +33,11 @@ def command(path, *args, data=None, index=None, work_tree=None):
 
 
 def changed_paths(path):
-    tracked = command(path, "diff-files", "--name-only", "-z")
-    untracked = command(path, "ls-files", "--others", "--exclude-standard", "-z")
-    return {name.decode("utf-8") for name in (tracked + untracked).split(b"\0") if name}
+    result = set()
+    for arguments in (("diff-files", "--name-only", "-z"), ("ls-files", "--others", "--exclude-standard", "-z")):
+        result.update(name.decode("utf-8") for name in git_records(
+            path, "--literal-pathspecs", *arguments, timeout=GIT_TREE_TIMEOUT) if name)
+    return result
 
 
 def prepare(path, stage, files, message):

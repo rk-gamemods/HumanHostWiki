@@ -3,6 +3,7 @@
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -15,6 +16,85 @@ from wikibuild import (bounded, capacity_inventory, git_transaction, ownership,
 
 
 class GitBoundsTests(unittest.TestCase):
+    def test_valid_public_tree_and_source_are_complete_beyond_capture_limit(self):
+        storage.git(self.root, "init", "-q")
+        storage.git(self.root, "config", "user.name", "Fixture")
+        storage.git(self.root, "config", "user.email", "fixture@example.invalid")
+        oid = git_transaction.command(self.root, "hash-object", "-w", "--stdin", data=b"public\n").decode().strip()
+        entries = b"".join(f"100644 blob {oid}\t{name}\0".encode() for name in (".gitattributes", "README.md"))
+        tree = git_transaction.command(self.root, "mktree", "-z", data=entries).decode().strip()
+        commit = git_transaction.command(self.root, "commit-tree", tree, data=b"Valid fixture\n").decode().strip()
+        with patch.object(bounded, "MAX_CAPTURE", 64):
+            self.assertEqual(publication_git.audit(self.root, commit), {"commits": 1, "blobs": 1})
+            reader = source.Source(self.root, commit)
+        self.assertEqual(set(reader.blobs), {".gitattributes", "README.md"})
+
+    def test_public_audit_rejects_forbidden_path_beyond_capture_limit(self):
+        storage.git(self.root, "init", "-q")
+        storage.git(self.root, "config", "user.name", "Fixture")
+        storage.git(self.root, "config", "user.email", "fixture@example.invalid")
+        oid = git_transaction.command(self.root, "hash-object", "-w", "--stdin", data=b"public\n").decode().strip()
+        approved = f"100644 blob {oid}\tREADME.md\0".encode()
+        entries = approved + f"100644 blob {oid}\tzz-private.txt\0".encode()
+        tree = git_transaction.command(self.root, "mktree", "-z", data=entries).decode().strip()
+        commit = git_transaction.command(self.root, "commit-tree", tree, data=b"Audit fixture\n").decode().strip()
+        with patch.object(bounded, "MAX_CAPTURE", len(approved)):
+            with self.assertRaisesRegex(storage.ContractError, "Unapproved public history path: zz-private.txt"):
+                publication_git.audit(self.root, commit)
+
+    def test_real_interrupted_git_writer_recovers_without_deleting_foreign_index_lock(self):
+        storage.git(self.root, "init", "-q")
+        storage.git(self.root, "config", "user.name", "Fixture")
+        storage.git(self.root, "config", "user.email", "fixture@example.invalid")
+        (self.root / ".gitignore").write_bytes(b".local/\n")
+        old, new = b"old\n", b"new\n"
+        (self.root / "note.txt").write_bytes(old)
+        storage.git(self.root, "add", ".gitignore", "note.txt")
+        storage.git(self.root, "commit", "-qm", "Fixture baseline")
+        lock = self.root / ".git/index.lock"
+        lock.write_bytes(b"foreign client owns this lock\n")
+        ready = threading.Event()
+        original = bounded.start
+
+        def launch(*args, **kwargs):
+            child = original(*args, **kwargs)
+            self.children.append(child)
+            return child
+
+        def partial_input(pipe, data):
+            try:
+                pipe.write(data)
+                pipe.flush()
+                ready.set()
+                # Keep real Git inside its stdin write operation until the
+                # command bound kills it. The feeder then closes its own pipe.
+                self.children[-1].wait(timeout=5)
+            finally:
+                pipe.close()
+
+        with patch.object(git_transaction, "GIT_TIMEOUT", 0.5), \
+                patch.object(bounded, "start", new=launch), patch.object(bounded, "_feed", new=partial_input):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                git_transaction.command(self.root, "hash-object", "-w", "--stdin", data=b"x" * (1 << 20))
+        self.assertTrue(ready.is_set(), "Git must have received partial input before interruption")
+        self.assertFalse(storage.process_running(self.children[-1].pid))
+        self.assertEqual(bounded._children, set())
+        self.assertEqual(lock.read_bytes(), b"foreign client owns this lock\n")
+        stage = fixture_dir(self, "recovery")
+        (stage / "note.txt").write_bytes(new)
+        files = {"note.txt": {"old": storage.digest(old), "new": storage.digest(new), "bytes": len(new)}}
+        plan = git_transaction.prepare(self.root, stage, files, "Recovered fixture")
+        with self.assertRaisesRegex(storage.ContractError, "index.lock"):
+            git_transaction.promote(self.root, stage, plan)
+        self.assertEqual(lock.read_bytes(), b"foreign client owns this lock\n")
+        # Simulate the foreign owner releasing its fixture-owned lock, then
+        # retry the same recorded transaction twice to prove safe recovery.
+        lock.unlink()
+        git_transaction.promote(self.root, stage, plan)
+        git_transaction.promote(self.root, stage, plan)
+        self.assertEqual(storage.git(self.root, "rev-parse", "HEAD"), plan["commit"])
+        self.assertEqual(storage.git(self.root, "status", "--porcelain=v1"), "")
+
     def setUp(self):
         self.root = fixture_dir(self, "gitbound")
         self.children = []
@@ -88,9 +168,7 @@ class GitBoundsTests(unittest.TestCase):
         self.assert_bound(publication_git, "GIT_TIMEOUT", lambda: publication_git.bounded_git(self.root, "rev-list", "HEAD"), storage.ContractError)
 
     def test_publication_git_audit(self):
-        with patch.object(publication_git, "git", return_value="a" * 40), \
-                patch.object(publication_git, "command", return_value=b"100644 blob " + b"b" * 40 + b"\tsite/index.html\0"):
-            self.assert_bound(publication_git, "GIT_AUDIT_TIMEOUT", lambda: publication_git.audit(self.root, "a" * 40))
+        self.assert_bound(publication_git, "GIT_AUDIT_TIMEOUT", lambda: publication_git.audit(self.root, "a" * 40))
 
     def test_check_components_inventory(self):
         self.assert_bound(check_components, "GIT_TIMEOUT", lambda: check_components.git_output(self.root, "ls-files", "-z"))

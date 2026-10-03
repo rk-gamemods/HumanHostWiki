@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
 from urllib.parse import urljoin
 
@@ -37,6 +38,14 @@ def git(path, *args):
     return result.stdout
 
 
+def tree_records(path, commit):
+    command = ["git", "-C", str(path), "ls-tree", "-rz", commit]
+    with bounded.stream(command, timeout=GIT_TIMEOUT) as child:
+        yield from child.stdout.records()
+        if child.wait():
+            raise subprocess.CalledProcessError(child.returncode, command, stderr=child.stderr)
+
+
 def contained(root, name):
     path = root / name
     assert not path.is_symlink() and path.resolve().is_relative_to(root.resolve()), name
@@ -66,7 +75,7 @@ def check(root):
         assert not git(path, "status", "--porcelain=v1", "--untracked-files=all")
         blobs = {}
         algorithm = git(path, "rev-parse", "--show-object-format").decode().strip()
-        for item in git(path, "ls-tree", "-rz", record["commit"]).split(b"\0"):
+        for item in tree_records(path, record["commit"]):
             if item:
                 meta, name = item.split(b"\t", 1)
                 mode, kind, oid = meta.split()

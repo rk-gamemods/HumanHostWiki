@@ -1,6 +1,7 @@
 """Release cleanup must prove an independent committed copy before unlinking."""
 
 import json
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import subprocess
@@ -131,15 +132,28 @@ class RetentionTests(unittest.TestCase):
 
     def test_missing_committed_blob_prevents_removal(self):
         oid = git(self.repo, "rev-parse", "HEAD:site/b.json")
-        original = release_retention.git_transaction.command
+        original = release_retention.bounded.stream
+        missing_seen = []
 
-        def missing(path, *args, **kwargs):
-            if args[0] == "cat-file":
-                return (oid + " missing\n").encode()
-            return original(path, *args, **kwargs)
+        @contextmanager
+        def missing(command, **kwargs):
+            with original(command, **kwargs) as child:
+                if "cat-file" in command:
+                    readline = child.stdout.readline
+                    def reply(*args):
+                        line = readline(*args)
+                        if line.split()[:1] == [oid.encode()]:
+                            missing_seen.append(oid)
+                            return (oid + " missing\n").encode()
+                        return line
+                    with patch.object(child.stdout, "readline", new=reply):
+                        yield child
+                else:
+                    yield child
 
-        with patch.object(release_retention.git_transaction, "command", side_effect=missing):
+        with patch.object(release_retention.bounded, "stream", new=missing):
             result = release_retention.run(self.root)
+        self.assertEqual(missing_seen, [oid])
         self.assertIn("object is missing", result["retained"][0]["reason"])
         self.assertTrue((self.stage / "topic/site/a.json").exists())
 

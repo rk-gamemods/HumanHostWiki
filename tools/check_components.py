@@ -82,10 +82,11 @@ def load_contract(path: Path) -> Contract:
 
 
 def git_output(root: Path, *args: str) -> list[str]:
-    result = bounded.run(["git", "-C", str(root), *args], timeout=GIT_TIMEOUT)
-    if result.returncode:
-        raise ValueError(f"git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
-    return [p.decode("utf-8", errors="surrogateescape") for p in result.stdout.split(b"\0") if p]
+    with bounded.stream(["git", "-C", str(root), *args], timeout=GIT_TIMEOUT) as child:
+        paths = [p.decode("utf-8", errors="surrogateescape") for p in child.stdout.records() if p]
+        if child.wait():
+            raise ValueError(f"git {' '.join(args)} failed: {child.stderr.decode(errors='replace').strip()}")
+        return paths
 
 
 def repository_files(root: Path) -> list[str]:

@@ -430,14 +430,21 @@ class PublishGateTests(unittest.TestCase):
             output = (head + "\n" + root if args[0] == "rev-list" else
                       "root-tree" if args[0] == "rev-parse" and args[1].startswith(root) else "head-tree")
             return subprocess.CompletedProcess(argv, 0, output.encode(), b"")
-        with patch.object(publication_git.bounded, "run", side_effect=command):
+        def records(path, *args, **kwargs):
+            self.assertEqual(path, self.root)
+            self.assertEqual(args, ("rev-list", "--reverse", head))
+            self.assertEqual(kwargs, {"separator": b"\n", "timeout": 120})
+            return iter((root.encode(), head.encode()))
+        with patch.object(publication_git.bounded, "run", side_effect=command), \
+                patch.object(publication_git, "git_records", side_effect=records):
             self.assertTrue(publication_git.owned_lineage(self.root, None, head))
 
         def foreign_root(argv, **kwargs):
             if argv[3] == "show-ref" and argv[-1].endswith(root):
                 return subprocess.CompletedProcess(argv, 1, b"", b"")
             return command(argv, **kwargs)
-        with patch.object(publication_git.bounded, "run", side_effect=foreign_root):
+        with patch.object(publication_git.bounded, "run", side_effect=foreign_root), \
+                patch.object(publication_git, "git_records", side_effect=records):
             self.assertFalse(publication_git.owned_lineage(self.root, None, head))
 
     def test_push_adapter_uses_explicit_lease_and_ancestry_check(self):

@@ -6,7 +6,7 @@ import subprocess
 
 from . import bounded
 from .git_transaction import command
-from .storage import ContractError, git
+from .storage import ContractError, git, git_records
 
 # Preserve the existing allowance for local lineage checks.
 GIT_TIMEOUT = 120
@@ -40,7 +40,9 @@ def owned_lineage(path, base, head):
         return False
     # Without a completed baseline, the lineage must start at a pinned root.
     trees = {bounded_git(path, "rev-parse", base + "^{tree}")} if base else set()
-    for revision in reversed(bounded_git(path, "rev-list", head, *(["^" + base] if base else [])).splitlines()):
+    for raw_revision in git_records(path, "rev-list", "--reverse", head, *(["^" + base] if base else []),
+                                    separator=b"\n", timeout=GIT_TIMEOUT):
+        revision = raw_revision.decode()
         tree = bounded_git(path, "rev-parse", revision + "^{tree}")
         if tree not in trees and not succeeds("show-ref", "--verify", "--quiet", "refs/wiki-publications/" + revision):
             return False
@@ -85,10 +87,13 @@ def audit(path, head, baseline=None):
         check = bounded.run(["git", "-C", str(path), "merge-base", "--is-ancestor", baseline, head], timeout=GIT_TIMEOUT)
         if check.returncode:
             raise ContractError("Remote main is not an ancestor of the selected release")
-    revisions = git(path, "rev-list", head, *(["^" + baseline] if baseline else [])).splitlines()
+    revisions = 0
     blobs = {}
-    for revision in revisions:
-        for row in command(path, "ls-tree", "-rz", revision).split(b"\0"):
+    for raw_revision in git_records(path, "rev-list", head, *(["^" + baseline] if baseline else []),
+                                    separator=b"\n", timeout=GIT_AUDIT_TIMEOUT):
+        revisions += 1
+        revision = raw_revision.decode()
+        for row in git_records(path, "--literal-pathspecs", "ls-tree", "-rz", revision, timeout=GIT_AUDIT_TIMEOUT):
             if not row:
                 continue
             meta, raw_name = row.split(b"\t", 1)
@@ -140,4 +145,4 @@ def audit(path, head, baseline=None):
         process.stdin.close()
         if process.wait():
             raise ContractError("Git public history audit failed")
-    return {"commits": len(revisions), "blobs": len(blobs)}
+    return {"commits": revisions, "blobs": len(blobs)}

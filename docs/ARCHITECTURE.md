@@ -36,8 +36,12 @@ captured output or `bounded.stream` for binary streaming, with an explicit
 operation timeout and a one-line reason beside its constant. Streaming pipe
 reads and writes share an elapsed deadline, stderr drains concurrently with a
 size cap, and every context exit reaps its tree, including early exits and
-exceptions. Callers with an overall deadline reserve `CLEANUP_SECONDS`.
-`tests/test_process_lint.py` rejects direct subprocess launches outside this
+exceptions and partial setup failures. Captured stdout or stderr overflow raises
+`OutputLimitExceeded` naming the command; partial output is never returned.
+Whole-tree scans consume streaming records incrementally. Callers with an
+overall deadline reserve `CLEANUP_SECONDS`.
+`tests/test_process_lint.py` resolves import/assignment aliases and rejects
+subprocess, OS, asyncio, multiprocessing and PTY launch routes outside this
 owner; `tools/run_tests.py` is the explicit exception because its isolated
 workers already use jobs/process groups and bounded cleanup.
 

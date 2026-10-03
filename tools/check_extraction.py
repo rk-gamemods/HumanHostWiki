@@ -171,11 +171,13 @@ def pinned_objects(source, commit, identities):
         paths["Catalog/objects/" + shard.replace("::", "/") + ".jsonl"].add(identity)
     if not paths:
         return {}
-    result = bounded.run(["git", "-C", str(source), "ls-tree", "-r", "--name-only", "-z",
-                          commit, "--", *sorted(paths)], timeout=GIT_TREE_TIMEOUT)
-    result.check_returncode()
-    listed = result.stdout
-    available = set(listed.decode("utf-8").rstrip("\0").split("\0"))
+    command = ["git", "-C", str(source), "ls-tree", "-r", "--name-only", "-z", commit, "--", *sorted(paths)]
+    with bounded.stream(command, timeout=GIT_TREE_TIMEOUT) as child:
+        available = {name.decode("utf-8") for name in child.stdout.records()}
+        if child.wait():
+            # Match the previous checked command's failure type.
+            import subprocess
+            raise subprocess.CalledProcessError(child.returncode, command, stderr=child.stderr)
     objects = {}
     for path, wanted in sorted(paths.items()):
         # A catalog reference to an uncaptured object cannot establish a link.
