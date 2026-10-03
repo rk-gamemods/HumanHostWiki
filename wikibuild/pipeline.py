@@ -1,7 +1,11 @@
 """Operator-invoked stages, durable recovery and a final content-exception report."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+import sys
+from time import perf_counter
+import traceback
 
 from . import availability, curation, external_links, extraction, history, physical, publication, reader, reader_retention, release, release_retention, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
@@ -48,22 +52,34 @@ def report(reports, previous=None):
 
 def run(root, project, source, progress=None):
     """Caller holds writer_lock. Stage receipts survive a later stage's failure."""
-    source = Path(source).resolve()
-    pointer = within(root, ".local/pipeline/latest.json")
+    started = datetime.now(timezone.utc)
+    clock = perf_counter()
+    timings, stage_clock = {}, None
+    status, failed_stage = "execution-failure", None
+
+    def enter(name):
+        nonlocal stage, stage_clock
+        now = perf_counter()
+        if stage_clock is not None:
+            timings[stage] = now - stage_clock
+        stage, stage_clock = name, now
+
     stage, completed, reports, metrics = "resume", {}, {}, {}
     previous, request_key, receipt = None, None, None
     try:
+        source = Path(source).resolve()
+        pointer = within(root, ".local/pipeline/latest.json")
         current = read(root, json.loads(pointer.read_text())["run_id"]) if pointer.exists() else None
-        stage = "register"
+        enter("register")
         if progress:
             progress(stage)
         receipt = snapshots.register(root, project, source)
         completed[stage] = {"snapshot_id": receipt["snapshot_id"], "source_commit": receipt["source_commit"]}
-        stage = "availability"
+        enter("availability")
         observed, metrics[stage] = availability.refresh(root, project, receipt["steam"], progress)
         if observed:
             completed[stage] = {"status": observed["status"], "observation_id": digest(json_bytes(observed))}
-        stage = "external-articles"
+        enter("external-articles")
         article_options = external_links.configuration(project)
         articles = None
         if article_options:
@@ -98,19 +114,19 @@ def run(root, project, source, progress=None):
             previous = current
             immutable(request_path, {"request_key": request_key, "previous_run": current["run_id"] if current else None})
 
-        stage = "normalize"
+        enter("normalize")
         if progress:
             progress(stage)
         extracted, metrics[stage] = extraction.run(root, project, source, receipt)
         completed[stage] = {"run_id": extracted["run_id"], "counts": extracted["counts"]}
         reports[stage] = json.loads(extraction.artifact(root, extracted["exceptions"]).read_text(encoding="utf-8"))
-        stage = "identity"
+        enter("identity")
         if progress:
             progress(stage)
         normalized, metrics[stage] = history.run(root, source, receipt, extracted)
         completed[stage] = {"run_id": normalized["run_id"], "counts": normalized["counts"]}
         reports[stage] = normalized["exceptions"]
-        stage = "project"
+        enter("project")
         if progress:
             progress(stage)
         projected = reader.build(root, project, bases=release.bases(project), source=source,
@@ -121,7 +137,7 @@ def run(root, project, source, progress=None):
         metrics[stage] = {"reused": projected["reused"]}
         if projected.get("projection_reused"):
             metrics[stage]["projection_reused"] = True
-        stage = "verify"
+        enter("verify")
         if progress:
             progress(stage)
         # Each stage validates its own artifacts, including when reusing them.
@@ -143,23 +159,23 @@ def run(root, project, source, progress=None):
         if curation.definition_inputs(curation.definitions(root, project)) != authored:
             raise ContractError("Curated definitions changed during processing")
         completed[stage] = {"scope": "stage-artifacts-and-stable-source", "gameplay_verified": False}
-        stage = "release"
+        enter("release")
         if progress:
             progress(stage)
         released, metrics[stage] = release.run(root, project, projected)
         completed[stage] = {"release_id": released["release_id"], "publication": released["publication"]}
-        stage = "publish"
+        enter("publish")
         if progress:
             progress(stage)
         published, metrics[stage] = publication.run(root, project, released, progress=progress)
         completed[stage] = {"status": published["status"]}
         if published["status"] == "published":
             completed[stage]["hub"] = published["hub"]
-        stage = "retention"
+        enter("retention")
         if progress:
             progress(stage)
         metrics[stage] = release_retention.run(root)
-        stage = "reader-retention"
+        enter("reader-retention")
         if progress:
             progress(stage)
         metrics[stage] = reader_retention.run(root)
@@ -181,26 +197,62 @@ def run(root, project, source, progress=None):
                   "remaining": remaining}
         run_id = digest(json_bytes(result))
         result["run_id"] = run_id
-        stage = "promote"
+        enter("promote")
         immutable(within(root, f".local/pipeline/runs/{run_id}.json"), result)
         read(root, run_id)
         write_changed(pointer, json_bytes({"run_id": run_id}))
-        return {"run_id": run_id, "snapshot_id": result["snapshot_id"], "status": result["status"],
+        invocation = {"run_id": run_id, "snapshot_id": result["snapshot_id"], "status": result["status"],
                 "report": str(within(root, f".local/pipeline/runs/{run_id}.json")),
                 "reader": projected["path"], "exception_groups": result["exceptions"]["group_count"],
-                "wiki_release": result["wiki_release"], "remaining": result["remaining"], "metrics": metrics}
+                "wiki_release": result["wiki_release"], "remaining": result["remaining"], "metrics": metrics,
+                "timings": timings}
+        status = result["status"]
+        return invocation
     except (Exception, KeyboardInterrupt) as exc:
+        failed_stage = stage
+        if stage_clock is not None:
+            timings[stage] = perf_counter() - stage_clock
+            stage_clock = None
+        if hasattr(exc, "publication_timing"):
+            metrics.setdefault("publish", {})["timing"] = exc.publication_timing
+        location = None
+        repository = Path(__file__).resolve().parent.parent
+        for frame in traceback.extract_tb(exc.__traceback__):
+            try:
+                relative = Path(frame.filename).resolve().relative_to(repository)
+            except ValueError:
+                continue
+            location = {"path": relative.as_posix(), "function": frame.name, "line": frame.lineno}
         failure = {"schema_version": 1, "kind": "execution-failure", "request_key": request_key,
                    "snapshot_id": receipt["snapshot_id"] if receipt else None, "failed_stage": stage,
-                   "completed": completed, "error": {"type": type(exc).__name__, "message": str(exc)},
+                   "completed": completed, "error": {"type": type(exc).__name__, "message": str(exc), "location": location},
                    "content_exceptions": report(reports),
                    "next_action": "Report the execution failure separately; diagnose and repair, then rerun the normal command."}
         failure_path = within(root, f".local/pipeline/failures/{digest(json_bytes(failure))}.json")
         try:
             immutable(failure_path, failure)
         except (OSError, ValueError) as save_error:
-            raise ContractError(f"Wiki stage {stage} failed: {exc}. Failure receipt could not be saved: {save_error}") from exc
-        raise ContractError(f"Wiki stage {stage} failed: {exc}. Failure report: {failure_path}") from exc
+            failure_error = ContractError(f"Wiki stage {stage} failed: {exc}. Failure receipt could not be saved: {save_error}")
+        else:
+            failure_error = ContractError(f"Wiki stage {stage} failed: {exc}. Failure report: {failure_path}")
+        failure_error.timings, failure_error.metrics = timings, metrics
+        raise failure_error from exc
+    finally:
+        if stage_clock is not None:
+            timings[stage] = perf_counter() - stage_clock
+        total = perf_counter() - clock
+        if failed_stage is None and status != "execution-failure":
+            invocation["total_seconds"] = total
+        try:
+            finished = datetime.now(timezone.utc)
+            timing_path = within(root, f".local/pipeline/timings/{finished.strftime('%Y%m%dT%H%M%S.%fZ')}-{status}.json")
+            timing_path.parent.mkdir(parents=True, exist_ok=True)
+            with timing_path.open("xb") as output:
+                output.write(json_bytes({"started_utc": started.isoformat(), "finished_utc": finished.isoformat(),
+                    "total_seconds": total, "stages": timings, "failed_stage": failed_stage,
+                    "publication": metrics.get("publish", {}).get("timing", {})}))
+        except (Exception, KeyboardInterrupt) as timing_error:
+            print(f"Wiki timing could not be saved: {timing_error}", file=sys.stderr)
 
 
 def operator_report(root, result):
@@ -235,4 +287,32 @@ def operator_report(root, result):
         lines.append(f"Staging cleanup issue [{retained['stage']}]: {retained['reason']}")
     for retained in result.get("metrics", {}).get("reader-retention", {}).get("retained", []):
         lines.append(f"Reader cache cleanup issue [{retained['candidate']}]: {retained['reason']}")
+    if "timings" in result:
+        lines.extend(["", "Time", f"Total: {result['total_seconds']:.2f} s wall-clock."])
+        for stage, seconds in result["timings"].items():
+            lines.append(f"- {stage}: {seconds:.2f} s")
+        timing = result.get("metrics", {}).get("publish", {}).get("timing", {})
+        rows = dict(timing.get("repositories", {}))
+        rows.update({f"{name} (rollback)": row for name, row in timing.get("rollback", {}).items()})
+        categories = [("Upload (pushes)", lambda row: row["push_main"] + row["push_pages"]),
+                      ("GitHub Pages processing", lambda row: row["pages_build"]),
+                      ("Public verification", lambda row: row["verify"]),
+                      ("Other publish work", lambda row: max(0.0, row["total"] - row["push_main"] -
+                       row["push_pages"] - row["pages_build"] - row["verify"]))]
+        for label, seconds in categories:
+            values = {name: seconds(row) for name, row in rows.items()}
+            slowest = max(values, key=values.get) if values else None
+            detail = f"{slowest}, {values[slowest]:.2f} s" if slowest else "none"
+            lines.append(f"Publish {label}: {sum(values.values()):.2f} repository-seconds; slowest repository: {detail}.")
+        phases = timing.get("phases", {})
+        parallel = sum(seconds for name, seconds in phases.items() if name.startswith("topics-") or name == "current")
+        lines.append(f"Publish parallel phases: {parallel:.2f} s wall-clock.")
+        for name, seconds in phases.items():
+            lines.append(f"- publish {name}: {seconds:.2f} s wall-clock")
+        lines.append(f"Publish prepare: {timing.get('prepare', 0.0):.2f} s; resume: {timing.get('resume', 0.0):.2f} s wall-clock.")
+        deployment = sum(seconds for name, seconds in phases.items()
+                         if name.startswith("topics-") or name in {"hub", "rollback", "current"})
+        overhead = max(0.0, result["timings"].get("publish", 0.0) - deployment)
+        lines.append(f"Other publish work outside deployment phases: {overhead:.2f} s wall-clock.")
+        lines.append("Per-repository sums can exceed wall-clock when parallel workers overlap; category sums are not a wall-clock split.")
     return "\n".join(lines) + "\n"

@@ -99,6 +99,15 @@ class PublicationTests(unittest.TestCase):
 
     def test_topics_verify_before_hub_and_repeat_is_stable(self):
         result, metrics = self.run_publish()
+        timing = metrics["timing"]
+        self.assertEqual(set(timing["repositories"]), set(result["repositories"]))
+        for row in timing["repositories"].values():
+            self.assertEqual(set(row), {"push_main", "push_pages", "configure", "pages_build", "verify", "total"})
+            self.assertTrue(all(seconds >= 0 for seconds in row.values()))
+            self.assertGreaterEqual(row["total"], sum(seconds for key, seconds in row.items() if key != "total"))
+        self.assertGreaterEqual(timing["prepare"], 0)
+        self.assertGreaterEqual(timing["resume"], sum(timing["phases"].values()))
+        self.assertNotIn("timing", json.dumps(result))
         self.assertFalse(metrics["reused"])
         self.assertEqual(result["status"], "published")
         hub_push = next(i for i, e in enumerate(self.host.events) if e[:3] == ("push", "Wiki-hub", "gh-pages"))
@@ -107,6 +116,10 @@ class PublicationTests(unittest.TestCase):
         pushes = [e for e in self.host.events if e[0] == "push"]
         again, metrics = self.run_publish()
         self.assertTrue(metrics["reused"])
+        self.assertEqual(set(metrics["timing"]["repositories"]), set(result["repositories"]))
+        self.assertIn("current", metrics["timing"]["phases"])
+        self.assertTrue(all(row["push_main"] == row["push_pages"] == row["pages_build"] == 0
+                            for row in metrics["timing"]["repositories"].values()))
         self.assertEqual(again, result)
         self.assertEqual(pushes, [e for e in self.host.events if e[0] == "push"])
         self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before})
@@ -131,8 +144,14 @@ class PublicationTests(unittest.TestCase):
         first, _ = self.run_publish()
         self.next_release()
         self.host.fail_name = "Wiki-hub"
-        with self.assertRaisesRegex(ContractError, "Injected public hash failure"):
+        with self.assertRaisesRegex(ContractError, "Injected public hash failure") as raised:
             self.run_publish()
+        timing = raised.exception.publication_timing
+        self.assertIn("hub", timing["repositories"])
+        self.assertIn("hub", timing["rollback"])
+        self.assertGreaterEqual(timing["phases"]["rollback"], 0)
+        self.assertEqual(set(timing["rollback"]["hub"]), {"push_main", "push_pages", "configure", "pages_build", "verify", "total"})
+        self.assertTrue(all(seconds >= 0 for seconds in timing["rollback"]["hub"].values()))
         self.assertEqual(publication.published(self.root), first)
         rollback = self.host.ref("Wiki-hub", "gh-pages")
         path = self.root / "repositories/hub"
@@ -331,6 +350,39 @@ class PublicationTests(unittest.TestCase):
         git(repo, "commit", "-qm", "Binary data fixture")
         with self.assertRaisesRegex(ContractError, "Private or binary"):
             publication_git.audit(repo, git(repo, "rev-parse", "HEAD"), private)
+
+
+class TimingTests(unittest.TestCase):
+    def test_deploy_attributes_each_host_step_and_keeps_failed_wait_time(self):
+        class Steps:
+            elapsed = 0
+
+            def push(self, path, name, commit, branch, expected):
+                self.elapsed += 1 if branch == "main" else 2
+
+            def configure(self, name):
+                self.elapsed += 3
+
+            def wait(self, name, commit):
+                self.elapsed += 4
+                if fail:
+                    raise RuntimeError("build fault")
+
+            def verify(self, base, checks):
+                self.elapsed += 5
+
+        plan = {"path": ".local", "name": "wiki", "main": "main", "pages": "pages",
+                "old_main": None, "old_pages": None, "base": "https://example.invalid/", "checks": {}}
+        for fail in (False, True):
+            host, timing = Steps(), publication.repository_timing()
+            with self.subTest(fail=fail), patch.object(publication, "perf_counter", side_effect=lambda: host.elapsed):
+                if fail:
+                    with self.assertRaisesRegex(RuntimeError, "build fault"):
+                        publication.deploy(Path(__file__).resolve().parents[1], plan, host, timing)
+                else:
+                    self.assertIsNone(publication.deploy(Path(__file__).resolve().parents[1], plan, host, timing))
+            self.assertEqual(timing, {"push_main": 1, "push_pages": 2, "configure": 3,
+                                     "pages_build": 4, "verify": 0 if fail else 5, "total": 10 if fail else 15})
 
 
 class AdapterTests(unittest.TestCase):

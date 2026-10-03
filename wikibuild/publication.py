@@ -1,8 +1,10 @@
 """Durable topic-first Pages publication; the hub selects a verified release last."""
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 import json
 from pathlib import Path
+from time import perf_counter
 
 from . import entrypoints, github_pages, ownership, physical, publication_git, release
 from .storage import ContractError, digest, git, json_bytes, within, write_changed
@@ -138,13 +140,33 @@ def prepare(root, project, manifest, host):
             "fallback": {"tree": fallback_tree, "files": fallback_files}, "rollback": None}
 
 
-def deploy(root, plan, host):
+@contextmanager
+def measure(timing, key):
+    started = perf_counter()
+    try:
+        yield
+    finally:
+        if timing is not None:
+            timing[key] = timing.get(key, 0.0) + (perf_counter() - started)
+
+
+def repository_timing():
+    return dict.fromkeys(("push_main", "push_pages", "configure", "pages_build", "verify", "total"), 0.0)
+
+
+def deploy(root, plan, host, timing=None):
     path = within(root, plan["path"])
-    host.push(path, plan["name"], plan["main"], "main", plan["old_main"])
-    host.push(path, plan["name"], plan["pages"], "gh-pages", plan["old_pages"])
-    host.configure(plan["name"])
-    host.wait(plan["name"], plan["pages"])
-    host.verify(plan["base"], plan["checks"])
+    with measure(timing, "total"):
+        with measure(timing, "push_main"):
+            host.push(path, plan["name"], plan["main"], "main", plan["old_main"])
+        with measure(timing, "push_pages"):
+            host.push(path, plan["name"], plan["pages"], "gh-pages", plan["old_pages"])
+        with measure(timing, "configure"):
+            host.configure(plan["name"])
+        with measure(timing, "pages_build"):
+            host.wait(plan["name"], plan["pages"])
+        with measure(timing, "verify"):
+            host.verify(plan["base"], plan["checks"])
 
 
 def health(plan):
@@ -152,7 +174,7 @@ def health(plan):
     return {name: plan["files"][name]}
 
 
-def rollback(root, state, path, host):
+def rollback(root, state, path, host, timing=None):
     hub = state["repositories"][state.get("hub_control", "hub")]
     repo = within(root, hub["path"])
     if state["rollback"] is None:
@@ -162,17 +184,29 @@ def rollback(root, state, path, host):
         state["rollback"] = target
         state["phase"] = "rolling-back"
         save(path, state)
-    host.push(repo, hub["name"], state["rollback"], "gh-pages", hub["pages"])
-    host.configure(hub["name"])
-    host.wait(hub["name"], state["rollback"])
-    host.verify(hub["base"], state["fallback"]["files"])
+    with measure(timing, "push_pages"):
+        host.push(repo, hub["name"], state["rollback"], "gh-pages", hub["pages"])
+    with measure(timing, "configure"):
+        host.configure(hub["name"])
+    with measure(timing, "pages_build"):
+        host.wait(hub["name"], state["rollback"])
+    with measure(timing, "verify"):
+        host.verify(hub["base"], state["fallback"]["files"])
     state["phase"] = "rolled-back"
     save(path, state)
 
 
-def resume(root, state, path, host, workers):
+def resume(root, state, path, host, workers, timing=None):
+    timing = timing if timing is not None else {"repositories": {}, "rollback": {}, "phases": {}}
+
+    def restore():
+        identity = state.get("hub_control", "hub")
+        row = timing["rollback"].setdefault(identity, repository_timing())
+        with measure(timing["phases"], "rollback"), measure(row, "total"):
+            rollback(root, state, path, host, row)
+
     if state["phase"] == "rolling-back":
-        rollback(root, state, path, host)
+        restore()
     if state["phase"] == "rolled-back":
         hub = state["repositories"][state.get("hub_control", "hub")]
         hub["old_pages"] = state["rollback"]
@@ -183,24 +217,29 @@ def resume(root, state, path, host, workers):
         save(path, state)
     # Reconcile already verified topic refs. A saved success is not authority to
     # overwrite later external edits, or proof that the current target is live.
-    for topic, plan in state["repositories"].items():
-        remote = host.repository(plan["name"])
-        if not remote or remote["id"] != plan["repository_id"] or remote.get("private"):
-            raise ContractError(f"Publication destination changed: {plan['name']}")
-        if plan["verified"]:
-            if host.ref(plan["name"], "main") != plan["main"] or host.ref(plan["name"], "gh-pages") != plan["pages"]:
-                raise ContractError(f"Verified publication changed remotely: {plan['name']}")
-            host.verify(plan["base"], health(plan))
+    with measure(timing["phases"], "reconcile"):
+        for topic, plan in state["repositories"].items():
+            remote = host.repository(plan["name"])
+            if not remote or remote["id"] != plan["repository_id"] or remote.get("private"):
+                raise ContractError(f"Publication destination changed: {plan['name']}")
+            if plan["verified"]:
+                if host.ref(plan["name"], "main") != plan["main"] or host.ref(plan["name"], "gh-pages") != plan["pages"]:
+                    raise ContractError(f"Verified publication changed remotely: {plan['name']}")
+                row = timing["repositories"].setdefault(topic, repository_timing())
+                with measure(row, "total"), measure(row, "verify"):
+                    host.verify(plan["base"], health(plan))
     # Storage is a dependency of every topic/front that references its bytes.
     # Complete independent workers within each phase before advertising the next.
     groups = state.get("groups") or [[topic for topic, plan in state["repositories"].items()
                                       if topic != "hub" and (plan.get("role") == "partition") == storage]
                                      for storage in (True, False)]
     for rank, identities in enumerate(groups):
-        topics = [state["repositories"][topic] for topic in identities if not state["repositories"][topic]["verified"]]
+        topics = {topic: state["repositories"][topic] for topic in identities if not state["repositories"][topic]["verified"]}
         errors = []
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            pending = {pool.submit(deploy, root, plan, host): plan for plan in topics}
+        with measure(timing["phases"], f"topics-{rank}"), ThreadPoolExecutor(max_workers=workers) as pool:
+            pending = {pool.submit(deploy, root, plan, host,
+                       timing["repositories"].setdefault(topic, repository_timing())): plan
+                       for topic, plan in topics.items()}
             for future in as_completed(pending):
                 plan = pending[future]
                 try:
@@ -216,7 +255,9 @@ def resume(root, state, path, host, workers):
         state["phase"] = "hub"
         save(path, state)
         try:
-            deploy(root, hub, host)
+            row = timing["repositories"].setdefault(state.get("hub_control", "hub"), repository_timing())
+            with measure(timing["phases"], "hub"):
+                deploy(root, hub, host, row)
             hub["verified"] = True
             save(path, state)
         except github_pages.BuildObservationError:
@@ -227,24 +268,36 @@ def resume(root, state, path, host, workers):
             # Only a push that actually advanced the hub needs a compensating
             # commit. An unconfirmed response is reconciled against the live ref.
             if host.ref(hub["name"], "gh-pages") == hub["pages"]:
-                rollback(root, state, path, host)
+                restore()
             raise
-    result = {"schema_version": 1, "release_id": state["release_id"], "contract": state["contract"],
-              "status": "published", "repositories": state["repositories"], "hub": state["repositories"]["hub"]["base"],
-              "entrypoints": state.get("entrypoints", {topic: topic for topic, plan in state["repositories"].items()
-                                                      if plan.get("role") != "partition"})}
-    receipt = within(root, f"publications/{state['release_id']}.json")
-    if receipt.exists() and load(receipt) != result:
-        raise ContractError("Immutable publication receipt differs")
-    save(receipt, result)
-    save(root / "publications/latest.json", {"release_id": state["release_id"]})
-    state["phase"] = "complete"
-    save(path, state)
+    with measure(timing["phases"], "promote"):
+        result = {"schema_version": 1, "release_id": state["release_id"], "contract": state["contract"],
+                  "status": "published", "repositories": state["repositories"], "hub": state["repositories"]["hub"]["base"],
+                  "entrypoints": state.get("entrypoints", {topic: topic for topic, plan in state["repositories"].items()
+                                                          if plan.get("role") != "partition"})}
+        receipt = within(root, f"publications/{state['release_id']}.json")
+        if receipt.exists() and load(receipt) != result:
+            raise ContractError("Immutable publication receipt differs")
+        save(receipt, result)
+        save(root / "publications/latest.json", {"release_id": state["release_id"]})
+        state["phase"] = "complete"
+        save(path, state)
     return result
 
 
 def run(root, project, manifest, *, host=None, progress=None):
     """Caller holds the shared OS writer lock; no model calls or human gates."""
+    timing = {"repositories": {}, "rollback": {}, "phases": {}, "prepare": 0.0, "resume": 0.0}
+    try:
+        with measure(timing, "total"):
+            result, metrics = _run(root, project, manifest, host, progress, timing)
+        return result, {**metrics, "timing": timing}
+    except (Exception, KeyboardInterrupt) as exc:
+        exc.publication_timing = timing
+        raise
+
+
+def _run(root, project, manifest, host, progress, timing):
     if not project.get("publication", {}).get("enabled", False):
         return {"status": "disabled"}, {"reused": True}
     host = host or github_pages.GitHubPages(project["github_owner"], progress)
@@ -254,23 +307,35 @@ def run(root, project, manifest, *, host=None, progress=None):
     if state and state["phase"] != "complete":
         if state["owner"] != project["github_owner"]:
             raise ContractError("Pending publication belongs to another namespace")
-        resumed = resume(root, state, path, host, workers)
+        with measure(timing, "resume"):
+            resumed = resume(root, state, path, host, workers, timing)
         if resumed["release_id"] == manifest["release_id"]:
             return resumed, {"reused": False}
     release.verify(root, manifest)
     current = published(root)
     if current and current["release_id"] == manifest["release_id"]:
-        def check_current(plan):
+        def check_current(topic, plan):
+            row = timing["repositories"][topic]
+            with measure(row, "total"):
+                check(plan, row)
+
+        def check(plan, row):
             remote = host.repository(plan["name"])
             if not remote or remote["id"] != plan["repository_id"] or remote.get("private"):
                 raise ContractError(f"Published destination changed: {plan['name']}")
             if host.ref(plan["name"], "main") != plan["main"] or host.ref(plan["name"], "gh-pages") != plan["pages"]:
                 raise ContractError(f"Published branch changed: {plan['name']}")
-            host.configure(plan["name"])
-            host.verify(plan["base"], health(plan))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            list(pool.map(check_current, current["repositories"].values()))
+            with measure(row, "configure"):
+                host.configure(plan["name"])
+            with measure(row, "verify"):
+                host.verify(plan["base"], health(plan))
+        timing["repositories"].update({topic: repository_timing() for topic in current["repositories"]})
+        with measure(timing, "resume"), measure(timing["phases"], "current"), ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(check_current, current["repositories"], current["repositories"].values()))
         return current, {"reused": True}
-    state = prepare(root, project, manifest, host)
+    with measure(timing, "prepare"):
+        state = prepare(root, project, manifest, host)
     save(path, state)
-    return resume(root, state, path, host, workers), {"reused": False}
+    with measure(timing, "resume"):
+        result = resume(root, state, path, host, workers, timing)
+    return result, {"reused": False}
