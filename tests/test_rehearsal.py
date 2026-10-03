@@ -1,13 +1,11 @@
 """Rehearsal receipts are saved after success and restoration, without network."""
 
 from contextlib import contextmanager
-from pathlib import Path
-import shutil
 import unittest
-from uuid import uuid4
 from unittest.mock import patch
 
 import test_publish_gate
+from tests._support import fixture_dir, remove_tree
 from tools import rehearse_publication
 from wikibuild import github_pages, publication, publish_gate
 from wikibuild.storage import ContractError
@@ -16,7 +14,7 @@ from wikibuild.storage import ContractError
 class RehearsalTests(unittest.TestCase):
     def setUp(self):
         fixture = test_publish_gate.PublishGateTests()
-        self.addCleanup(fixture.doCleanups)
+        fixture.addCleanup = self.addCleanup
         fixture.setUp()
         fixture.client.stop()  # RehearsalHost inherits the real class; mock its API below.
         self.fixture = fixture
@@ -31,16 +29,13 @@ class RehearsalTests(unittest.TestCase):
         temporary.start()
         self.addCleanup(temporary.stop)
 
-    @staticmethod
     @contextmanager
-    def temporary_directory(dir):
-        # Ordinary owned directories avoid mkdtemp's sandbox ACLs; cleanup is mandatory.
-        path = Path(dir) / uuid4().hex[:4]
-        path.mkdir()
+    def temporary_directory(self, dir):
+        path = fixture_dir(self, "rehearse")
         try:
             yield str(path)
         finally:
-            shutil.rmtree(path)
+            remove_tree(path)
 
     def test_success_restores_publication_state_then_writes_bound_receipt(self):
         pending = self.root / ".local/publication/pending.json"

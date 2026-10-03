@@ -3,8 +3,9 @@
 import copy
 import json
 from pathlib import Path
-import tempfile
 import unittest
+
+from tests._support import fixture_dir
 
 from wikibuild import presentation
 
@@ -38,11 +39,11 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual([(stat["label"], stat["display"]) for stat in stats], [("Type", "Pump-action shotgun")])
         broken = copy.deepcopy(json.loads(REGISTRY.read_text(encoding="utf-8")))
         broken["kinds"]["combat-rule"]["fields"]["/_GunType"]["glossary"] = "missing"
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "fields.json"
-            path.write_text(json.dumps(broken), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "unknown glossary"):
-                presentation.load(path)
+        folder = str(fixture_dir(self, "presenta"))
+        path = Path(folder) / "fields.json"
+        path.write_text(json.dumps(broken), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "unknown glossary"):
+            presentation.load(path)
 
     def test_harvest_family_registry_requires_exact_string_rules_and_valid_regex(self):
         base = json.loads(REGISTRY.read_text(encoding="utf-8"))
@@ -51,14 +52,14 @@ class PresentationTests(unittest.TestCase):
                    [{"match": 5, "family": "trees"}],
                    [{"match": "tree", "family": None}],
                    [{"match": "(", "family": "trees"}]]
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "fields.json"
-            for rules in invalid:
-                registry = copy.deepcopy(base)
-                registry["guides"]["harvest_families"] = rules
-                path.write_text(json.dumps(registry), encoding="utf-8")
-                with self.subTest(rules=rules), self.assertRaisesRegex(ValueError, "guides.harvest_families"):
-                    presentation.load(path)
+        folder = str(fixture_dir(self, "presenta"))
+        path = Path(folder) / "fields.json"
+        for rules in invalid:
+            registry = copy.deepcopy(base)
+            registry["guides"]["harvest_families"] = rules
+            path.write_text(json.dumps(registry), encoding="utf-8")
+            with self.subTest(rules=rules), self.assertRaisesRegex(ValueError, "guides.harvest_families"):
+                presentation.load(path)
 
     def test_feature_registry_requires_manager_and_source_types(self):
         base = json.loads(REGISTRY.read_text(encoding="utf-8"))
@@ -67,14 +68,14 @@ class PresentationTests(unittest.TestCase):
                                                "label": "Merchants", "evidence": "code"}},
                    {"about": "text", "merchants": {"manager_object": "Merchant_Mgr", "source_types": ["merchant", "merchant"],
                                                "label": "Merchants", "evidence": "code"}}]
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / "fields.json"
-            for features in invalid:
-                registry = copy.deepcopy(base)
-                registry["features"] = features
-                path.write_text(json.dumps(registry), encoding="utf-8")
-                with self.subTest(features=features), self.assertRaisesRegex(ValueError, "features"):
-                    presentation.load(path)
+        folder = str(fixture_dir(self, "presenta"))
+        path = Path(folder) / "fields.json"
+        for features in invalid:
+            registry = copy.deepcopy(base)
+            registry["features"] = features
+            path.write_text(json.dumps(registry), encoding="utf-8")
+            with self.subTest(features=features), self.assertRaisesRegex(ValueError, "features"):
+                presentation.load(path)
 
     def test_every_player_tier_value_has_a_label_and_format(self):
         """A31: a player sees no field without a label or with a raw value."""
@@ -290,7 +291,8 @@ class PresentationTests(unittest.TestCase):
             ("cases", lambda r: r["kinds"]["item"]["fields"]["/_baseDamage"].update(cases=[{"when": []}])),
         ]
         for key, mutate in mutations:
-            with self.subTest(key=key), tempfile.TemporaryDirectory() as folder:
+            folder = str(fixture_dir(self, "presenta"))
+            with self.subTest(key=key):
                 data = copy.deepcopy(self.registry)
                 mutate(data)
                 path = Path(folder) / "fields.json"

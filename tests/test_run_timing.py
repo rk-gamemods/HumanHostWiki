@@ -4,8 +4,6 @@ import copy
 import io
 import itertools
 import json
-from pathlib import Path
-import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
@@ -14,11 +12,11 @@ from unittest.mock import patch
 import test_pipeline
 import test_publication
 import wiki
+from tests._support import fixture_dir
 from wikibuild import manifest, pipeline, publication, release, run_timing, workspace
 from wikibuild.storage import ContractError, git, json_bytes
 
 
-ROOT = Path(__file__).resolve().parents[1]
 CAPTURE = {"schema": "humanhost.capture-timing.v1", "started_at": "2026-10-03T00:00:00Z",
            "finished_at": "2026-10-03T00:00:08Z", "seconds": 8, "outcome": "reused", "error": None,
            "output_path": "source", "output_commit": "a" * 40, "game": "HumanHost",
@@ -43,11 +41,7 @@ class ObservedLock:
 
 class TimingTests(unittest.TestCase):
     def setUp(self):
-        parent = ROOT / ".local/t"
-        parent.mkdir(parents=True, exist_ok=True)
-        self.folder = tempfile.TemporaryDirectory(dir=parent)
-        self.addCleanup(self.folder.cleanup)
-        self.root = Path(self.folder.name)
+        self.root = fixture_dir(self, "timing")
 
     def records(self):
         return list((self.root / ".local/runs").glob("*.json"))
@@ -419,8 +413,8 @@ class TimingTests(unittest.TestCase):
 class PipelineTimingTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_pipeline.PipelineTests()
+        self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
         self.root, self.source = self.fixture.root, self.fixture.source
         from test_extraction import PROJECT
         # Exercise the actual coordinated release rather than the pipeline
@@ -468,12 +462,8 @@ class PipelineTimingTests(unittest.TestCase):
 class PublishTimingTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_publication.PublicationTests()
-        parent = ROOT / ".local/t"
-        parent.mkdir(parents=True, exist_ok=True)
-        temporary = tempfile.TemporaryDirectory
-        with patch.object(tempfile, "TemporaryDirectory", side_effect=lambda **kwargs: temporary(dir=parent, **kwargs)):
-            self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.addCleanup = self.addCleanup
+        self.fixture.setUp()
         self.root = self.fixture.root
 
     def invoke(self):

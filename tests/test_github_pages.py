@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from wikibuild import github_pages, mediawiki
+from wikibuild import bounded_http, github_pages
 from wikibuild.storage import ContractError
 
 
@@ -132,9 +132,9 @@ class PagesStateTests(unittest.TestCase):
                     value = real_timer(*args, **kwargs)
                     timers.append(value)
                     return value
-                with patch.object(mediawiki, "Timer", side_effect=timer):
+                with patch.object(bounded_http, "Timer", side_effect=timer):
                     with self.assertRaises(KeyboardInterrupt if interruption else TimeoutError):
-                        with mediawiki.response_deadline(response, time.monotonic() + 0.05, time.monotonic):
+                        with bounded_http.response_deadline(response, time.monotonic() + 0.05, time.monotonic):
                             if interruption:
                                 raise KeyboardInterrupt
                             response.read()
@@ -388,42 +388,27 @@ class PagesStateTests(unittest.TestCase):
         self.assertEqual(clock.now, 4)
         self.assertEqual(timeouts, [3, 1.25])
 
-    def test_public_and_mediawiki_reads_exhaust_elapsed_budget(self):
-        for adapter in ("pages", "mediawiki"):
-            with self.subTest(adapter=adapter):
-                clock = Clock()
-                class Slow(io.BytesIO):
-                    def read1(self, size):
-                        clock.sleep(1)
-                        return b"x"
-                response = Slow()
-                response.url = "https://example.invalid/file"
-                response.status = 200
-                response.headers = Message()
-                response.headers["Content-Type"] = "application/json"
-                if adapter == "pages":
-                    host = github_pages.GitHubPages("fixture")
-                    host.clock = clock
-                    with patch.object(github_pages, "urlopen", return_value=response) as opened:
-                        with self.assertRaisesRegex(ContractError, "deadline"):
-                            host.verify("https://example.invalid/", {"file": {"bytes": 100, "sha256": "unused"}}, deadline=3)
-                    self.assertEqual(opened.call_args.kwargs["timeout"], 3)
-                else:
-                    client = mediawiki.Client("https://example.invalid/api.php", clock=clock)
-                    with patch.object(client.opener, "open", return_value=response) as opened:
-                        with self.assertRaisesRegex(mediawiki.RemoteError, "deadline"):
-                            client({}, deadline=3)
-                    self.assertEqual(opened.call_args.kwargs["timeout"], 3)
-                self.assertEqual(clock.now, 3)
-                self.assertTrue(response.closed)
-
-    def test_exhausted_mediawiki_budget_prevents_a_new_request(self):
+    def test_public_reads_exhaust_elapsed_budget(self):
         clock = Clock()
-        client = mediawiki.Client("https://example.invalid/api.php", deadline=0, clock=clock)
-        with patch.object(client.opener, "open") as opened:
-            with self.assertRaisesRegex(mediawiki.RemoteError, "deadline"):
-                client({})
-        opened.assert_not_called()
+
+        class Slow(io.BytesIO):
+            def read1(self, size):
+                clock.sleep(1)
+                return b"x"
+
+        response = Slow()
+        response.url = "https://example.invalid/file"
+        response.status = 200
+        response.headers = Message()
+        response.headers["Content-Type"] = "application/json"
+        host = github_pages.GitHubPages("fixture")
+        host.clock = clock
+        with patch.object(github_pages, "urlopen", return_value=response) as opened:
+            with self.assertRaisesRegex(ContractError, "deadline"):
+                host.verify("https://example.invalid/", {"file": {"bytes": 100, "sha256": "unused"}}, deadline=3)
+        self.assertEqual(opened.call_args.kwargs["timeout"], 3)
+        self.assertEqual(clock.now, 3)
+        self.assertTrue(response.closed)
 
 
 if __name__ == "__main__":

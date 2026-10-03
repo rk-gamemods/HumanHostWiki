@@ -1,0 +1,699 @@
+{
+  "components": [
+    {
+      "name": "storage",
+      "description": "Filesystem contracts, immutable packs, shard indexes and exception records.",
+      "paths": [
+        "wikibuild/__init__.py",
+        "wikibuild/storage.py",
+        "wikibuild/exceptions.py",
+        "wikibuild/packs.py",
+        "wikibuild/shard_index.py",
+        "tools/audit_shard_index.py"
+      ],
+      "tests": [
+        "tests/test_shard_index.py"
+      ],
+      "depends_on": []
+    },
+    {
+      "name": "run-timing",
+      "description": "Cross-cutting command timing and diagnostic receipts, exercised by CLI integration tests.",
+      "paths": [
+        "wikibuild/run_timing.py"
+      ],
+      "tests": [],
+      "depends_on": [
+        "storage"
+      ]
+    },
+    {
+      "name": "process",
+      "description": "Bounded subprocess execution, bounded HTTP reads and exact Git transactions.",
+      "paths": [
+        "wikibuild/bounded.py",
+        "wikibuild/git_transaction.py",
+        "wikibuild/bounded_http.py"
+      ],
+      "tests": [
+        "tests/test_bounded.py",
+        "tests/test_windows_fixtures.py"
+      ],
+      "depends_on": [
+        "storage",
+        "test-support"
+      ]
+    },
+    {
+      "name": "source",
+      "description": "Pinned source reads, snapshot receipts and C# dependency selection.",
+      "paths": [
+        "wikibuild/source.py",
+        "wikibuild/source_record.py",
+        "wikibuild/snapshots.py",
+        "wikibuild/code_dependencies.py"
+      ],
+      "tests": [
+        "tests/test_source_record.py",
+        "tests/test_code_dependencies.py"
+      ],
+      "depends_on": [
+        "storage"
+      ]
+    },
+    {
+      "name": "extraction",
+      "description": "Typed catalog extraction, topic adapters and capture conservation checks.",
+      "paths": [
+        "wikibuild/extraction.py",
+        "wikibuild/adapters/**",
+        "wikibuild/capture_catalog.py",
+        "tools/check_extraction.py",
+        "tools/check_coded_values.py",
+        "tools/benchmark_extraction.py",
+        "tools/audit_capture_catalog.py"
+      ],
+      "tests": [
+        "tests/test_acquisition.py",
+        "tests/test_biomes.py",
+        "tests/test_capture_catalog.py",
+        "tests/test_check_extraction.py",
+        "tests/test_coded_values.py",
+        "tests/test_combat.py",
+        "tests/test_components.py",
+        "tests/test_extraction.py",
+        "tests/test_prefabs.py",
+        "tests/test_world_configuration.py"
+      ],
+      "depends_on": [
+        "storage",
+        "source",
+        "test-support"
+      ]
+    },
+    {
+      "name": "identity",
+      "description": "Entity matching, semantic models and historical revisions.",
+      "paths": [
+        "wikibuild/identity.py",
+        "wikibuild/model.py",
+        "wikibuild/history.py",
+        "tools/check_history.py"
+      ],
+      "tests": [
+        "tests/test_identity.py",
+        "tests/test_model.py",
+        "tests/test_history.py"
+      ],
+      "depends_on": [
+        "storage",
+        "source",
+        "extraction",
+        "test-support"
+      ]
+    },
+    {
+      "name": "presentation",
+      "description": "Player field presentation, readability, browser assets and font audits.",
+      "paths": [
+        "wikibuild/presentation.py",
+        "wikibuild/lint.py",
+        "wikibuild/web/**",
+        "tools/audit_readability.py",
+        "tools/audit_fonts.py",
+        "tools/check_site.js"
+      ],
+      "tests": [
+        "tests/test_presentation.py",
+        "tests/test_lint.py",
+        "tests/test_audit_readability.py",
+        "tests/reader_*.test.js",
+        "tests/site_server.test.js",
+        "tests/test_site_server.py"
+      ],
+      "depends_on": [
+        "test-support"
+      ]
+    },
+    {
+      "name": "gameplay",
+      "description": "Game text, player names, gameplay graph queries and authored guides.",
+      "paths": [
+        "wikibuild/game_text.py",
+        "wikibuild/gameplay.py",
+        "wikibuild/names.py",
+        "wikibuild/guide_queries.py",
+        "wikibuild/guides.py",
+        "tools/inspect_gameplay.py",
+        "tools/inspect_names.py",
+        "tools/render_guides.py"
+      ],
+      "tests": [
+        "tests/test_game_text.py",
+        "tests/test_gameplay.py",
+        "tests/test_names.py",
+        "tests/test_guide_queries.py",
+        "tests/test_guides.py"
+      ],
+      "depends_on": [
+        "storage",
+        "source",
+        "extraction",
+        "identity",
+        "presentation",
+        "test-support"
+      ]
+    },
+    {
+      "name": "curation",
+      "description": "Versioned curated claims and deterministic dependency checks.",
+      "paths": [
+        "wikibuild/curation.py",
+        "wikibuild/curated_rules.py"
+      ],
+      "tests": [
+        "tests/test_curation.py"
+      ],
+      "depends_on": [
+        "storage",
+        "source",
+        "extraction",
+        "identity"
+      ]
+    },
+    {
+      "name": "availability",
+      "description": "Anonymous Steam build observations and metadata client integration.",
+      "paths": [
+        "wikibuild/availability.py",
+        "wikibuild/steam_build.py",
+        "tools/Install-SteamMetadataClient.ps1",
+        "tools/SteamMetadataClient.Install.ps1"
+      ],
+      "tests": [
+        "tests/test_availability.py",
+        "tests/*.ps1"
+      ],
+      "depends_on": [
+        "storage",
+        "process",
+        "test-support"
+      ]
+    },
+    {
+      "name": "external-links",
+      "description": "Versioned external article observations and provider audits.",
+      "paths": [
+        "wikibuild/external_links.py",
+        "wikibuild/mediawiki.py",
+        "tools/check_external_links.py",
+        "tools/check_external_projection.py",
+        "tools/audit_external_articles.py"
+      ],
+      "tests": [
+        "tests/test_external_links.py",
+        "tests/test_external_integration.py"
+      ],
+      "depends_on": [
+        "storage",
+        "test-support",
+        "process"
+      ]
+    },
+    {
+      "name": "capacity",
+      "description": "Physical allocation, ownership, capacity projection and inventory checks.",
+      "paths": [
+        "wikibuild/capacity.py",
+        "wikibuild/capacity_inventory.py",
+        "wikibuild/capacity_projection.py",
+        "wikibuild/physical.py",
+        "wikibuild/ownership.py",
+        "wikibuild/entrypoints.py",
+        "tools/check_capacity.py",
+        "tools/check_capacity_projection.py",
+        "tools/audit_ownership.py"
+      ],
+      "tests": [
+        "tests/test_capacity*.py",
+        "tests/test_ownership.py",
+        "tests/test_entrypoints.py"
+      ],
+      "depends_on": [
+        "storage",
+        "extraction",
+        "presentation",
+        "external-links",
+        "test-support"
+      ]
+    },
+    {
+      "name": "workspace",
+      "description": "Repository manifests, checkout baselines, navigation and foundation contracts.",
+      "paths": [
+        "wikibuild/workspace.py",
+        "wikibuild/manifest.py",
+        "wikibuild/navigation.py",
+        "docs/**",
+        "README.md",
+        "AGENTS.md",
+        "snapshots/README.md",
+        "releases/README.md",
+        "project.json"
+      ],
+      "tests": [
+        "tests/test_foundation.py"
+      ],
+      "depends_on": [
+        "storage",
+        "source",
+        "capacity",
+        "external-links",
+        "test-support"
+      ]
+    },
+    {
+      "name": "reader",
+      "description": "Static reader generation, pages, retention and local reader serving.",
+      "paths": [
+        "wikibuild/reader.py",
+        "wikibuild/pages.py",
+        "wikibuild/reader_retention.py",
+        "tools/check_reader.py",
+        "tools/benchmark_reader.py",
+        "tools/benchmark_reader_retention.py",
+        "tools/serve_reader.py"
+      ],
+      "tests": [
+        "tests/test_reader*.py"
+      ],
+      "depends_on": [
+        "storage",
+        "source",
+        "extraction",
+        "identity",
+        "gameplay",
+        "curation",
+        "presentation",
+        "availability",
+        "external-links",
+        "workspace",
+        "test-support"
+      ]
+    },
+    {
+      "name": "release",
+      "description": "Coordinated local Git releases, partition content and release verification.",
+      "paths": [
+        "wikibuild/release*.py",
+        "wikibuild/release_bootstrap.js",
+        "tools/check_release.py",
+        "tools/benchmark_release.py",
+        "tools/serve_release.py"
+      ],
+      "tests": [
+        "tests/test_release*.py",
+        "tests/test_serve_release.py",
+        "tests/test_ownership_transaction.py",
+        "tests/release_bootstrap.test.js"
+      ],
+      "depends_on": [
+        "storage",
+        "process",
+        "source",
+        "extraction",
+        "reader",
+        "capacity",
+        "workspace",
+        "external-links",
+        "presentation",
+        "test-support"
+      ]
+    },
+    {
+      "name": "publication",
+      "description": "GitHub Pages provisioning, publication gates and topic-first deployment.",
+      "paths": [
+        "wikibuild/publication*.py",
+        "wikibuild/publish_gate.py",
+        "wikibuild/github_pages.py",
+        "tools/rehearse_publication.py"
+      ],
+      "tests": [
+        "tests/test_publication*.py",
+        "tests/test_publish_gate.py",
+        "tests/test_rehearsal.py",
+        "tests/test_github_pages.py"
+      ],
+      "depends_on": [
+        "storage",
+        "process",
+        "release",
+        "run-timing",
+        "capacity",
+        "workspace",
+        "reader",
+        "test-tooling",
+        "test-support"
+      ]
+    },
+    {
+      "name": "cli",
+      "description": "CLI entrypoint and unattended stage orchestration.",
+      "paths": [
+        "wiki.py",
+        "wikibuild/pipeline.py"
+      ],
+      "tests": [
+        "tests/test_pipeline.py",
+        "tests/test_cli_publication.py",
+        "tests/test_run_timing.py"
+      ],
+      "depends_on": [
+        "storage",
+        "process",
+        "source",
+        "extraction",
+        "identity",
+        "gameplay",
+        "curation",
+        "reader",
+        "capacity",
+        "release",
+        "publication",
+        "run-timing",
+        "availability",
+        "external-links",
+        "presentation",
+        "workspace",
+        "test-support"
+      ]
+    },
+    {
+      "name": "test-support",
+      "description": "Shared fixture roots and unittest package infrastructure.",
+      "paths": [],
+      "tests": [
+        "tests/__init__.py",
+        "tests/_support.py"
+      ],
+      "depends_on": []
+    },
+    {
+      "name": "test-tooling",
+      "description": "Component boundary enforcement and targeted parallel test execution.",
+      "paths": [
+        "tools/check_components.py",
+        "tools/run_tests.py"
+      ],
+      "tests": [
+        "tests/test_architecture.py"
+      ],
+      "depends_on": [
+        "test-support"
+      ]
+    }
+  ],
+  "known_violations": [
+    {
+      "source": "tests/test_availability.py",
+      "target": "tests/test_pipeline.py",
+      "reason": "Steam observation tests reuse pipeline/reader fixtures; separate freshness integration cases from provider units."
+    },
+    {
+      "source": "tests/test_availability.py",
+      "target": "tests/test_reader.py",
+      "reason": "Steam observation tests reuse pipeline/reader fixtures; separate freshness integration cases from provider units."
+    },
+    {
+      "source": "tests/test_availability.py",
+      "target": "wikibuild/manifest.py",
+      "reason": "Steam observation tests reuse pipeline/reader fixtures; separate freshness integration cases from provider units."
+    },
+    {
+      "source": "tests/test_availability.py",
+      "target": "wikibuild/reader.py",
+      "reason": "Steam observation tests reuse pipeline/reader fixtures; separate freshness integration cases from provider units."
+    },
+    {
+      "source": "tests/test_bounded.py",
+      "target": "wiki.py",
+      "reason": "Process tests also cover CLI deadlines and SteamCMD; split these cases into their consuming components."
+    },
+    {
+      "source": "tests/test_bounded.py",
+      "target": "wikibuild/steam_build.py",
+      "reason": "Process tests also cover CLI deadlines and SteamCMD; split these cases into their consuming components."
+    },
+    {
+      "source": "tests/test_capacity_projection.py",
+      "target": "tests/test_reader.py",
+      "reason": "Projection tests use complete reader/release contracts; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_capacity_projection.py",
+      "target": "wikibuild/reader.py",
+      "reason": "Projection tests use complete reader/release contracts; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_capacity_projection.py",
+      "target": "wikibuild/release.py",
+      "reason": "Projection tests use complete reader/release contracts; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_capacity_projection.py",
+      "target": "wikibuild/release_content.py",
+      "reason": "Projection tests use complete reader/release contracts; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_capacity_release.py",
+      "target": "tests/test_publication.py",
+      "reason": "Forced-capacity scenarios span release/publication/workspace; move scenarios to a release integration module."
+    },
+    {
+      "source": "tests/test_capacity_release.py",
+      "target": "tests/test_release.py",
+      "reason": "Forced-capacity scenarios span release/publication/workspace; move scenarios to a release integration module."
+    },
+    {
+      "source": "tests/test_capacity_release.py",
+      "target": "tools/check_release.py",
+      "reason": "Forced-capacity scenarios span release/publication/workspace; move scenarios to a release integration module."
+    },
+    {
+      "source": "tests/test_capacity_release.py",
+      "target": "wikibuild/publication.py",
+      "reason": "Forced-capacity scenarios span release/publication/workspace; move scenarios to a release integration module."
+    },
+    {
+      "source": "tests/test_capacity_release.py",
+      "target": "wikibuild/reader.py",
+      "reason": "Forced-capacity scenarios span release/publication/workspace; move scenarios to a release integration module."
+    },
+    {
+      "source": "tests/test_capacity_release.py",
+      "target": "wikibuild/release.py",
+      "reason": "Forced-capacity scenarios span release/publication/workspace; move scenarios to a release integration module."
+    },
+    {
+      "source": "tests/test_capacity_release.py",
+      "target": "wikibuild/release_partitions.py",
+      "reason": "Forced-capacity scenarios span release/publication/workspace; move scenarios to a release integration module."
+    },
+    {
+      "source": "tests/test_capacity_release.py",
+      "target": "wikibuild/workspace.py",
+      "reason": "Forced-capacity scenarios span release/publication/workspace; move scenarios to a release integration module."
+    },
+    {
+      "source": "tests/test_coded_values.py",
+      "target": "wikibuild/model.py",
+      "reason": "Extraction enum tests also check semantic models; move model assertions into identity tests."
+    },
+    {
+      "source": "tests/test_curation.py",
+      "target": "tests/test_reader.py",
+      "reason": "Claim tests build a reader fixture and render pages; separate claim units from reader integration."
+    },
+    {
+      "source": "tests/test_curation.py",
+      "target": "wikibuild/pages.py",
+      "reason": "Claim tests build a reader fixture and render pages; separate claim units from reader integration."
+    },
+    {
+      "source": "tests/test_curation.py",
+      "target": "wikibuild/reader.py",
+      "reason": "Claim tests build a reader fixture and render pages; separate claim units from reader integration."
+    },
+    {
+      "source": "tests/test_entrypoints.py",
+      "target": "tests/test_publication.py",
+      "reason": "Entrypoint tests instantiate release/publication fixtures; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_entrypoints.py",
+      "target": "tests/test_release.py",
+      "reason": "Entrypoint tests instantiate release/publication fixtures; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_entrypoints.py",
+      "target": "tools/check_release.py",
+      "reason": "Entrypoint tests instantiate release/publication fixtures; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_entrypoints.py",
+      "target": "wikibuild/publication.py",
+      "reason": "Entrypoint tests instantiate release/publication fixtures; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_entrypoints.py",
+      "target": "wikibuild/reader.py",
+      "reason": "Entrypoint tests instantiate release/publication fixtures; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_entrypoints.py",
+      "target": "wikibuild/release.py",
+      "reason": "Entrypoint tests instantiate release/publication fixtures; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_entrypoints.py",
+      "target": "wikibuild/release_partitions.py",
+      "reason": "Entrypoint tests instantiate release/publication fixtures; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_entrypoints.py",
+      "target": "wikibuild/workspace.py",
+      "reason": "Entrypoint tests instantiate release/publication fixtures; separate allocation units from release integration."
+    },
+    {
+      "source": "tests/test_external_integration.py",
+      "target": "tests/test_pipeline.py",
+      "reason": "External article scenarios span pipeline, reader, capacity and release; extract provider units and a consumer integration fixture."
+    },
+    {
+      "source": "tests/test_external_integration.py",
+      "target": "tests/test_reader.py",
+      "reason": "External article scenarios span pipeline, reader, capacity and release; extract provider units and a consumer integration fixture."
+    },
+    {
+      "source": "tests/test_external_integration.py",
+      "target": "tools/check_capacity_projection.py",
+      "reason": "External article scenarios span pipeline, reader, capacity and release; extract provider units and a consumer integration fixture."
+    },
+    {
+      "source": "tests/test_external_integration.py",
+      "target": "wikibuild/capacity.py",
+      "reason": "External article scenarios span pipeline, reader, capacity and release; extract provider units and a consumer integration fixture."
+    },
+    {
+      "source": "tests/test_external_integration.py",
+      "target": "wikibuild/capacity_projection.py",
+      "reason": "External article scenarios span pipeline, reader, capacity and release; extract provider units and a consumer integration fixture."
+    },
+    {
+      "source": "tests/test_external_integration.py",
+      "target": "wikibuild/reader.py",
+      "reason": "External article scenarios span pipeline, reader, capacity and release; extract provider units and a consumer integration fixture."
+    },
+    {
+      "source": "tests/test_external_integration.py",
+      "target": "wikibuild/release.py",
+      "reason": "External article scenarios span pipeline, reader, capacity and release; extract provider units and a consumer integration fixture."
+    },
+    {
+      "source": "tests/test_guide_queries.py",
+      "target": "wikibuild/reader.py",
+      "reason": "Guide query tests check reader invalidation; move the invalidation case into reader tests."
+    },
+    {
+      "source": "tests/test_ownership_transaction.py",
+      "target": "wikibuild/publication.py",
+      "reason": "Git ownership tests exercise publication backends; move those backend cases to publication tests."
+    },
+    {
+      "source": "tests/test_ownership_transaction.py",
+      "target": "wikibuild/publication_git.py",
+      "reason": "Git ownership tests exercise publication backends; move those backend cases to publication tests."
+    },
+    {
+      "source": "tests/test_prefabs.py",
+      "target": "wikibuild/model.py",
+      "reason": "Prefab extraction tests also build semantic models; move model assertions into identity tests."
+    },
+    {
+      "source": "tools/benchmark_extraction.py",
+      "target": "wikibuild/history.py",
+      "reason": "The extraction benchmark includes historical reconciliation; separate stage measurement from identity integration."
+    },
+    {
+      "source": "tools/benchmark_reader_retention.py",
+      "target": "wiki.py",
+      "reason": "The reader retention benchmark measures the whole update pipeline; move pipeline measurement to a CLI-owned tool."
+    },
+    {
+      "source": "tools/benchmark_reader_retention.py",
+      "target": "wikibuild/pipeline.py",
+      "reason": "The reader retention benchmark measures the whole update pipeline; move pipeline measurement to a CLI-owned tool."
+    },
+    {
+      "source": "tools/check_capacity.py",
+      "target": "wikibuild/manifest.py",
+      "reason": "Capacity checks validate workspace manifests; pass a validated manifest from the workspace owner."
+    },
+    {
+      "source": "tools/check_capacity_projection.py",
+      "target": "wikibuild/manifest.py",
+      "reason": "Projection audits load manifests and build full releases; keep these checks in a release-owned integration tool."
+    },
+    {
+      "source": "tools/check_capacity_projection.py",
+      "target": "wikibuild/reader.py",
+      "reason": "Projection audits load manifests and build full releases; keep these checks in a release-owned integration tool."
+    },
+    {
+      "source": "tools/check_capacity_projection.py",
+      "target": "wikibuild/release.py",
+      "reason": "Projection audits load manifests and build full releases; keep these checks in a release-owned integration tool."
+    },
+    {
+      "source": "wikibuild/capacity_inventory.py",
+      "target": "wikibuild/publication.py",
+      "reason": "Capacity inventory reaches into release/publication state; pass immutable inventory inputs from those owners."
+    },
+    {
+      "source": "wikibuild/capacity_inventory.py",
+      "target": "wikibuild/release.py",
+      "reason": "Capacity inventory reaches into release/publication state; pass immutable inventory inputs from those owners."
+    },
+    {
+      "source": "wikibuild/capacity_projection.py",
+      "target": "wikibuild/reader.py",
+      "reason": "Physical projection uses reader/release-content internals; extract a lower-level artifact contract."
+    },
+    {
+      "source": "wikibuild/capacity_projection.py",
+      "target": "wikibuild/release_content.py",
+      "reason": "Physical projection uses reader/release-content internals; extract a lower-level artifact contract."
+    },
+    {
+      "source": "wikibuild/git_transaction.py",
+      "target": "wikibuild/extraction.py",
+      "reason": "Generic Git transactions import extraction file_hash; move the shared hashing primitive to storage."
+    },
+    {
+      "source": "wikibuild/release.py",
+      "target": "wikibuild/publication.py",
+      "reason": "Local release orchestration calls publication provisioning; let the upper pipeline coordinate provisioning."
+    },
+    {
+      "source": "wikibuild/release_prepare.py",
+      "target": "wikibuild/publication_git.py",
+      "reason": "Local release preparation uses publication Git internals; move the generic Git backend primitive to process."
+    },
+    {
+      "source": "wikibuild/workspace.py",
+      "target": "wikibuild/release.py",
+      "reason": "Workspace lock checks call release allocation code; pass the allocation view into workspace validation."
+    }
+  ]
+}

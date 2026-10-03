@@ -1,9 +1,9 @@
 """Measure exported history, including deleted objects, in a small real Git repo."""
 
 from pathlib import Path
-import shutil
-import tempfile
 import unittest
+
+from tests._support import fixture_dir
 
 from wikibuild.capacity_inventory import history_size
 from wikibuild.storage import ContractError, git
@@ -11,17 +11,10 @@ from wikibuild.storage import ContractError, git
 
 class HistorySizeTests(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="hcap-"))
+        self.root = fixture_dir(self, "capacity")
         git(self.root, "init", "--initial-branch=main")
         git(self.root, "config", "user.name", "Capacity fixture")
         git(self.root, "config", "user.email", "wiki@example.invalid")
-        self.addCleanup(self.cleanup)
-
-    def cleanup(self):
-        try:
-            shutil.rmtree(self.root)
-        except PermissionError:
-            print(f"Retained protected capacity fixture: {self.root}")
 
     def commit(self, message):
         git(self.root, "add", ".")
