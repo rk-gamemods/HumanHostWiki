@@ -29,7 +29,8 @@ def alive(pid):
         try:
             if status.read_text().rsplit(")", 1)[1].split()[0] == "Z":
                 return False
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
+            # The process exited between the existence check and the read (ESRCH).
             return False
     return process_running(pid)
 
