@@ -417,11 +417,17 @@ def execute(root, state, path, host, workers, refs, timing=None):
     return result
 
 
+def new_timing(lock=None):
+    """Publication timing values; run and the rehearsal share this shape."""
+    timing = run_timing.Values({"repositories": {}, "rollback": {}, "prepare": 0.0, "resume": 0.0},
+                              lock=lock, clock=timing_clock)
+    timing["phases"] = run_timing.Values(lock=timing.lock, clock=timing_clock)
+    return timing
+
+
 def run(root, project, manifest, *, host=None, progress=None, timing_sink=None):
     """Caller holds the shared OS writer lock. Production always passes the gate."""
-    timing = run_timing.Values({"repositories": {}, "rollback": {}, "prepare": 0.0, "resume": 0.0},
-                              lock=timing_sink.lock if timing_sink is not None else None, clock=timing_clock)
-    timing["phases"] = run_timing.Values(lock=timing.lock, clock=timing_clock)
+    timing = new_timing(timing_sink.lock if timing_sink is not None else None)
     if timing_sink is not None:
         with timing.lock:
             timing_sink.publication = timing
