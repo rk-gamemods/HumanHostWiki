@@ -33,11 +33,13 @@ The process runtime in `wikibuild/bounded.py` owns every external child through
 a registered Windows job or POSIX process group, with shutdown fencing and
 bounded tree cleanup. Git and other command launches use `bounded.run` for
 captured output or `bounded.stream` for binary streaming, with an explicit
-operation timeout and a one-line reason beside its constant. Streaming pipe
-reads and writes share an elapsed deadline, stderr drains concurrently with a
-size cap, and every context exit reaps its tree, including early exits and
-exceptions and partial setup failures. Captured stdout or stderr overflow raises
-`OutputLimitExceeded` naming the command; partial output is never returned.
+operation timeout and a one-line reason beside its constant. `bounded.run`
+rejects captured stdout or stderr overflow with `OutputLimitExceeded` naming
+the command; it never returns partial captured output. `bounded.stream` gives
+the caller stdout incrementally and drains stderr concurrently, retaining only
+a capped prefix for diagnostics; stream stderr overflow does not raise.
+Streaming pipe reads and writes share an elapsed deadline, and every context
+exit reaps its tree, including early exits, exceptions and partial setup failures.
 Whole-tree scans consume streaming records incrementally. Callers with an
 overall deadline reserve `CLEANUP_SECONDS`.
 `tests/test_process_lint.py` resolves import/assignment aliases and rejects

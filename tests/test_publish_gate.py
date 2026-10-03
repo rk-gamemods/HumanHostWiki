@@ -483,7 +483,7 @@ class PublishGateTests(unittest.TestCase):
         def records(path, *args, **kwargs):
             self.assertEqual(path, self.root)
             self.assertEqual(args, ("rev-list", "--reverse", head))
-            self.assertEqual(kwargs, {"separator": b"\n", "timeout": 120})
+            self.assertEqual(kwargs, {"separator": b"\n", "timeout": publication_git.GIT_LINEAGE_TIMEOUT})
             return iter((root.encode(), head.encode()))
         with patch.object(publication_git.bounded, "run", side_effect=command), \
                 patch.object(publication_git, "git_records", side_effect=records):

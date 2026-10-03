@@ -10,11 +10,30 @@ ALLOWLIST = {
     "tools/run_tests.py": "Owns isolated worker jobs/groups and bounded interruption cleanup.",
 }
 LAUNCHES = {"run", "Popen", "check_output", "call", "check_call", "getoutput", "getstatusoutput"}
+LAUNCH_ATTRIBUTES = (LAUNCHES - {"run"}) | {"system", "popen"}
+BOUNDED_MODULES = {"bounded", "wikibuild.bounded"}
 PROCESS_TYPES = {"Process", "BaseProcess", "ForkProcess", "SpawnProcess", "ForkServerProcess"}
 MANAGER_TYPES = {"BaseManager", "SyncManager"}
 
 
 def launch_route(name):
+    if name == "sys.executable":
+        return False  # The interpreter path is a value, despite its exec prefix.
+    base, dot, leaf = name.rpartition(".")
+    # Re-exporting a launch through an owner or another module grants no
+    # ownership to its caller. Unknown objects must not hide launch attributes.
+    if dot and base not in BOUNDED_MODULES and (
+            leaf in LAUNCH_ATTRIBUTES or leaf.startswith(("spawn", "exec", "posix_spawn", "create_subprocess_"))):
+        return True
+    namespaces = base.split(".")
+    if "subprocess" in namespaces and leaf in LAUNCHES:
+        return True
+    if any(module in namespaces for module in ("os", "posix", "nt")) and (
+            leaf in {"system", "popen", "fork", "forkpty"} or
+            leaf.startswith(("spawn", "exec", "posix_spawn"))):
+        return True
+    if "asyncio" in namespaces and leaf in {"subprocess_exec", "subprocess_shell"}:
+        return True
     module, _, member = name.partition(".")
     if module == "subprocess":
         return member in LAUNCHES
@@ -55,16 +74,16 @@ def direct_launches(code):
 
     def resolve(node):
         if isinstance(node, ast.Name):
-            return aliases.get(node.id, set()) | {
+            return aliases.get(node.id, {node.id}) | {
                 f"{module}.{node.id}" for module in wildcards
                 if launch_route(f"{module}.{node.id}") or node.id in {"get_context", "get_event_loop", "get_running_loop"}}
         if isinstance(node, ast.Attribute):
-            return {f"{base}.{node.attr}" for base in resolve(node.value)}
+            return {f"{base}.{node.attr}" for base in (resolve(node.value) or {"<expression>"})}
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id == "getattr" and len(node.args) >= 2:
                 attribute = node.args[1]
                 if isinstance(attribute, ast.Constant) and isinstance(attribute.value, str):
-                    return {f"{base}.{attribute.value}" for base in resolve(node.args[0])}
+                    return {f"{base}.{attribute.value}" for base in (resolve(node.args[0]) or {"<expression>"})}
             callees = resolve(node.func)
             result = set()
             for name in callees:
@@ -97,11 +116,49 @@ def direct_launches(code):
                     changed |= bind(node.name, resolve(base))
         if not changed:
             break
-    return [node.lineno for node in ast.walk(tree) if isinstance(node, ast.Call)
-            and any(launch_route(name) for name in resolve(node.func))]
+    # Check accesses as well as calls: handing an exported launcher to another
+    # function or saving it for later must also fail. Report each source line once.
+    return sorted({node.lineno for node in ast.walk(tree)
+                   if isinstance(node, (ast.Attribute, ast.Call)) and
+                   any(launch_route(name) for name in resolve(node.func if isinstance(node, ast.Call) else node))})
 
 
 class ProcessLintTests(unittest.TestCase):
+    def test_cross_module_and_unknown_bases_cannot_expose_launches(self):
+        fixtures = {
+            "allowlisted module export": 'import tools.run_tests as rt; rt.subprocess.Popen([])',
+            "owner module export": 'from wikibuild import bounded; bounded.subprocess.Popen([])',
+            "which result": 'import shutil; executable = shutil.which("git"); executable.Popen([])',
+            "which expression": 'import shutil; shutil.which("git").Popen([])',
+            "exported run": 'from wikibuild import bounded; bounded.subprocess.run([])',
+            "exported asyncio": 'import tools.run_tests as rt; rt.asyncio.create_subprocess_exec("git")',
+            "exported os": 'from wikibuild import bounded; bounded.os.system("git status")',
+            "exported callable alias": 'import tools.run_tests as rt; launch = rt.subprocess.Popen; launch([])',
+            "uninvoked export": 'import tools.run_tests as rt\nlaunch = rt.subprocess.Popen',
+            "unknown run export": 'def launch(module):\n    module.subprocess.run([])',
+        }
+        for name, code in fixtures.items():
+            with self.subTest(route=name):
+                self.assertTrue(direct_launches(code), code)
+
+    def test_launch_attributes_on_unknown_bases_are_rejected(self):
+        for member in ("Popen", "check_output", "check_call", "call", "getoutput", "getstatusoutput",
+                       "system", "popen", "spawnv", "execv", "posix_spawn", "create_subprocess_exec",
+                       "create_subprocess_shell"):
+            with self.subTest(member=member):
+                self.assertTrue(direct_launches(f'def launch(module):\n    module.{member}("git")'))
+
+    def test_owned_primitives_remain_allowed(self):
+        for code in ('from wikibuild import bounded; bounded.run(["git"], timeout=30)',
+                     'import wikibuild.bounded as owner; owner.run(["git"], timeout=30)',
+                     'from wikibuild import bounded; bounded.stream(["git"], timeout=600)',
+                     'from wikibuild import bounded; owner = bounded; owner.run(["git"], timeout=30)',
+                     'from . import bounded; bounded.run(["git"], timeout=30)',
+                     'import shutil; from wikibuild import bounded; executable = shutil.which("git"); bounded.run([executable], timeout=30)',
+                     'import sys; from wikibuild import bounded; bounded.run([sys.executable], timeout=30)'):
+            with self.subTest(code=code):
+                self.assertEqual(direct_launches(code), [])
+
     def test_shell_launch_is_rejected(self):
         self.assertEqual(len(direct_launches('import os as operating; operating.system("git status")')), 1)
 

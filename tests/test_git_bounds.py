@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from tests._support import fixture_dir
 from tools import (benchmark_release, check_coded_values, check_components,
@@ -16,6 +17,43 @@ from wikibuild import (bounded, capacity_inventory, git_transaction, ownership,
 
 
 class GitBoundsTests(unittest.TestCase):
+    def test_long_owned_lineage_has_a_whole_history_budget(self):
+        revisions = [f"{number:040x}" for number in range(1, 257)]
+        checked = []
+        elapsed = 0
+        started = time.monotonic()
+        clock = SimpleNamespace(monotonic=lambda: started + elapsed, sleep=time.sleep)
+
+        def command(argv, **options):
+            nonlocal elapsed
+            self.assertEqual(options["timeout"], publication_git.GIT_TIMEOUT)
+            args = argv[3:]
+            if args[0] == "rev-parse":
+                checked.append(args[1].removesuffix("^{tree}"))
+                # Each valid per-commit lookup costs a virtual second. This
+                # exceeds the plumbing budget without a slow test or network.
+                elapsed += 1
+                output = args[1].encode()
+            else:
+                self.assertIn(args[0], {"cat-file", "show-ref"})
+                output = b""
+            return subprocess.CompletedProcess(argv, 0, output, b"")
+
+        def launch(argv, **options):
+            self.assertEqual(argv[3:], ["rev-list", "--reverse", revisions[-1]])
+            script = "import sys; sys.stdout.buffer.write(" + repr("\n".join(revisions).encode() + b"\n") + ")"
+            child = self.original([sys.executable, "-c", script], **options)
+            self.children.append(child)
+            return child
+
+        with patch.object(bounded, "run", side_effect=command), \
+                patch.object(bounded, "start", side_effect=launch), patch.object(bounded, "time", clock):
+            self.assertTrue(publication_git.owned_lineage(self.root, None, revisions[-1]))
+        self.assertEqual(checked, revisions)
+        self.assertGreater(elapsed, publication_git.GIT_TIMEOUT)
+        self.assertFalse(storage.process_running(self.children[0].pid))
+        self.assertEqual(bounded._children, set())
+
     def test_valid_public_tree_and_source_are_complete_beyond_capture_limit(self):
         storage.git(self.root, "init", "-q")
         storage.git(self.root, "config", "user.name", "Fixture")

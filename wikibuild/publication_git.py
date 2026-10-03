@@ -13,8 +13,10 @@ from . import bounded
 from .git_transaction import command
 from .storage import ContractError, git, git_records
 
-# Preserve the existing allowance for local lineage checks.
+# Individual local lineage lookups retain their existing plumbing allowance.
 GIT_TIMEOUT = 120
+# A lineage stream remains open while every commit receives its ownership lookup.
+GIT_LINEAGE_TIMEOUT = 600
 # A public audit consumes every blob in the newly exported history.
 GIT_AUDIT_TIMEOUT = 1800
 
@@ -153,7 +155,7 @@ def owned_lineage(path, base, head):
     # Without a completed baseline, the lineage must start at a pinned root.
     trees = {bounded_git(path, "rev-parse", base + "^{tree}")} if base else set()
     for raw_revision in git_records(path, "rev-list", "--reverse", head, *(["^" + base] if base else []),
-                                    separator=b"\n", timeout=GIT_TIMEOUT):
+                                    separator=b"\n", timeout=GIT_LINEAGE_TIMEOUT):
         revision = raw_revision.decode()
         tree = bounded_git(path, "rev-parse", revision + "^{tree}")
         if tree not in trees and not succeeds("show-ref", "--verify", "--quiet", "refs/wiki-publications/" + revision):
