@@ -1,6 +1,9 @@
 """Two-snapshot public-reader contracts, using real pack/file transactions."""
 
 import json
+import os
+import stat
+import subprocess
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -22,6 +25,150 @@ def install_guide(fixture):
 
 
 class ReaderTests(unittest.TestCase):
+    def test_native_nested_extra_ownership_is_unrecognized_and_kept(self):
+        from wikibuild import staging
+        unknown = self.root / ".local/reader-stage" / ("f" * 32)
+        unknown.mkdir(parents=True)
+        value = {"schema_version": 1, "stage": "reader", "attempt_id": unknown.name,
+                 "created_utc": "2026-01-01T00:00:00+00:00", "state": "materializing"}
+        data = (json.dumps(value, separators=(",", ":")).encode()[:-1]
+                + b',"extra":' + b"[" * 500 + b"0" + b"]" * 500 + b"}")
+        self.assertLess(len(data), staging.MAX_RECORD_BYTES)
+        self.assertIsInstance(json.loads(data)["extra"], list)  # Native decoder, no substitutions.
+        marker = unknown / staging.OWNER
+        marker.write_bytes(data)
+        self.build()
+        self.assertEqual(marker.stat().st_size, len(data))
+        self.assertEqual(marker.read_bytes(), data)
+        with self.assertRaisesRegex(ContractError, "Unrecognized staging ownership record"):
+            staging.record(unknown, "reader")
+        report = json.loads(unknown.parent.with_name(unknown.parent.name + "-retention.json").read_bytes())
+        self.assertTrue(any(row["stage"] == unknown.name and "Unrecognized staging ownership record" in row["reason"]
+                            for row in report["retained"]))
+        completed = [path for path in unknown.parent.iterdir() if path != unknown
+                     and staging.record(path, "reader")[0]["state"] == "completed"]
+        self.assertTrue(completed)
+        self.assertTrue(all((path / staging.OWNER).stat().st_size <= staging.MAX_RECORD_BYTES for path in completed))
+
+    def test_retiring_failed_projection_preserves_read_only_completed_hardlink(self):
+        from wikibuild import staging
+        site, result = self.build()
+        source = site / "items/reader.js"
+        data = source.read_bytes()
+        source.chmod(stat.S_IREAD)
+        original = reader.write_changed
+
+        def fail_manifest(path, content):
+            if path.name == "candidate.json":
+                raise OSError("projection failed")
+            return original(path, content)
+
+        with patch.object(reader.availability, "latest", return_value={"fixture": "changed"}), \
+                patch.object(reader, "write_changed", side_effect=fail_manifest):
+            with self.assertRaisesRegex(OSError, "projection failed"):
+                self.build()
+        folder = self.root / ".local/reader-stage"
+        failed = next(path for path in folder.iterdir()
+                      if staging.record(path, "reader")[0]["state"] == "abandoned")
+        shared = failed / "p/items/reader.js"
+        self.assertTrue(os.path.samefile(source, shared))
+        self.assertGreaterEqual(shared.stat().st_nlink, 2)
+        with self.assertRaisesRegex(OSError, "new failure"):
+            with staging.attempt(folder, "reader"):
+                raise OSError("new failure")
+        self.assertEqual(source.read_bytes(), data)
+        self.assertFalse(source.stat().st_mode & stat.S_IWRITE)
+        reader.verify(site, result["candidate_id"])
+        if failed.exists():
+            self.assertTrue(shared.exists())
+            self.assertTrue((failed / staging.OWNER).exists())
+            report = json.loads(folder.with_name("reader-stage-retention.json").read_bytes())
+            self.assertTrue(any(row["stage"] == failed.name and "multiply linked" in row["reason"]
+                                for row in report["retained"]))
+
+    def test_redirected_staging_root_is_refused_without_touching_target(self):
+        from wikibuild import staging
+        folder = self.root / ".local/reader-stage"
+        outside = self.root / "unrelated"
+        outside.mkdir()
+        for index in range(2):
+            victim = outside / (str(index) * 32)
+            victim.mkdir()
+            (victim / staging.OWNER).write_bytes(json_bytes({
+                "schema_version": 1, "stage": "reader", "attempt_id": victim.name,
+                "created_utc": f"2026-01-0{index + 1}T00:00:00+00:00", "state": "abandoned"}))
+            (victim / "payload").write_bytes(b"outside the literal stage root")
+        before = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            result = subprocess.run(["cmd", "/c", "mklink", "/J", str(folder), str(outside)],
+                                    capture_output=True, text=True)
+            if result.returncode:
+                self.skipTest("Cannot create staging root junction: " + result.stderr)
+            self.addCleanup(folder.rmdir)
+        else:
+            try:
+                folder.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"Cannot create staging root symlink: {exc}")
+            self.addCleanup(folder.unlink)
+        with self.assertRaisesRegex(ContractError, "Redirected staging path"):
+            self.build()
+        after = {path.relative_to(outside): path.read_bytes() for path in outside.rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+        report = json.loads(folder.with_name(folder.name + "-retention.json").read_bytes())
+        self.assertTrue(any("Redirected staging path" in row["reason"] for row in report["retained"]))
+
+
+    def test_owned_staging_crash_is_retained_and_candidate_has_no_metadata(self):
+        from wikibuild import staging
+        original = reader.project_snapshot
+        def crash(*args, **kwargs):
+            original(*args, **kwargs)
+            raise SystemExit("materialization crash")
+        with patch.object(reader, "project_snapshot", side_effect=crash):
+            with self.assertRaises(SystemExit):
+                self.build()
+        folder = self.root / ".local/reader-stage"
+        failed = next(folder.iterdir())
+        self.assertEqual(staging.record(failed, "reader")[0]["state"], "materializing")
+        self.assertTrue(any((failed / "p").rglob("*.json")))
+        unknown = folder / "unknown"
+        unknown.mkdir()
+        site, result = self.build()
+        self.assertEqual(staging.record(failed, "reader")[0]["state"], "abandoned")
+        self.assertFalse((site / staging.OWNER).exists())
+        reader.verify(site, result["candidate_id"])
+        completed = next(path for path in folder.iterdir() if (path / staging.OWNER).exists()
+                         and staging.record(path, "reader")[0]["state"] == "completed")
+        self.assertEqual(staging.record(completed, "reader")[0]["state"], "completed")
+        self.assertEqual(list(completed.iterdir()), [completed / staging.OWNER])
+        self.assertTrue(unknown.exists())
+        self.assertEqual(self.build()[1]["candidate_id"], result["candidate_id"])
+        self.assertTrue(completed.exists())
+
+    def test_consecutive_materialization_failures_leave_exactly_one_retained(self):
+        from wikibuild import staging
+        folder = self.root / ".local/reader-stage"
+        original = reader.project_snapshot
+        def fail(*args, **kwargs):
+            original(*args, **kwargs)
+            raise OSError("materialization failed")
+        previous = None
+        for _ in range(5):
+            with patch.object(reader, "project_snapshot", side_effect=fail):
+                with self.assertRaisesRegex(OSError, "materialization failed"):
+                    self.build()
+            failures = list(folder.iterdir())
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(staging.record(failures[0], "reader")[0]["state"], "abandoned")
+            self.assertTrue(any((failures[0] / "p").rglob("*.json")))
+            if previous is not None:
+                self.assertFalse(previous.exists())
+            previous = failures[0]
+        self.build()
+        self.assertTrue(previous.exists())
+
     def setUp(self):
         self.root = fixture_dir(self, "reader")
         self.registry_path = self.root / "presentation/fields.json"

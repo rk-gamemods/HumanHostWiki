@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 
+from . import staging
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
@@ -127,6 +128,10 @@ def run(root):
     summary = {"reused": True, "linked_files": 0, "linked_bytes": 0,
                "released_file_bytes": 0, "verified_files": 0, "verified_bytes": 0, "retained": []}
     candidates = {}
+    retired = staging.retire(root / ".local/reader-stage", "reader")
+    summary["retained"].extend(retired["retained"])
+    if retired["removed"]:
+        summary["reused"] = False
     try:
         folder = checked(root, ".local/readers")
         if not folder.exists():

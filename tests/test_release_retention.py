@@ -2,6 +2,7 @@
 
 import json
 import os
+import stat
 from pathlib import Path
 import subprocess
 import unittest
@@ -9,8 +10,8 @@ from unittest.mock import patch
 
 from tests._support import fixture_dir
 
-from wikibuild import release_retention
-from wikibuild.storage import digest, git, json_bytes
+from wikibuild import release_retention, staging
+from wikibuild.storage import ContractError, digest, git, json_bytes
 
 
 class RetentionTests(unittest.TestCase):
@@ -24,6 +25,8 @@ class RetentionTests(unittest.TestCase):
         git(self.repo, "config", "core.autocrlf", "false")
         self.stage = self.root / ".local/rs/0123456789ab"
         self.stage.mkdir(parents=True)
+        (self.stage / staging.OWNER).write_bytes(json_bytes({"schema_version": 1, "stage": "release",
+            "attempt_id": self.stage.name, "created_utc": "2026-01-01T00:00:00+00:00", "state": "completed"}))
         self.payloads = {"site/a.json": b'a' * 1048581, "site/b.json": b'b\n'}
         files = {}
         for name, data in self.payloads.items():
@@ -163,6 +166,311 @@ class RetentionTests(unittest.TestCase):
             else:
                 original.unlink()
 
+
+
+class OwnedAttemptsTests(unittest.TestCase):
+    def setUp(self):
+        self.root = fixture_dir(self, "attempts")
+
+    def test_exact_schema_rejects_invalid_reads_and_writes_without_replacement(self):
+        with staging.attempt(self.root / "stages", "reader", deferred=True) as path:
+            pass
+        marker = path / staging.OWNER
+        owner = json.loads(marker.read_bytes())
+        cases = [{**owner, "extra": "scalar"}, {**owner, "extra": {"nested": []}},
+                 {key: value for key, value in owner.items() if key != "created_utc"},
+                 {**owner, "schema_version": True}, {**owner, "schema_version": 1.0},
+                 {**owner, "created_utc": "not a timestamp"}]
+        for field in owner:
+            cases.extend({**owner, field: value} for value in (None, [], {}))
+        for index, value in enumerate(cases):
+            with self.subTest(case=index):
+                data = json.dumps(value, separators=(",", ":")).encode()
+                marker.write_bytes(data)
+                with self.assertRaises(ContractError):
+                    staging.record(path, "reader")
+                with self.assertRaises(ContractError):
+                    staging.finish(path, "reader", "abandoned")
+                with self.assertRaises(ContractError):
+                    staging.write_record(path, "reader", value)
+                self.assertEqual(marker.read_bytes(), data)
+        marker.write_bytes(json_bytes(owner))
+        for state in (None, [], {}):
+            with self.subTest(terminal_state=state):
+                with self.assertRaises(ContractError):
+                    staging.finish(path, "reader", state)
+                self.assertEqual(json.loads(marker.read_bytes()), owner)
+
+    def test_finish_refuses_terminal_encoding_above_read_limit(self):
+        with staging.attempt(self.root / "stages", "reader", deferred=True) as path:
+            pass
+        marker = path / staging.OWNER
+        owner = json.loads(marker.read_bytes())
+        owner["created_utc"] = "2026-01-01T00:00:00.0+00:00"
+        spare = staging.MAX_RECORD_BYTES - len(json.dumps(owner, separators=(",", ":")).encode())
+        owner["created_utc"] = "2026-01-01T00:00:00." + "0" * (spare + 1) + "+00:00"
+        data = json.dumps(owner, separators=(",", ":")).encode()
+        self.assertEqual(len(data), staging.MAX_RECORD_BYTES)
+        marker.write_bytes(data)
+        self.assertEqual(staging.record(path, "reader")[0], owner)
+        with self.assertRaisesRegex(ContractError, "write bound"):
+            staging.finish(path, "reader", "completed")
+        self.assertEqual(marker.read_bytes(), data)
+        self.assertEqual(staging.record(path, "reader")[0]["state"], "materializing")
+
+    def test_terminal_records_round_trip_with_exact_scalar_fields_within_limit(self):
+        fields = {"schema_version", "stage", "attempt_id", "created_utc", "state"}
+        for stage in ("extraction", "history", "reader", "release"):
+            for state in ("completed", "abandoned"):
+                with self.subTest(stage=stage, state=state):
+                    with staging.attempt(self.root / (stage + "-" + state), stage, deferred=True) as path:
+                        initial = json.loads((path / staging.OWNER).read_bytes())
+                        self.assertEqual(initial["state"], "materializing")
+                        self.assertEqual(set(initial), fields)
+                    staging.finish(path, stage, state)
+                    data = (path / staging.OWNER).read_bytes()
+                    value = json.loads(data)
+                    self.assertLessEqual(len(data), staging.MAX_RECORD_BYTES)
+                    self.assertEqual(set(value), fields)
+                    self.assertIs(type(value["schema_version"]), int)
+                    self.assertTrue(all(type(value[key]) is str for key in fields - {"schema_version"}))
+                    self.assertEqual(staging.record(path, stage)[0], value)
+                    self.assertEqual(value, {**initial, "state": state})
+                    staging.finish(path, stage, state)
+                    self.assertEqual((path / staging.OWNER).read_bytes(), data)
+
+    def test_stage_crash_retry_completion_and_unknown_directory(self):
+        for stage in ("extraction", "history", "reader", "release"):
+            with self.subTest(stage=stage):
+                folder = self.root / stage
+                unknown = folder / "unknown"
+                unknown.mkdir(parents=True)
+                (unknown / "evidence").write_text("keep")
+                with self.assertRaises(SystemExit):
+                    with staging.attempt(folder, stage) as failed:
+                        (failed / "payload").write_bytes(b"partial")
+                        owner = json.loads((failed / staging.OWNER).read_bytes())
+                        self.assertEqual(owner["stage"], stage)
+                        self.assertEqual(owner["attempt_id"], failed.name)
+                        self.assertTrue(owner["created_utc"].endswith("+00:00"))
+                        self.assertEqual(staging.record(failed, stage)[0]["state"], "materializing")
+                        raise SystemExit("crash")
+                self.assertEqual(staging.record(failed, stage)[0]["state"], "materializing")
+                with staging.attempt(folder, stage) as completed:
+                    self.assertEqual(staging.record(failed, stage)[0]["state"], "abandoned")
+                    (completed / "payload").write_bytes(b"complete")
+                    summary = staging.retire(folder, stage, current=completed)
+                    self.assertTrue(completed.exists())
+                    self.assertTrue(any(row["stage"] == "unknown" for row in summary["retained"]))
+                self.assertEqual(staging.record(failed, stage)[0]["state"], "abandoned")
+                self.assertEqual((completed / "payload").read_bytes(), b"complete")
+                self.assertEqual(staging.record(completed, stage)[0]["state"], "completed")
+                self.assertEqual(staging.retire(folder, stage)["removed"], [])
+                with self.assertRaises(OSError):
+                    with staging.attempt(folder, stage) as newest:
+                        (newest / "payload").write_bytes(b"new failure")
+                        raise OSError("failure")
+                self.assertFalse(failed.exists())
+                self.assertTrue(newest.exists())
+                self.assertTrue(completed.exists())
+                self.assertEqual((unknown / "evidence").read_text(), "keep")
+
+    def test_n_consecutive_failures_leave_exactly_one_retained_per_stage(self):
+        for stage in ("extraction", "history", "reader", "release"):
+            for baseline in (False, True):
+                for crash in (False, True):
+                    with self.subTest(stage=stage, baseline=baseline, crash=crash):
+                        folder = self.root / f"{stage}-{baseline}-{crash}"
+                        completed = None
+                        if baseline:
+                            with staging.attempt(folder, stage) as completed:
+                                (completed / "payload").write_bytes(b"success")
+                        previous = None
+                        for _ in range(6):
+                            error = SystemExit if crash else OSError
+                            with self.assertRaises(error):
+                                with staging.attempt(folder, stage) as newest:
+                                    (newest / "payload").write_bytes(b"partial")
+                                    raise error("failure")
+                            if crash:
+                                self.assertEqual(staging.record(newest, stage)[0]["state"], "materializing")
+                                staging.retire(folder, stage)  # Next locked recovery after the process exits.
+                            failures = [path for path in folder.iterdir()
+                                        if staging.record(path, stage)[0]["state"] != "completed"]
+                            self.assertEqual(failures, [newest])
+                            self.assertEqual(staging.record(newest, stage)[0]["state"], "abandoned")
+                            if previous is not None:
+                                self.assertFalse(previous.exists())
+                            previous = newest
+                            if completed is not None:
+                                self.assertEqual((completed / "payload").read_bytes(), b"success")
+                        self.assertEqual(staging.retire(folder, stage)["removed"], [])
+
+    def test_current_foreign_invalid_and_completed_attempts_are_preserved(self):
+        folder = self.root / "stages"
+        with staging.attempt(folder, "reader") as completed:
+            pass
+        with staging.attempt(folder, "reader", deferred=True) as older:
+            pass
+        with staging.attempt(folder, "reader", deferred=True) as current:
+            pass
+        with staging.attempt(folder, "history", deferred=True) as foreign:
+            pass
+        bad = folder / ("b" * 32)
+        bad.mkdir()
+        (bad / staging.OWNER).write_text("{}")
+        summary = staging.retire(folder, "reader", current=current)
+        self.assertTrue(all(path.exists() for path in (completed, older, current, foreign, bad)))
+        self.assertEqual(staging.record(current, "reader")[0]["state"], "materializing")
+        self.assertTrue(any(row["stage"] == foreign.name for row in summary["retained"]))
+        self.assertTrue(any(row["stage"] == bad.name for row in summary["retained"]))
+        staging.retire(folder, "reader")
+        self.assertEqual(staging.record(current, "reader")[0]["state"], "abandoned")
+        self.assertFalse(older.exists())
+        self.assertTrue(all(path.exists() for path in (completed, current, foreign, bad)))
+
+    def test_bounded_read_only_retirement_and_interrupted_retry(self):
+        folder = self.root / "stages"
+        with self.assertRaises(OSError):
+            with staging.attempt(folder, "reader") as failed:
+                leaf = failed / "nested/data"
+                leaf.parent.mkdir()
+                leaf.write_text("partial")
+                leaf.chmod(0o444)
+                raise OSError("failure")
+        with staging.attempt(folder, "reader", deferred=True) as newest:
+            staging.finish(newest, "reader", "abandoned")
+            with patch.object(staging, "MAX_ENTRIES", 2):
+                summary = staging.retire(folder, "reader", current=newest)
+                self.assertTrue(failed.exists())
+                self.assertTrue(any("entry bound" in row["reason"] for row in summary["retained"]))
+            original = Path.unlink
+            def interrupt(path, *args, **kwargs):
+                if path == leaf:
+                    raise OSError("interrupted deletion")
+                return original(path, *args, **kwargs)
+            with patch.object(Path, "unlink", interrupt):
+                summary = staging.retire(folder, "reader", current=newest)
+            self.assertTrue(any("interrupted deletion" in row["reason"] for row in summary["retained"]))
+            self.assertEqual(staging.record(failed, "reader")[0]["state"], "abandoned")
+        self.assertFalse(failed.exists())
+        self.assertTrue(newest.exists())
+
+    def test_oversized_record_and_redirected_payload_are_preserved(self):
+        folder = self.root / "stages"
+        with self.assertRaises(OSError):
+            with staging.attempt(folder, "reader") as failed:
+                (failed / "payload").write_text("partial")
+                raise OSError("failure")
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "evidence").write_text("keep")
+        redirect = failed / "redirect"
+        if os.name == "nt":
+            made = subprocess.run(["cmd", "/c", "mklink", "/J", str(redirect), str(outside)], capture_output=True)
+            self.assertEqual(made.returncode, 0, made.stderr.decode(errors="replace"))
+            self.addCleanup(redirect.rmdir)
+        else:
+            redirect.symlink_to(outside, target_is_directory=True)
+            self.addCleanup(redirect.unlink)
+        with staging.attempt(folder, "reader", deferred=True) as newest:
+            staging.finish(newest, "reader", "abandoned")
+            summary = staging.retire(folder, "reader", current=newest)
+            self.assertTrue(any("Redirected" in row["reason"] for row in summary["retained"]))
+            self.assertTrue((failed / "payload").exists())
+            self.assertEqual((outside / "evidence").read_text(), "keep")
+        oversized = folder / ("c" * 32)
+        oversized.mkdir()
+        (oversized / staging.OWNER).write_bytes(b" " * (staging.MAX_RECORD_BYTES + 1))
+        summary = staging.retire(folder, "reader")
+        self.assertTrue(any("read bound" in row["reason"] for row in summary["retained"]))
+        self.assertTrue(oversized.exists())
+
+    def test_ownership_becoming_completed_before_deletion_is_preserved(self):
+        folder = self.root / "stages"
+        with self.assertRaises(OSError):
+            with staging.attempt(folder, "reader") as failed:
+                (failed / "payload").write_text("keep")
+                raise OSError("failure")
+        original = staging.remove
+        def changed(path, stage, owner, **kwargs):
+            staging.finish(path, stage, "completed")
+            return original(path, stage, owner, **kwargs)
+        with patch.object(staging, "remove", side_effect=changed):
+            with self.assertRaises(OSError):
+                with staging.attempt(folder, "reader"):
+                    raise OSError("new failure")
+        self.assertEqual(staging.record(failed, "reader")[0]["state"], "completed")
+        self.assertEqual((failed / "payload").read_text(), "keep")
+
+    def test_nonchild_and_redirected_candidate_cannot_authorize_retirement(self):
+        folder = self.root / "stages"
+        folder.mkdir()
+        with staging.attempt(self.root / "elsewhere", "reader", deferred=True) as outside:
+            (outside / "payload").write_bytes(b"keep outside")
+        owner = staging.record(outside, "reader")[0]
+        with self.assertRaisesRegex(ContractError, "not a direct child"):
+            staging.remove(outside, "reader", owner, folder=folder)
+        link = folder / outside.name
+        if os.name == "nt":
+            result = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(outside)],
+                                    capture_output=True, text=True)
+            if result.returncode:
+                self.skipTest("Cannot create candidate junction: " + result.stderr)
+            self.addCleanup(link.rmdir)
+        else:
+            try:
+                link.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"Cannot create candidate symlink: {exc}")
+            self.addCleanup(link.unlink)
+        summary = staging.retire(folder, "reader")
+        self.assertTrue(any(row["stage"] == link.name and "Redirected staging path" in row["reason"]
+                            for row in summary["retained"]))
+        self.assertEqual(staging.record(outside, "reader")[0], owner)
+        self.assertEqual((outside / "payload").read_bytes(), b"keep outside")
+
+    def test_denied_hardlink_unlink_keeps_attempt_without_chmod(self):
+        folder = self.root / "stages"
+        completed = self.root / "completed"
+        completed.write_bytes(b"completed bytes")
+        completed.chmod(stat.S_IREAD)
+        with self.assertRaises(OSError):
+            with staging.attempt(folder, "reader") as failed:
+                shared = failed / "payload"
+                os.link(completed, shared)
+                raise OSError("first failure")
+        original = Path.unlink
+
+        def denied(path, *args, **kwargs):
+            if path == shared:
+                raise PermissionError("protected hard link")
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "unlink", denied), \
+                patch.object(Path, "chmod", side_effect=AssertionError("must not chmod shared file")):
+            with self.assertRaisesRegex(OSError, "next failure"):
+                with staging.attempt(folder, "reader"):
+                    raise OSError("next failure")
+        self.assertTrue(shared.exists())
+        self.assertTrue((failed / staging.OWNER).exists())
+        self.assertEqual(completed.read_bytes(), b"completed bytes")
+        self.assertFalse(completed.stat().st_mode & stat.S_IWRITE)
+        report = json.loads(folder.with_name("stages-retention.json").read_bytes())
+        self.assertTrue(any(row["stage"] == failed.name and "multiply linked" in row["reason"]
+                            for row in report["retained"]))
+
+    def test_value_error_from_parser_is_an_unrecognized_record(self):
+        folder = self.root / "stages"
+        with staging.attempt(folder, "reader", deferred=True) as failed:
+            pass
+        with patch.object(staging.json, "loads", side_effect=ValueError("parser limit")):
+            with self.assertRaisesRegex(ContractError, "invalid JSON"):
+                staging.record(failed, "reader")
+            summary = staging.retire(folder, "reader")
+        self.assertTrue(failed.exists())
+        self.assertTrue(any(row["stage"] == failed.name and "invalid JSON" in row["reason"]
+                            for row in summary["retained"]))
 
 if __name__ == "__main__":
     unittest.main()
