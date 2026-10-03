@@ -64,34 +64,40 @@ def capture(path):
 
 class Values(dict):
     """Keep observation metadata off the existing numeric timing dictionaries."""
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, lock=None, clock=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.active, self.outcomes = {}, {}
+        self.lock = lock if lock is not None else threading.RLock()
+        self.clock = clock
+
+    def now(self):
+        return (self.clock or perf_counter)()
 
     @contextmanager
     def observe(self, key):
-        self.active[key] = perf_counter()
+        with self.lock:
+            self.active[key] = self.now()
         outcome = "failed"
         try:
             yield
             outcome = "succeeded"
         finally:
-            self.active.pop(key, None)
-            self.outcomes[key] = outcome
+            with self.lock:
+                now = self.now()
+                self[key] = self.get(key, 0.0) + (now - self.active.pop(key))
+                self.outcomes[key] = outcome
 
     def rows(self, prefix="", basis="wall", outcome="timed-out"):
-        now = perf_counter()
-        # Publication workers may finish while the watchdog takes this snapshot.
-        values, active, outcomes = dict(self), dict(self.active), dict(self.outcomes)
-        return [{"name": prefix + key, "seconds": values.get(key, 0.0) + (now - active[key] if key in active else 0.0),
-                 "outcome": outcome if key in active else outcomes.get(key, "not-run"), "basis": basis}
-                for key in dict.fromkeys([*values, *active]) if number(values.get(key, 0.0))]
+        with self.lock:
+            now = self.now()
+            return [{"name": prefix + key, "seconds": self.get(key, 0.0) + (now - self.active[key] if key in self.active else 0.0),
+                     "outcome": outcome if key in self.active else self.outcomes.get(key, "not-run"), "basis": basis}
+                    for key in dict.fromkeys([*self, *self.active]) if number(self.get(key, 0.0))]
 
 
 def publication_rows(timing, outcome):
-    rows = []
-    for key in ("gate", "prepare"):
-        rows.extend(row for row in timing.rows(outcome=outcome) if row["name"] == key)
+    top = {row["name"]: row for row in timing.rows(outcome=outcome)}
+    rows = [top[key] for key in ("gate", "prepare") if key in top]
     rows.extend(timing["phases"].rows(outcome=outcome))
     for group in ("repositories", "rollback"):
         for name, values in list(timing[group].items()):
@@ -110,39 +116,63 @@ def publication_rows(timing, outcome):
 class Recorder:
     def __init__(self, root, command, release_id=None, capture_path=None):
         self.root, self.command, self.release_id = Path(root), command, release_id
-        self.started = datetime.now(timezone.utc)
-        self.clock = perf_counter()
+        self.lock = threading.RLock()
+        with self.lock:
+            self.started = datetime.now(timezone.utc)
+            self.clock = perf_counter()
         self.capture = capture(capture_path)
-        self.stages = Values()
+        self.stages = Values(lock=self.lock)
         self.publication = None
         self.record, self.path = None, None
-        self.lock = threading.Lock()
+        self.outcome, self.record_error = None, None
+        self.saving = False
 
     def enter(self, name):
-        now = perf_counter()
-        for key, started in list(self.stages.active.items()):
-            self.stages[key] = now - started
-            self.stages.outcomes[key] = "succeeded"
-        self.stages.active = {name: now}
-
-    def finish(self, outcome, result=None):
-        """Only one finalization wins, including a racing watchdog callback."""
         with self.lock:
-            if self.record is not None:
-                return self.record
+            if self.outcome is not None:
+                return
+            now = perf_counter()
+            for key, started in self.stages.active.items():
+                self.stages[key] = self.stages.get(key, 0.0) + (now - started)
+                self.stages.outcomes[key] = "succeeded"
+            self.stages.active = {name: now}
+
+    def claim(self, outcome):
+        """Select the terminal state and freeze timing, without any file I/O."""
+        with self.lock:
+            if self.outcome is not None:
+                return False
+            self.outcome = outcome
             try:
-                if result:
-                    self.release_id = result.get("release_id", self.release_id)
                 rows = (publication_rows(self.publication, outcome) if self.publication is not None
                         else self.stages.rows(outcome=outcome))
                 self.record = {"schema": "humanhost.wiki-timing.v1", "command": self.command,
                     "started_at": self.started.isoformat(), "finished_at": datetime.now(timezone.utc).isoformat(),
                     "seconds": perf_counter() - self.clock, "outcome": outcome,
                     "release_id": self.release_id, "stages": rows, "capture": self.capture}
-                self.path = save(self.root, self.record)
             except (Exception, KeyboardInterrupt) as exc:
-                warning(f"Wiki timing could not be saved: {exc}")
-            return self.record
+                self.record_error = exc
+            return True
+
+    def finish(self, outcome, result=None):
+        """Save once, releasing the state lock before potentially blocked storage."""
+        with self.lock:
+            if self.outcome is None and result:
+                self.release_id = result.get("release_id", self.release_id)
+            self.claim(outcome)
+            if self.saving:
+                return self.record
+            self.saving = True
+            record, error = self.record, self.record_error
+        try:
+            if error is not None:
+                raise error
+            path = save(self.root, record)
+            with self.lock:
+                self.path = path
+        except (Exception, KeyboardInterrupt) as exc:
+            warning(f"Wiki timing could not be saved: {exc}")
+        return record
 
 
 def save(root, record):

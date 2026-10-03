@@ -20,6 +20,10 @@ def deadline(seconds, command, stop=os._exit, timing=None, report=False):
     """End an overdue run and release the OS writer lock. Stages are journaled;
     failed publications must be abandoned before a fresh run."""
     def expire():
+        # Claim synchronously: a delayed diagnostic worker cannot lose to success
+        # and still terminate that successfully finalized command with exit 124.
+        if timing is not None and not timing.claim("timed-out"):
+            return
         try:
             if timing is not None:
                 def save_timeout():
@@ -30,7 +34,7 @@ def deadline(seconds, command, stop=os._exit, timing=None, report=False):
                     except (Exception, KeyboardInterrupt) as exc:
                         run_timing.warning(f"Wiki timeout timing could not be saved: {exc}")
                 # Diagnostics must not defeat the watchdog on a blocked filesystem
-                # or while the main thread holds the recorder's finalization lock.
+                # while another thread is already saving the selected terminal record.
                 attempt = threading.Thread(target=save_timeout, daemon=True)
                 attempt.start()
                 attempt.join(1)
@@ -154,6 +158,8 @@ def main():
         result = run(root, args, timing)
         if watchdog:
             watchdog.cancel()
+        if timing is not None and timing.outcome == "timed-out":
+            return 124
         if args.command == "update" and args.operator_report:
             # The command table replaces the legacy stage-only Time section.
             report_result = {key: value for key, value in result.items() if key != "timings"}
@@ -164,7 +170,7 @@ def main():
             sys.stdout.buffer.write(json_bytes(result))
     except (ContractError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
+        return 124 if timing is not None and timing.outcome == "timed-out" else 1
     finally:
         if watchdog:
             watchdog.cancel()

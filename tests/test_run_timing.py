@@ -14,8 +14,8 @@ from unittest.mock import patch
 import test_pipeline
 import test_publication
 import wiki
-from wikibuild import manifest, pipeline, publication, run_timing
-from wikibuild.storage import ContractError, json_bytes
+from wikibuild import manifest, pipeline, publication, release, run_timing, workspace
+from wikibuild.storage import ContractError, git, json_bytes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +23,22 @@ CAPTURE = {"schema": "humanhost.capture-timing.v1", "started_at": "2026-10-03T00
            "finished_at": "2026-10-03T00:00:08Z", "seconds": 8, "outcome": "reused", "error": None,
            "output_path": "source", "output_commit": "a" * 40, "game": "HumanHost",
            "phases": [{"name": "capture", "seconds": 8, "outcome": "reused"}], "assemblies": []}
+
+
+class ObservedLock:
+    """Expose contending attempts without sleeps or relying on thread scheduling."""
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.attempted = threading.Event()
+
+    def __enter__(self):
+        if threading.current_thread().name == "transition":
+            self.attempted.set()
+        self.lock.acquire()
+        return self
+
+    def __exit__(self, *args):
+        self.lock.release()
 
 
 class TimingTests(unittest.TestCase):
@@ -137,6 +153,174 @@ class TimingTests(unittest.TestCase):
         self.assertEqual(saved["outcome"], "timed-out")
         self.assertEqual(saved["stages"][0]["outcome"], "timed-out")
 
+    def test_snapshot_serializes_observation_start_and_stop(self):
+        for action in ("start", "stop"):
+            with self.subTest(action=action):
+                values = run_timing.Values({"stage": 0.0})
+                values.lock = ObservedLock()
+                sampled, release_snapshot, entered, release_stage = (threading.Event() for _ in range(4))
+                counter = itertools.count()
+                rows, failures = [], []
+                def clock():
+                    seconds = next(counter)
+                    if threading.current_thread().name == "snapshot":
+                        sampled.set()
+                        if not release_snapshot.wait(5):
+                            raise AssertionError("Snapshot was not released")
+                    return seconds
+                def start():
+                    try:
+                        with publication.measure(values, "stage"):
+                            entered.set()
+                            if not release_stage.wait(5):
+                                raise AssertionError("Stage was not released")
+                    except BaseException as exc:
+                        failures.append(exc)
+                def snapshot():
+                    try:
+                        rows.extend(values.rows())
+                    except BaseException as exc:
+                        failures.append(exc)
+                stage = threading.Thread(target=start, name="transition")
+                observer = threading.Thread(target=snapshot, name="snapshot")
+                with patch.object(run_timing, "perf_counter", side_effect=clock), \
+                        patch.object(publication, "perf_counter", side_effect=clock):
+                    try:
+                        if action == "stop":
+                            stage.start()
+                            self.assertTrue(entered.wait(2))
+                            values.lock.attempted.clear()
+                        observer.start()
+                        self.assertTrue(sampled.wait(2))
+                        if action == "start":
+                            stage.start()
+                        else:
+                            release_stage.set()
+                        self.assertTrue(values.lock.attempted.wait(2), "Transition must contend on the snapshot lock")
+                        release_snapshot.set()
+                        observer.join(2)
+                        self.assertFalse(observer.is_alive())
+                        if action == "start":
+                            self.assertTrue(entered.wait(2))
+                        self.assertGreaterEqual(rows[0]["seconds"], 0)
+                        self.assertEqual(rows[0]["seconds"], 0 if action == "start" else 1)
+                    finally:
+                        release_snapshot.set()
+                        release_stage.set()
+                        observer.join(2)
+                        if stage.ident is not None:
+                            stage.join(2)
+                    self.assertFalse(failures, failures)
+                    self.assertEqual(values.rows()[0]["seconds"], 1 if action == "start" else 2)
+
+    def test_pipeline_transition_cannot_race_final_snapshot(self):
+        sampled, release_snapshot = threading.Event(), threading.Event()
+        lock = ObservedLock()
+        counter = itertools.count()
+        failures = []
+        def clock():
+            seconds = next(counter)
+            if threading.current_thread().name == "snapshot":
+                sampled.set()
+                if not release_snapshot.wait(5):
+                    raise AssertionError("Final snapshot was not released")
+            return seconds
+        def finalize():
+            try:
+                recorder.finish("succeeded")
+            except BaseException as exc:
+                failures.append(exc)
+        with patch.object(run_timing, "perf_counter", side_effect=clock):
+            recorder = run_timing.Recorder(self.root, "update")
+            recorder.lock = recorder.stages.lock = lock
+            recorder.enter("register")
+            observer = threading.Thread(target=finalize, name="snapshot")
+            transition = threading.Thread(target=lambda: recorder.enter("normalize"), name="transition")
+            try:
+                observer.start()
+                self.assertTrue(sampled.wait(2))
+                transition.start()
+                self.assertTrue(lock.attempted.wait(2), "Stage transition must use the finalization lock")
+            finally:
+                release_snapshot.set()
+                observer.join(2)
+                if transition.ident is not None:
+                    transition.join(2)
+            self.assertFalse(failures, failures)
+            self.assertEqual([row["name"] for row in recorder.record["stages"]], ["register"])
+            self.assertTrue(all(row["seconds"] >= 0 for row in recorder.record["stages"]))
+
+    def test_success_claim_prevents_timeout_even_while_save_is_blocked(self):
+        saving, release_save = threading.Event(), threading.Event()
+        recorder = run_timing.Recorder(self.root, "update")
+        original = run_timing.save
+        def blocked_save(*args):
+            saving.set()
+            if not release_save.wait(5):
+                raise AssertionError("Save was not released")
+            return original(*args)
+        finalizer = threading.Thread(target=lambda: recorder.finish("succeeded"))
+        with patch.object(run_timing, "save", side_effect=blocked_save), patch.object(wiki.threading, "Timer") as timer, \
+                patch.object(wiki.sys, "stderr", io.StringIO()):
+            stop = unittest.mock.Mock()
+            wiki.deadline(2, "update", stop=stop, timing=recorder)
+            try:
+                finalizer.start()
+                self.assertTrue(saving.wait(2))
+                timer.call_args.args[1]()
+                stop.assert_not_called()
+                self.assertTrue(finalizer.is_alive())
+            finally:
+                release_save.set()
+                finalizer.join(2)
+        self.assertEqual(json.loads(self.records()[0].read_bytes())["outcome"], "succeeded")
+
+    def test_expiry_claim_wins_before_delayed_writer_and_concurrent_completion(self):
+        writer_ready, release_writer, saving, release_save, stopped = (threading.Event() for _ in range(5))
+        recorder = run_timing.Recorder(self.root, "update")
+        original_save, original_thread = run_timing.save, threading.Thread
+        writers = []
+        def blocked_save(*args):
+            saving.set()
+            if not release_save.wait(5):
+                raise AssertionError("Save was not released")
+            return original_save(*args)
+        class DelayedWriter(original_thread):
+            def run(self):
+                writer_ready.set()
+                release_writer.wait(5)
+                super().run()
+        def writer(*args, **kwargs):
+            thread = DelayedWriter(*args, **kwargs)
+            writers.append(thread)
+            return thread
+        with patch.object(run_timing, "save", side_effect=blocked_save), patch.object(wiki.threading, "Timer") as timer, \
+                patch.object(wiki.threading, "Thread", side_effect=writer), patch.object(wiki.sys, "stderr", io.StringIO()):
+            stop = unittest.mock.Mock(side_effect=lambda code: stopped.set())
+            wiki.deadline(2, "update", stop=stop, timing=recorder)
+            expiry = original_thread(target=timer.call_args.args[1])
+            finalizer = original_thread(target=lambda: recorder.finish("succeeded"))
+            try:
+                expiry.start()
+                self.assertTrue(writer_ready.wait(2))
+                finalizer.start()
+                self.assertTrue(saving.wait(2))
+                release_writer.set()
+                self.assertTrue(stopped.wait(2), "The watchdog must exit while finalization is still blocked")
+                stop.assert_called_once_with(124)
+                self.assertTrue(finalizer.is_alive())
+                self.assertEqual(recorder.record["outcome"], "timed-out")
+            finally:
+                release_writer.set()
+                release_save.set()
+                expiry.join(2)
+                if finalizer.ident is not None:
+                    finalizer.join(2)
+                for thread in writers:
+                    thread.join(2)
+        self.assertEqual(len(self.records()), 1)
+        self.assertEqual(json.loads(self.records()[0].read_bytes())["outcome"], "timed-out")
+
     def test_blocked_timing_cannot_defeat_watchdog_exit(self):
         release = threading.Event()
         entered = threading.Event()
@@ -199,6 +383,17 @@ class TimingTests(unittest.TestCase):
                     if command == "update":
                         self.assertIn("capture: capture", rendered)
 
+    def test_main_returns_timeout_when_expiry_claim_precedes_completion(self):
+        output = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+        def execute(root, args, timing):
+            self.assertTrue(timing.claim("timed-out"))
+            return {"release_id": "r"}
+        with patch.object(wiki.sys, "argv", ["wiki.py", "publish", "--release", "r"]), \
+                patch.object(wiki, "__file__", str(self.root / "wiki.py")), \
+                patch.object(wiki.sys, "stdout", output), patch.object(wiki, "_run", side_effect=execute):
+            self.assertEqual(wiki.main(), 124)
+        self.assertEqual(json.loads(self.records()[0].read_bytes())["outcome"], "timed-out")
+
     def test_publish_watchdog_includes_active_pages_wait(self):
         recorder = run_timing.Recorder(self.root, "publish", "r")
         row = publication.repository_timing()
@@ -222,6 +417,17 @@ class PipelineTimingTests(unittest.TestCase):
         self.addCleanup(self.fixture.doCleanups)
         self.root, self.source = self.fixture.root, self.fixture.source
         from test_extraction import PROJECT
+        # Exercise the actual coordinated release rather than the pipeline
+        # fixture's candidate-ID stand-in for a release identity.
+        self.fixture.release_patch.stop()
+        workspace.initialize(self.root, PROJECT)
+        for repository in PROJECT["repositories"]:
+            path = self.root / repository["path"]
+            git(path, "config", "user.name", "Wiki fixture")
+            git(path, "config", "user.email", "wiki@example.invalid")
+            git(path, "add", ".")
+            git(path, "commit", "-m", "Seed timing fixture")
+        workspace.checkout_lock(self.root, PROJECT)
         (self.root / "project.json").write_bytes(json_bytes(PROJECT))
 
     def test_capture_and_timing_do_not_change_request_run_or_release_identity(self):
@@ -230,6 +436,10 @@ class PipelineTimingTests(unittest.TestCase):
         args = SimpleNamespace(command="update", source=str(self.source), capture_timing=receipt)
         first = wiki.run(self.root, args)
         saved = pipeline.read(self.root, first["run_id"])
+        released = release.read(self.root, first["release_id"])
+        release.verify(self.root, released)
+        release_path = self.root / f"releases/{first['release_id']}.json"
+        release_bytes = release_path.read_bytes()
         request = self.root / f".local/pipeline/requests/{saved['request_key']}.json"
         before = request.read_bytes()
         receipt.write_bytes(json_bytes({**CAPTURE, "seconds": 500, "phases": []}))
@@ -238,6 +448,9 @@ class PipelineTimingTests(unittest.TestCase):
         self.assertEqual(first["run_id"], second["run_id"])
         self.assertEqual(first["run_id"], third["run_id"])
         self.assertEqual(first["release_id"], second["release_id"])
+        self.assertEqual(first["release_id"], third["release_id"])
+        self.assertEqual(release_path.read_bytes(), release_bytes)
+        release.verify(self.root, release.read(self.root, third["release_id"]))
         self.assertEqual(request.read_bytes(), before)
         self.assertNotIn("capture", saved)
         files = sorted((self.root / ".local/runs").glob("*.json"))
@@ -291,6 +504,14 @@ class PublishTimingTests(unittest.TestCase):
         self.assertEqual(record["outcome"], "failed")
         self.assertEqual(record["stages"][0]["name"], "gate")
         self.assertEqual(record["stages"][0]["outcome"], "failed")
+
+    def test_failed_worker_marks_topic_phase_failed(self):
+        self.fixture.host.fail_name = "Wiki-items"
+        with self.assertRaisesRegex(ContractError, "Topic publication failed"):
+            self.invoke()
+        record = json.loads(next((self.root / ".local/runs").glob("*.json")).read_bytes())
+        phases = {row["name"]: row for row in record["stages"]}
+        self.assertEqual(phases["topics-1"]["outcome"], "failed")
 
 
 if __name__ == "__main__":

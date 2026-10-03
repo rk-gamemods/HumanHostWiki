@@ -264,20 +264,33 @@ def prepare(root, project, manifest, host, refs):
 
 @contextmanager
 def measure(timing, key):
+    if isinstance(timing, run_timing.Values):
+        with timing.observe(key):
+            yield
+        return
     started = perf_counter()
     try:
-        if isinstance(timing, run_timing.Values):
-            with timing.observe(key):
-                yield
-        else:
-            yield
+        yield
     finally:
         if timing is not None:
             timing[key] = timing.get(key, 0.0) + (perf_counter() - started)
 
 
-def repository_timing():
-    return run_timing.Values(dict.fromkeys(("push_main", "push_pages", "configure", "pages_build", "verify", "total"), 0.0))
+def timing_clock():
+    """Resolve the publication clock when sampled, including injected clocks."""
+    return perf_counter()
+
+
+def repository_timing(lock=None):
+    return run_timing.Values(dict.fromkeys(("push_main", "push_pages", "configure", "pages_build", "verify", "total"), 0.0),
+                            lock=lock, clock=timing_clock)
+
+
+def repository_row(timing, group, identity):
+    if isinstance(timing, run_timing.Values):
+        with timing.lock:
+            return timing[group].setdefault(identity, repository_timing(timing.lock))
+    return timing[group].setdefault(identity, repository_timing())
 
 
 def deploy(root, plan, host, timing=None, refs=None):
@@ -341,7 +354,7 @@ def execute(root, state, path, host, workers, refs, timing=None):
 
     def restore():
         identity = state.get("hub_control", "hub")
-        row = timing["rollback"].setdefault(identity, repository_timing())
+        row = repository_row(timing, "rollback", identity)
         with measure(timing["phases"], "rollback"), measure(row, "total"):
             rollback(root, state, path, host, refs, row)
 
@@ -360,7 +373,7 @@ def execute(root, state, path, host, workers, refs, timing=None):
         errors = []
         with measure(timing["phases"], f"topics-{rank}"), ThreadPoolExecutor(max_workers=workers) as pool:
             pending = {pool.submit(deploy, root, plan, host,
-                       timing["repositories"].setdefault(topic, repository_timing()), refs): plan
+                       repository_row(timing, "repositories", topic), refs): plan
                        for topic, plan in topics.items()}
             for future in as_completed(pending):
                 plan = pending[future]
@@ -370,14 +383,14 @@ def execute(root, state, path, host, workers, refs, timing=None):
                     save(path, state)
                 except Exception as exc:
                     errors.append(f"{plan['name']}: {exc}")
-        if errors:
-            raise ContractError(("Storage" if rank == 0 else "Topic") + " publication failed; hub unchanged: " + "; ".join(errors))
+            if errors:
+                raise ContractError(("Storage" if rank == 0 else "Topic") + " publication failed; hub unchanged: " + "; ".join(errors))
     hub = state["repositories"][state.get("hub_control", "hub")]
     if not hub["verified"]:
         state["phase"] = "hub"
         save(path, state)
         try:
-            row = timing["repositories"].setdefault(state.get("hub_control", "hub"), repository_timing())
+            row = repository_row(timing, "repositories", state.get("hub_control", "hub"))
             with measure(timing["phases"], "hub"):
                 deploy(root, hub, host, row, refs)
             hub["verified"] = True
@@ -406,9 +419,12 @@ def execute(root, state, path, host, workers, refs, timing=None):
 
 def run(root, project, manifest, *, host=None, progress=None, timing_sink=None):
     """Caller holds the shared OS writer lock. Production always passes the gate."""
-    timing = run_timing.Values({"repositories": {}, "rollback": {}, "phases": run_timing.Values(), "prepare": 0.0, "resume": 0.0})
+    timing = run_timing.Values({"repositories": {}, "rollback": {}, "prepare": 0.0, "resume": 0.0},
+                              lock=timing_sink.lock if timing_sink is not None else None, clock=timing_clock)
+    timing["phases"] = run_timing.Values(lock=timing.lock, clock=timing_clock)
     if timing_sink is not None:
-        timing_sink.publication = timing
+        with timing.lock:
+            timing_sink.publication = timing
     try:
         with measure(timing, "total"):
             with measure(timing, "gate"):
@@ -448,7 +464,8 @@ def _run(root, project, manifest, host, progress, timing, gate):
                 host.configure(plan["name"])
             with measure(row, "verify"):
                 host.verify(plan["base"], health(plan))
-        timing["repositories"].update({topic: repository_timing() for topic in current["repositories"]})
+        with timing.lock:
+            timing["repositories"].update({topic: repository_timing(timing.lock) for topic in current["repositories"]})
         with measure(timing, "resume"), measure(timing["phases"], "current"), ThreadPoolExecutor(max_workers=workers) as pool:
             list(pool.map(check_current, current["repositories"], current["repositories"].values()))
         return current, {"reused": True}
