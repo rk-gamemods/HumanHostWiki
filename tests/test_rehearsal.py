@@ -151,6 +151,139 @@ class DisposableCleanupTests(unittest.TestCase):
                         unlink.assert_not_called()
 
 
+class RehearsalTempLifecycleTests(unittest.TestCase):
+    """Real filesystem boundaries without building a publication for each fault."""
+    def setUp(self):
+        self.root = Path(tempfile.gettempdir()).resolve() / ("hhwiki-publication-" + uuid4().hex)
+        self.root.mkdir()
+        self.addCleanup(publication_git.remove_disposable, self.root)
+        self.pointer = self.root / rehearse_publication.TEMP_RECORD
+        self.temporary = None
+
+    def track(self, temporary):
+        self.temporary = Path(temporary)
+        self.addCleanup(publication_git.remove_disposable, self.temporary)
+
+    def test_setup_failure_before_and_after_each_step_cleans_record_and_root(self):
+        real_save, real_mkdir = publication.save, Path.mkdir
+        for step in ("record", "root", "marker", "progress", "engine"):
+            for after in (False, True):
+                with self.subTest(step=step, after=after):
+                    self.temporary = None
+                    before = rehearse_publication.state_snapshot(self.root)
+
+                    def fail(where, completed):
+                        if where == step and completed == after:
+                            raise OSError(f"Injected {where} failure")
+
+                    def save(path, payload):
+                        if path == self.pointer:
+                            self.track(payload["path"])
+                            self.assertFalse(self.temporary.exists(), "Record must precede root creation")
+                            where = "record"
+                        else:
+                            self.assertEqual(path, self.temporary / rehearse_publication.TEMP_MARKER)
+                            self.assertEqual(publication.load(self.pointer)["path"], str(self.temporary))
+                            where = "marker"
+                        fail(where, False)
+                        result = real_save(path, payload)
+                        fail(where, True)
+                        return result
+
+                    def mkdir(path, *args, **kwargs):
+                        where = ("root" if path == self.temporary else "engine"
+                                 if self.temporary and path == self.temporary / "workspace" else None)
+                        if where:
+                            self.assertTrue(self.pointer.exists(), "Root creation must have a recovery pointer")
+                        fail(where, False)
+                        result = real_mkdir(path, *args, **kwargs)
+                        fail(where, True)
+                        return result
+
+                    def progress(message):
+                        self.assertTrue((self.temporary / rehearse_publication.TEMP_MARKER).is_file())
+                        fail("progress", False)
+                        self.assertIn(str(self.temporary), message)
+                        fail("progress", True)
+
+                    with patch.object(publication, "save", side_effect=save), \
+                            patch.object(Path, "mkdir", mkdir):
+                        with self.assertRaisesRegex(OSError, f"Injected {step} failure"):
+                            with rehearse_publication.isolated_workspace(self.root, {"repositories": {}}, progress):
+                                self.fail("Failed setup must not yield a workspace")
+                    self.assertFalse(self.temporary.exists())
+                    self.assertFalse(self.pointer.exists())
+                    self.assertEqual(rehearse_publication.state_snapshot(self.root), before)
+
+    def record_intent(self):
+        self.track(Path(tempfile.gettempdir()).resolve() / ("hhwiki-rehearsal-" + uuid4().hex))
+        record = {"path": str(self.temporary), "workspace": str(self.root), "nonce": uuid4().hex,
+                  "created_dirs": [".local/publication", ".local"]}
+        publication.save(self.pointer, record)
+        return record
+
+    def test_crash_after_record_root_or_partial_marker_write_is_recoverable(self):
+        for step in ("record", "root", "partial-marker"):
+            with self.subTest(step=step):
+                self.record_intent()
+                if step != "record":
+                    self.temporary.mkdir()
+                if step == "partial-marker":
+                    partial = self.temporary / (rehearse_publication.TEMP_MARKER + "." + uuid4().hex + ".tmp")
+                    partial.write_bytes(b'{"payload":')
+                rehearse_publication.recover_abandoned(self.root, lambda message: None)
+                self.assertFalse(self.temporary.exists())
+                self.assertFalse(self.pointer.exists())
+                self.assertFalse((self.root / ".local").exists())
+                rehearse_publication.recover_abandoned(self.root, lambda message: None)
+
+    def test_cleanup_interruption_after_marker_deletion_recovers_empty_root(self):
+        real_rmdir = Path.rmdir
+
+        def interrupted(path):
+            if path == self.temporary:
+                self.assertEqual(list(path.iterdir()), [], "Marker must be deleted only after contents")
+                self.assertTrue(self.pointer.exists())
+                raise OSError("Interrupted after marker deletion")
+            return real_rmdir(path)
+
+        with patch.object(Path, "rmdir", interrupted):
+            with self.assertRaisesRegex(OSError, "after marker deletion"):
+                with rehearse_publication.isolated_workspace(self.root, {"repositories": {}}, lambda message: None) as engine:
+                    self.track(engine.parent)
+                    (engine / "leftover.txt").write_text("ours")
+        self.assertTrue(self.temporary.exists())
+        self.assertFalse((self.temporary / rehearse_publication.TEMP_MARKER).exists())
+        self.assertTrue(self.pointer.exists())
+        rehearse_publication.recover_abandoned(self.root, lambda message: None)
+        self.assertFalse(self.temporary.exists())
+        self.assertFalse(self.pointer.exists())
+
+    def test_cleanup_interruption_after_partial_content_deletion_keeps_marker_and_recovers(self):
+        real_rmtree = shutil.rmtree
+
+        def interrupted(path, *args, **kwargs):
+            if self.temporary and Path(path) == self.temporary / "workspace":
+                (Path(path) / "first.txt").unlink()
+                self.assertTrue((self.temporary / rehearse_publication.TEMP_MARKER).is_file())
+                self.assertTrue(self.pointer.exists())
+                raise OSError("Interrupted after partial content deletion")
+            return real_rmtree(path, *args, **kwargs)
+
+        with patch.object(shutil, "rmtree", side_effect=interrupted):
+            with self.assertRaisesRegex(OSError, "partial content deletion"):
+                with rehearse_publication.isolated_workspace(self.root, {"repositories": {}}, lambda message: None) as engine:
+                    self.track(engine.parent)
+                    (engine / "first.txt").write_text("first")
+                    (engine / "second.txt").write_text("second")
+        self.assertFalse((self.temporary / "workspace/first.txt").exists())
+        self.assertTrue((self.temporary / "workspace/second.txt").is_file())
+        self.assertTrue((self.temporary / rehearse_publication.TEMP_MARKER).is_file())
+        rehearse_publication.recover_abandoned(self.root, lambda message: None)
+        self.assertFalse(self.temporary.exists())
+        self.assertFalse(self.pointer.exists())
+
+
 class RehearsalTests(unittest.TestCase):
     def setUp(self):
         fixture = test_publication.PublicationTests()
@@ -244,6 +377,7 @@ class RehearsalTests(unittest.TestCase):
 
     def test_recovery_refuses_unmarked_root_outside_temp_and_wrong_owner(self):
         temporary = self.abandoned_temp(marked=False)
+        (temporary / "unknown.txt").write_text("not an incomplete marker write")
         with self.assertRaisesRegex(ContractError, "without its ownership marker"):
             self.rehearse()
         self.assertTrue(temporary.exists())

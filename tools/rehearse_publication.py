@@ -32,7 +32,7 @@ TEMP_MARKER = ".hhwiki-rehearsal.json"
 
 
 def clear_temp_record(root, record):
-    within(root, TEMP_RECORD).unlink()
+    within(root, TEMP_RECORD).unlink(missing_ok=True)
     for relative in record["created_dirs"]:
         directory = within(root, relative)
         if directory.exists() and not any(directory.iterdir()):
@@ -55,10 +55,18 @@ def recover_abandoned(root, progress):
         raise ContractError(f"Rehearsal recovery requires the retained backup at {temporary}")
     if temporary.exists():
         marker = temporary / TEMP_MARKER
-        if marker.is_symlink() or not marker.is_file() or publication.load(marker) != {"workspace": record["workspace"], "nonce": record["nonce"]}:
+        # Before the marker is installed, a crash can leave an empty root or
+        # just write_changed's partial marker file. After marker-last cleanup,
+        # the only possible unmarked remainder is an empty root.
+        incomplete_marker = (not marker.exists() and not marker.is_symlink()
+                             and all(file.is_file() and not file.is_symlink()
+                                     and re.fullmatch(re.escape(TEMP_MARKER) + r"\.[0-9a-f]{32}\.tmp", file.name)
+                                     for file in temporary.iterdir()))
+        if (not incomplete_marker and (marker.is_symlink() or not marker.is_file()
+                or publication.load(marker) != {"workspace": record["workspace"], "nonce": record["nonce"]})):
             raise ContractError(f"Refusing rehearsal temp cleanup without its ownership marker: {temporary}")
         progress(f"Removing abandoned rehearsal temp root: {temporary}")
-        publication_git.remove_disposable(temporary)
+        publication_git.remove_disposable(temporary, marker=TEMP_MARKER)
     clear_temp_record(root, record)
 
 
@@ -112,18 +120,19 @@ def isolated_workspace(root, manifest, progress=print):
     # Ordinary temp directories also work on hosts with restrictive mkdtemp ACLs.
     recover_abandoned(root, progress)
     temporary = Path(tempfile.gettempdir()).resolve() / ("hhwiki-rehearsal-" + uuid4().hex)
-    temporary.mkdir()
     owner_record = {"path": str(temporary), "workspace": str(root.resolve()), "nonce": uuid4().hex,
                     "created_dirs": [relative for relative in (".local/publication", ".local")
                                      if not within(root, relative).exists()]}
-    publication.save(temporary / TEMP_MARKER, {"workspace": owner_record["workspace"], "nonce": owner_record["nonce"]})
-    publication.save(within(root, TEMP_RECORD), owner_record)
-    progress(f"Rehearsal temp root: {temporary}")
     engine, backup = temporary / "workspace", temporary / "backup"
     repositories = {}
     keep = False
     ready = False
     try:
+        # Persist intent before creating anything the next invocation must own.
+        publication.save(within(root, TEMP_RECORD), owner_record)
+        temporary.mkdir()
+        publication.save(temporary / TEMP_MARKER, {"workspace": owner_record["workspace"], "nonce": owner_record["nonce"]})
+        progress(f"Rehearsal temp root: {temporary}")
         engine.mkdir()
         before = state_snapshot(root)
         repositories = {within(root, record["path"]): publication_git.storage_snapshot(within(root, record["path"]))
@@ -154,8 +163,10 @@ def isolated_workspace(root, manifest, progress=print):
             raise
         finally:
             if not keep:
-                publication_git.remove_disposable(temporary)
-                clear_temp_record(root, owner_record)
+                if within(root, TEMP_RECORD).exists():
+                    recover_abandoned(root, lambda message: None)
+                elif not temporary.exists():
+                    clear_temp_record(root, owner_record)
         if restored:
             raise ContractError("Rehearsal changed original publication state; restored from backup")
 

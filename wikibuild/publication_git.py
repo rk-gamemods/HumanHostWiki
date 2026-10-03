@@ -81,7 +81,7 @@ def disposable_clone(source, destination, revision):
     disposable_git(destination, "checkout", "--detach", revision, hooks=hooks)
 
 
-def remove_disposable(root):
+def remove_disposable(root, *, marker=None):
     """Delete an owned temp tree, retrying only Git's read-only object files."""
     root = Path(root).resolve()
     if (root.parent != Path(tempfile.gettempdir()).resolve()
@@ -103,7 +103,22 @@ def remove_disposable(root):
         function(filename)
 
     if root.exists():
-        shutil.rmtree(root, onerror=retry_readonly)
+        if marker is None:
+            shutil.rmtree(root, onerror=retry_readonly)
+        else:
+            if Path(marker).name != marker or marker in {".", ".."}:
+                raise ContractError("Disposable marker must be a filename")
+            # Keep the ownership proof until all other contents are gone. A
+            # crash after unlinking the marker leaves only an empty root.
+            for child in root.iterdir():
+                if child.name == marker:
+                    continue
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child, onerror=retry_readonly)
+                else:
+                    child.unlink()
+            (root / marker).unlink(missing_ok=True)
+            root.rmdir()
 
 
 def commit(path, tree, parent, message):
