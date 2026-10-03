@@ -4,6 +4,7 @@ import hashlib
 import re
 import subprocess
 
+from . import bounded
 from .git_transaction import command
 from .storage import ContractError, git
 
@@ -21,17 +22,21 @@ def owned_lineage(path, base, head):
     An abandoned publication leaves its pushed commits on the remote branch. Each commit
     after `base` must be pinned under refs/wiki-publications/ (pushed from here) or carry a
     tree already on that line (a byte-identical restore). Anything else stays refused."""
-    if not base or not head:
+    if not head:
         return False
 
     def succeeds(*args):
-        return subprocess.run(["git", "-C", str(path), *args], capture_output=True).returncode == 0
+        try:
+            return bounded.run(["git", "-C", str(path), *args], timeout=120).returncode == 0
+        except subprocess.TimeoutExpired:
+            return False
 
-    if not succeeds("cat-file", "-e", head + "^{commit}") or not succeeds("merge-base", "--is-ancestor", base, head):
+    if not succeeds("cat-file", "-e", head + "^{commit}") or (base and not succeeds("merge-base", "--is-ancestor", base, head)):
         return False
-    trees = {git(path, "rev-parse", base + "^{tree}")}
-    for revision in reversed(git(path, "rev-list", head, "^" + base).splitlines()):
-        tree = git(path, "rev-parse", revision + "^{tree}")
+    # Without a completed baseline, the lineage must start at a pinned root.
+    trees = {bounded_git(path, "rev-parse", base + "^{tree}")} if base else set()
+    for revision in reversed(bounded_git(path, "rev-list", head, *(["^" + base] if base else [])).splitlines()):
+        tree = bounded_git(path, "rev-parse", revision + "^{tree}")
         if tree not in trees and not succeeds("show-ref", "--verify", "--quiet", "refs/wiki-publications/" + revision):
             return False
         trees.add(tree)
@@ -41,10 +46,24 @@ def owned_lineage(path, base, head):
 def released_lineage(path, base, head, release):
     """True when remote main `head` lies on this workspace's own release history:
     it descends from the last published `base` and the selected `release` descends from it."""
-    if not base or not head:
+    if not head:
         return False
-    return all(subprocess.run(["git", "-C", str(path), "merge-base", "--is-ancestor", older, newer],
-                              capture_output=True).returncode == 0 for older, newer in ((base, head), (head, release)))
+    try:
+        return all(bounded.run(["git", "-C", str(path), "merge-base", "--is-ancestor", older, newer],
+                               timeout=120).returncode == 0 for older, newer in
+                   (*([(base, head)] if base else []), (head, release)))
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def bounded_git(path, *arguments):
+    try:
+        result = bounded.run(["git", "-C", str(path), *arguments], timeout=120)
+    except subprocess.TimeoutExpired:
+        raise ContractError("Publication lineage check timed out") from None
+    if result.returncode:
+        raise ContractError("Publication lineage check failed")
+    return result.stdout.decode().strip()
 
 
 def unavailable(path):

@@ -233,7 +233,7 @@ preserving the original topic URLs and historical files. Indivisible control rec
 remain unfinished and fail before promotion if their budgets are exceeded. Live
 GitHub overflow acceptance is still pending; forced-threshold tests use a host adapter.
 
-## Publish or resume a release
+## Publish or abandon a release
 
 `wiki.py update` stops after release and retention and reports the release id and
 next step. Review and merge workspace changes into main, wait for exact-commit CI
@@ -245,14 +245,27 @@ py -3 wiki.py publish --release <id>
 ```
 
 Publication is enabled in `project.json` for this explicit command. The
-[production gate](PUBLICATION.md#production-gate) checks clean workspace,
-fetched `origin/main`, successful `CI` and a matching rehearsal receipt no older
-than 24 hours with unchanged remote refs. It runs before provisioning or pending
-resume, with no override flag. Refresh the rehearsal after ref drift or expiry.
+[production gate](PUBLICATION.md#production-gate) checks a clean workspace,
+canonical HumanHostWiki origin, fetched `origin/main`, successful push CI from
+`.github/workflows/ci.yml` on main, a PR merged at this exact commit and a matching
+rehearsal receipt no older than 24 hours with unchanged remote refs. The receipt
+binds the rehearsal runner and publication modules. Refs are enforced again at
+preparation and every push, with explicit leases. There is no override flag.
+Refresh the rehearsal after ref drift or expiry.
 The command provisions configured repositories, audits outgoing history,
 verifies topic deployments and advances the hub last. Completed publication
 receipts live in `publications/`; incomplete work lives in `.local/publication/`.
-See [publication recovery](PUBLICATION.md) for interrupted pushes and hub rollback.
+Failed publications are scrapped, never resumed. An incomplete journal blocks
+publishing any release before the gate or remote calls. Run:
+
+```powershell
+py -3 wiki.py abandon-publication
+```
+
+This local-only command moves the journal and a README under
+`.local/publication/abandoned/<timestamp>-<release>/`. Rehearse against the current
+live state, then publish afresh. Hub rollback remains part of a single failing run.
+See [publication](PUBLICATION.md) for the boundary and archived evidence.
 
 ## Build the architecture preview
 

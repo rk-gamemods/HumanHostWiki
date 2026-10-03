@@ -46,10 +46,10 @@ class RehearsalHost(github_pages.GitHubPages):
 
     def push(self, path, name, commit, branch, expected):
         current = self.ref(name, branch)
-        if current == commit:
-            return
         if current != expected:
             raise ContractError(f"Remote branch changed: {name}/{branch}")
+        if current == commit:
+            return
         if current:
             if bounded.run(["git", "-C", str(path), "cat-file", "-e", current + "^{commit}"], timeout=publish_gate.GIT_TIMEOUT).returncode:
                 self.fetch(path, name, branch)
@@ -85,14 +85,17 @@ class RehearsalHost(github_pages.GitHubPages):
 
 
 def rehearse(root, project, manifest, progress=print):
-    target = manifest["release_id"]
-    paths = {repo["github_name"]: root / manifest["repositories"][repo["id"]]["path"]
-             for repo in physical.repositories(project, manifest.get("physical"))}
+    publish_gate.ensure_clean(root)
     with writer_lock(root):
-        before = publish_gate.git(root, "status", "--porcelain=v1", "--untracked-files=all")
+        publish_gate.ensure_clean(root)
+        publication.refuse_pending(root)
+        target = manifest["release_id"]
+        paths = {repo["github_name"]: root / manifest["repositories"][repo["id"]]["path"]
+                 for repo in physical.repositories(project, manifest.get("physical"))}
+        before = ""
         commit = publish_gate.git(root, "rev-parse", "HEAD")
         contract = publication.contract()
-        # Snapshot every destination, including an older pending deployment.
+        # Snapshot every destination of the fresh publication.
         destinations = publish_gate.destinations(root, project, manifest)
         backup = root / ".local/rehearsal-backups"
         backup.mkdir(parents=True, exist_ok=True)
@@ -106,7 +109,10 @@ def rehearse(root, project, manifest, progress=print):
                     host.ref(name, branch)
                 # Only this read-only simulator uses the engine without the production gate.
                 timing = {"repositories": {}, "rollback": {}, "phases": {}, "prepare": 0.0, "resume": 0.0}
-                result, _ = publication._run(root, project, manifest, host, progress, timing)
+                refs = [{"repository": name, "branch": branch, "commit": sha}
+                        for (name, branch), sha in sorted(host.observed.items())]
+                result, _ = publication._run(root, project, manifest, host, progress, timing,
+                                            {"rehearsal": {"remote_refs": refs}})
             finally:
                 for relative in PROTECTED:
                     if (root / relative).exists():

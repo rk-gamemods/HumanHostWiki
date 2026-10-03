@@ -2,8 +2,10 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 from time import perf_counter
 
 from . import entrypoints, github_pages, ownership, physical, publication_git, publish_gate, release
@@ -11,8 +13,79 @@ from .storage import ContractError, digest, git, json_bytes, within, write_chang
 
 
 def contract():
-    return {name: digest((Path(__file__).parent / name).read_bytes().replace(b"\r\n", b"\n"))
+    modules = {name: digest((Path(__file__).parent / name).read_bytes().replace(b"\r\n", b"\n"))
             for name in ("publication.py", "publication_git.py", "github_pages.py", "ownership.py", "entrypoints.py", "physical.py", "publish_gate.py")}
+    runner = Path(__file__).resolve().parents[1] / "tools/rehearse_publication.py"
+    modules["tools/rehearse_publication.py"] = digest(runner.read_bytes().replace(b"\r\n", b"\n"))
+    return modules
+
+
+def refuse_pending(root):
+    path = root / ".local/publication/pending.json"
+    if not path.exists():
+        return
+    try:
+        complete = load(path).get("phase") == "complete"
+    except (ContractError, OSError, ValueError, KeyError, TypeError, AttributeError):
+        complete = False
+    if not complete:
+        raise ContractError("Incomplete publication must be scrapped; run py -3 wiki.py abandon-publication, then rehearse and publish afresh")
+
+
+def abandon(root):
+    """Caller holds the writer lock. Archive local evidence without remote calls."""
+    path = root / ".local/publication/pending.json"
+    if not path.exists():
+        return {"status": "nothing-to-abandon"}
+    try:
+        state = load(path)
+    except (ContractError, ValueError, KeyError, TypeError, AttributeError):
+        state = {}
+    if state.get("phase") == "complete":
+        return {"status": "nothing-to-abandon"}
+    identity = state.get("release_id", "unknown")
+    if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{64}", identity):
+        identity = "unknown"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    destination = within(root, f".local/publication/abandoned/{stamp}-{identity}")
+    destination.mkdir(parents=True)
+    (destination / "README.md").write_text(
+        "# Abandoned publication\n\nThis failed run was scrapped and will never resume.\n"
+        "Only the local journal was moved; remote branches were not changed.\n"
+        "Rehearse the selected local release against current live state before publishing afresh.\n",
+        encoding="utf-8")
+    path.rename(destination / "pending.json")
+    return {"status": "abandoned", "release_id": identity, "archive": destination.relative_to(root).as_posix()}
+
+
+class RehearsedRefs:
+    """Only rehearsed tips or this invocation's confirmed pushes may be advanced."""
+    def __init__(self, rows):
+        self.expected = {(row["repository"], row["branch"]): row["commit"] for row in rows}
+        self.confirmed = {}
+
+    def observe(self, host, name, branch):
+        key = (name, branch)
+        if key not in self.expected:
+            raise ContractError(f"Missing rehearsed ref: {name}/{branch}")
+        actual = host.ref(name, branch)
+        if actual != self.expected[key]:
+            raise ContractError(f"Remote ref differs from rehearsal or this invocation's confirmed push: {name}/{branch}")
+        return actual
+
+    def check(self, host, keys):
+        for name, branch in sorted(keys):
+            self.observe(host, name, branch)
+
+    def push(self, host, path, name, commit, branch):
+        expected = self.observe(host, name, branch)
+        key = (name, branch)
+        # The adapter reconciles a lost push response before returning success.
+        # A failing call is never authority to adopt a coincidentally matching tip.
+        host.push(path, name, commit, branch, expected)
+        if host.ref(name, branch) != commit:
+            raise ContractError(f"Publication push was not confirmed: {name}/{branch}")
+        self.expected[key] = self.confirmed[key] = commit
 
 
 def save(path, payload):
@@ -80,7 +153,9 @@ def pin(path, commit):
     git(path, "update-ref", f"refs/wiki-publications/{commit}", commit)
 
 
-def prepare(root, project, manifest, host):
+def prepare(root, project, manifest, host, refs):
+    # Never adopt history that changed after the gate, even if it is our lineage.
+    refs.check(host, publish_gate.destinations(root, project, manifest))
     if digest(json_bytes(project)) != manifest["inputs"]["project_sha256"]:
         raise ContractError("Publication project differs from the pinned Git release")
     previous = published(root)
@@ -97,26 +172,25 @@ def prepare(root, project, manifest, host):
         topic, name = repo["id"], repo["github_name"]
         record = manifest["repositories"][topic]
         path = within(root, record["path"])
-        old_main, old_pages = host.ref(name, "main"), host.ref(name, "gh-pages")
+        old_main, old_pages = refs.observe(host, name, "main"), refs.observe(host, name, "gh-pages")
         prior = previous["repositories"].get(topic) if previous else None
         if prior and old_pages not in {None, prior["pages"]} and hasattr(host, "fetch"):
             host.fetch(path, name, "gh-pages")  # A restore made on the remote is not local yet.
         # An abandoned publication may have advanced main and gh-pages past the last
         # receipt. Adopt only history this workspace published; refuse anything else.
-        abandoned_main = bool(prior) and publication_git.released_lineage(path, prior["main"], old_main, record["commit"])
+        abandoned_main = publication_git.released_lineage(path, prior["main"] if prior else None, old_main, record["commit"])
         if old_main not in {None, record["commit"], prior["main"] if prior else None} and not abandoned_main:
             raise ContractError(f"Unexpected remote main: {name}")
         if old_pages != (prior["pages"] if prior else None) and not (
-                prior and publication_git.owned_lineage(path, prior["pages"], old_pages)):
+                publication_git.owned_lineage(path, prior["pages"] if prior else None, old_pages)):
             raise ContractError(f"Unexpected remote Pages branch: {name}")
         tree = git(path, "rev-parse", record["commit"] + ":site")
         if "pages" in record:
             if record["pages_parent"] == old_pages:
                 target = record["pages"]
             else:
-                # An earlier pending publication can finish after this local
-                # release was prepared. Its verified receipt is the new parent;
-                # remeasure the exact rebased history before advertising bytes.
+                # A scrapped publication may have advanced the rehearsed parent.
+                # Remeasure the rebased history before advertising bytes.
                 from .capacity_inventory import history_size
                 target = publication_git.commit(path, tree, old_pages, f"Publish wiki release {manifest['release_id']}")
                 if history_size(path, [record["commit"], target])["history_bytes"] > physical.budgets(project).history_bytes:
@@ -160,13 +234,16 @@ def repository_timing():
     return dict.fromkeys(("push_main", "push_pages", "configure", "pages_build", "verify", "total"), 0.0)
 
 
-def deploy(root, plan, host, timing=None):
+def deploy(root, plan, host, timing=None, refs=None):
+    if refs is None:
+        refs = RehearsedRefs([{"repository": plan["name"], "branch": branch, "commit": plan[key]}
+                              for branch, key in (("main", "old_main"), ("gh-pages", "old_pages"))])
     path = within(root, plan["path"])
     with measure(timing, "total"):
         with measure(timing, "push_main"):
-            host.push(path, plan["name"], plan["main"], "main", plan["old_main"])
+            refs.push(host, path, plan["name"], plan["main"], "main")
         with measure(timing, "push_pages"):
-            host.push(path, plan["name"], plan["pages"], "gh-pages", plan["old_pages"])
+            refs.push(host, path, plan["name"], plan["pages"], "gh-pages")
         with measure(timing, "configure"):
             host.configure(plan["name"])
         with measure(timing, "pages_build"):
@@ -180,7 +257,7 @@ def health(plan):
     return {name: plan["files"][name]}
 
 
-def rollback(root, state, path, host, timing=None):
+def rollback(root, state, path, host, refs, timing=None):
     hub = state["repositories"][state.get("hub_control", "hub")]
     repo = within(root, hub["path"])
     if state["rollback"] is None:
@@ -191,7 +268,7 @@ def rollback(root, state, path, host, timing=None):
         state["phase"] = "rolling-back"
         save(path, state)
     with measure(timing, "push_pages"):
-        host.push(repo, hub["name"], state["rollback"], "gh-pages", hub["pages"])
+        refs.push(host, repo, hub["name"], state["rollback"], "gh-pages")
     with measure(timing, "configure"):
         host.configure(hub["name"])
     with measure(timing, "pages_build"):
@@ -202,38 +279,20 @@ def rollback(root, state, path, host, timing=None):
     save(path, state)
 
 
-def resume(root, state, path, host, workers, timing=None):
+def execute(root, state, path, host, workers, refs, timing=None):
     timing = timing if timing is not None else {"repositories": {}, "rollback": {}, "phases": {}}
 
     def restore():
         identity = state.get("hub_control", "hub")
         row = timing["rollback"].setdefault(identity, repository_timing())
         with measure(timing["phases"], "rollback"), measure(row, "total"):
-            rollback(root, state, path, host, row)
+            rollback(root, state, path, host, refs, row)
 
-    if state["phase"] == "rolling-back":
-        restore()
-    if state["phase"] == "rolled-back":
-        hub = state["repositories"][state.get("hub_control", "hub")]
-        hub["old_pages"] = state["rollback"]
-        hub["pages"] = publication_git.commit(within(root, hub["path"]), hub["tree"], hub["old_pages"],
-                                               f"Retry wiki release {state['release_id']}")
-        pin(within(root, hub["path"]), hub["pages"])
-        state.update(phase="topics", rollback=None)
-        save(path, state)
-    # Reconcile already verified topic refs. A saved success is not authority to
-    # overwrite later external edits, or proof that the current target is live.
     with measure(timing["phases"], "reconcile"):
         for topic, plan in state["repositories"].items():
             remote = host.repository(plan["name"])
             if not remote or remote["id"] != plan["repository_id"] or remote.get("private"):
                 raise ContractError(f"Publication destination changed: {plan['name']}")
-            if plan["verified"]:
-                if host.ref(plan["name"], "main") != plan["main"] or host.ref(plan["name"], "gh-pages") != plan["pages"]:
-                    raise ContractError(f"Verified publication changed remotely: {plan['name']}")
-                row = timing["repositories"].setdefault(topic, repository_timing())
-                with measure(row, "total"), measure(row, "verify"):
-                    host.verify(plan["base"], health(plan))
     # Storage is a dependency of every topic/front that references its bytes.
     # Complete independent workers within each phase before advertising the next.
     groups = state.get("groups") or [[topic for topic, plan in state["repositories"].items()
@@ -244,7 +303,7 @@ def resume(root, state, path, host, workers, timing=None):
         errors = []
         with measure(timing["phases"], f"topics-{rank}"), ThreadPoolExecutor(max_workers=workers) as pool:
             pending = {pool.submit(deploy, root, plan, host,
-                       timing["repositories"].setdefault(topic, repository_timing())): plan
+                       timing["repositories"].setdefault(topic, repository_timing()), refs): plan
                        for topic, plan in topics.items()}
             for future in as_completed(pending):
                 plan = pending[future]
@@ -263,17 +322,17 @@ def resume(root, state, path, host, workers, timing=None):
         try:
             row = timing["repositories"].setdefault(state.get("hub_control", "hub"), repository_timing())
             with measure(timing["phases"], "hub"):
-                deploy(root, hub, host, row)
+                deploy(root, hub, host, row, refs)
             hub["verified"] = True
             save(path, state)
         except github_pages.BuildObservationError:
-            # An unavailable observation is not a terminal build result. Keep the
-            # prepared commit pending; a retry discovers its actual remote state.
+            # Unknown build outcome stays journaled, but the failed run is scrapped.
             raise
         except Exception:
-            # Only a push that actually advanced the hub needs a compensating
-            # commit. An unconfirmed response is reconciled against the live ref.
-            if host.ref(hub["name"], "gh-pages") == hub["pages"]:
+            # Only our confirmed hub push permits a compensating commit.
+            # The ref boundary is checked again before the rollback push.
+            if (refs.confirmed.get((hub["name"], "gh-pages")) == hub["pages"]
+                    and host.ref(hub["name"], "gh-pages") == hub["pages"]):
                 restore()
             raise
     with measure(timing["phases"], "promote"):
@@ -298,6 +357,7 @@ def run(root, project, manifest, *, host=None, progress=None):
     timing = {"repositories": {}, "rollback": {}, "phases": {}, "prepare": 0.0, "resume": 0.0}
     try:
         with measure(timing, "total"):
+            refuse_pending(root)
             gate = publish_gate.check(root, project, manifest)
             result, metrics = _run(root, project, manifest, host, progress, timing, gate)
         return result, {**metrics, "timing": timing}
@@ -306,27 +366,15 @@ def run(root, project, manifest, *, host=None, progress=None):
         raise
 
 
-def _run(root, project, manifest, host, progress, timing, gate=None):
+def _run(root, project, manifest, host, progress, timing, gate):
+    refuse_pending(root)
     if not project.get("publication", {}).get("enabled", False):
         return {"status": "disabled"}, {"reused": True}
     host = host or github_pages.GitHubPages(project["github_owner"], progress)
     workers = project["publication"].get("workers", 4)
     path = root / ".local/publication/pending.json"
-    state = load(path) if path.exists() else None
-    if state and state["phase"] != "complete":
-        if state["owner"] != project["github_owner"]:
-            raise ContractError("Pending publication belongs to another namespace")
-        if gate is not None:
-            # An interruption can follow saving the immutable receipt. Preserve
-            # its original shape, including receipts made before the gate existed.
-            if not within(root, f"publications/{state['release_id']}.json").exists():
-                state.setdefault("gate", gate)
-            state["last_gate"] = gate
-            save(path, state)
-        with measure(timing, "resume"):
-            resumed = resume(root, state, path, host, workers, timing)
-        if resumed["release_id"] == manifest["release_id"]:
-            return resumed, {"reused": False}
+    refs = RehearsedRefs(gate["rehearsal"]["remote_refs"])
+    refs.check(host, publish_gate.destinations(root, project, manifest))
     release.verify(root, manifest)
     current = published(root)
     if current and current["release_id"] == manifest["release_id"]:
@@ -350,10 +398,9 @@ def _run(root, project, manifest, host, progress, timing, gate=None):
             list(pool.map(check_current, current["repositories"], current["repositories"].values()))
         return current, {"reused": True}
     with measure(timing, "prepare"):
-        state = prepare(root, project, manifest, host)
-    if gate is not None:
-        state["gate"] = gate
+        state = prepare(root, project, manifest, host, refs)
+    state["gate"] = gate
     save(path, state)
     with measure(timing, "resume"):
-        result = resume(root, state, path, host, workers, timing)
+        result = execute(root, state, path, host, workers, refs, timing)
     return result, {"reused": False}

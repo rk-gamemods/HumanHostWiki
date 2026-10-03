@@ -49,7 +49,12 @@ Production publication is a separate `wiki.py publish --release <id>` operator s
 from reviewed, merged code: the workspace must be clean, HEAD must equal fetched
 origin/main, exact-commit CI must succeed, and a successful rehearsal receipt must
 match the release, commit, publication contract and live refs within 24 hours.
-The gate runs before pending resume or provisioning and has no override flag.
+Origin must identify the canonical HumanHostWiki repository, CI must be a main
+push of `.github/workflows/ci.yml`, and a merged PR must identify the exact commit.
+The receipt binds the rehearsal runner; refs are enforced at preparation and each
+leased fast-forward push. Failed runs never resume: an incomplete journal requires
+local `wiki.py abandon-publication` before a fresh rehearsal and publication.
+The gate runs before provisioning and has no override flag.
 See `docs/PUBLICATION.md` for the owning contract and the 2026-10-02 ADR decision.
 
 Current tooling builds an architecture/navigation preview, registers input snapshots

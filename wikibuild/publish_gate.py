@@ -10,6 +10,7 @@ from .storage import ContractError, within
 
 GIT_TIMEOUT = 120
 WORKSPACE_REPOSITORY = "rk-gamemods/HumanHostWiki"
+CI_PATH = ".github/workflows/ci.yml"
 
 
 def git(root, *arguments):
@@ -32,14 +33,7 @@ def receipt_path(root, release_id):
 
 
 def destinations(root, project, manifest):
-    """Include an earlier pending run which publication will resume first."""
-    from . import publication
     names = {repo["github_name"] for repo in physical.repositories(project, manifest.get("physical"))}
-    pending = root / ".local/publication/pending.json"
-    if pending.exists():
-        state = publication.load(pending)
-        if state["phase"] != "complete":
-            names.update(plan["name"] for plan in state["repositories"].values())
     return {(name, branch) for name in names for branch in ("main", "gh-pages")}
 
 
@@ -52,11 +46,21 @@ def write_receipt(root, release_id, workspace_commit, remote_refs):
     return value
 
 
+def ensure_clean(root):
+    """Shared by rehearsal and publication, before any other work."""
+    if git(root, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise ContractError("Publish gate: workspace must be clean, including non-ignored untracked files")
+
+
 def check(root, project, manifest):
     """Fail on the first failed boundary, before publication touches any journal."""
     from . import publication
-    if git(root, "status", "--porcelain=v1", "--untracked-files=all"):
-        raise ContractError("Publish gate: workspace must be clean, including non-ignored untracked files")
+    ensure_clean(root)
+    origin = git(root, "remote", "get-url", "origin")
+    repository = re.escape(WORKSPACE_REPOSITORY)
+    if not re.fullmatch(rf"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com(?::22)?/){repository}(?:\.git)?/?",
+                        origin, re.IGNORECASE):
+        raise ContractError(f"Publish gate: origin must resolve to github.com/{WORKSPACE_REPOSITORY}")
     git(root, "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main")
     commit = git(root, "rev-parse", "HEAD")
     if commit != git(root, "rev-parse", "refs/remotes/origin/main"):
@@ -68,7 +72,9 @@ def check(root, project, manifest):
             or any(not isinstance(row, dict) for row in response["workflow_runs"])):
         raise ContractError("Publish gate: invalid CI response for this exact commit")
     runs = [row for row in response["workflow_runs"]
-            if row.get("name") == "CI" and row.get("head_sha") == commit]
+            if row.get("name") == "CI" and row.get("path") == CI_PATH
+            and row.get("event") == "push" and row.get("head_branch") == "main"
+            and row.get("head_sha") == commit]
     if not runs:
         raise ContractError("Publish gate: CI is missing for this exact commit")
     if any(type(row.get("id")) is not int or any(type(row.get(key, 0)) is not int
@@ -79,6 +85,14 @@ def check(root, project, manifest):
         raise ContractError("Publish gate: CI has not completed for this exact commit")
     if latest.get("conclusion") != "success":
         raise ContractError("Publish gate: CI did not conclude success for this exact commit")
+
+    pulls = host.api("GET", f"repos/{WORKSPACE_REPOSITORY}/commits/{commit}/pulls")
+    if not isinstance(pulls, list) or any(not isinstance(row, dict) for row in pulls):
+        raise ContractError("Publish gate: invalid merged PR response for this exact commit")
+    merged = next((row for row in pulls if isinstance(row.get("merged_at"), str)
+                   and row["merged_at"] and row.get("merge_commit_sha") == commit), None)
+    if merged is None:
+        raise ContractError("Publish gate: this exact commit must be the merge commit of a merged PR")
 
     path = receipt_path(root, manifest["release_id"])
     if not path.is_file():
@@ -115,5 +129,6 @@ def check(root, project, manifest):
         raise
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ContractError(f"Publish gate: invalid rehearsal receipt: {exc}") from None
-    return {"workspace_commit": commit, "ci_run_id": latest["id"],
+    return {"workspace_commit": commit, "origin": origin, "ci_run_id": latest["id"],
+            "ci_run_attempt": latest.get("run_attempt", 1), "merged_pr": merged.get("number"),
             "checked_utc": datetime.now(timezone.utc).isoformat(), "rehearsal": receipt}
