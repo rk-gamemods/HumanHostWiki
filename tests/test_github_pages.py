@@ -26,6 +26,28 @@ class Clock:
 
 
 class PagesStateTests(unittest.TestCase):
+    def test_api_reserves_worst_case_cleanup_within_the_deadline(self):
+        clock, host = Clock(), github_pages.GitHubPages("fixture")
+        host.clock = clock
+        reserve = github_pages.bounded.CLEANUP_SECONDS
+        self.assertEqual(reserve, github_pages.bounded.TASKKILL_SECONDS
+                         + github_pages.bounded.REAP_SECONDS + github_pages.bounded.DRAIN_SECONDS)
+        def timeout(command, **kwargs):
+            clock.sleep(kwargs["timeout"] + reserve)
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        with patch.object(github_pages.bounded, "run", side_effect=timeout) as calls, \
+                patch.object(github_pages.time, "sleep", side_effect=clock.sleep):
+            with self.assertRaisesRegex(ContractError, "deadline"):
+                host.api("GET", "fixture-only", deadline=reserve + 3)
+        self.assertEqual(clock.now, reserve + 3)
+        self.assertEqual(calls.call_count, 1)
+        self.assertEqual(calls.call_args.kwargs["timeout"], 3)
+        for remaining in (0, reserve / 2, reserve):
+            with self.subTest(remaining=remaining), patch.object(github_pages.bounded, "run") as calls:
+                with self.assertRaisesRegex(ContractError, "deadline"):
+                    host.api("POST", "fixture-only", deadline=clock.now + remaining)
+                calls.assert_not_called()
+
     def test_blocked_api_timeout_and_interruption_leave_no_child_process(self):
         real_popen = subprocess.Popen
         for interruption in (False, True):
@@ -66,7 +88,8 @@ class PagesStateTests(unittest.TestCase):
                         if interrupter:
                             interrupter.start()
                         with self.assertRaises(KeyboardInterrupt if interruption else ContractError):
-                            host.api("POST", "fixture-only", deadline=host.clock() + 2)
+                            host.api("POST", "fixture-only",
+                                     deadline=host.clock() + github_pages.bounded.CLEANUP_SECONDS + 2)
                     self.assertTrue(ready.is_set())
                     self.assertEqual(len(processes), 1)
                     self.assertIsNotNone(processes[0].poll(), "API returned while its child was still running")
@@ -152,19 +175,39 @@ class PagesStateTests(unittest.TestCase):
                 clock.sleep(0.5)
                 return subprocess.CompletedProcess(args, 1, b"", b"unavailable")
             return subprocess.CompletedProcess(args, 0, b"", b"")
-        with patch.object(host, "ref", side_effect=ref), patch.object(github_pages.bounded, "run", side_effect=command), \
+        with patch.object(github_pages.bounded, "CLEANUP_SECONDS", 1), \
+                patch.object(host, "ref", side_effect=ref), patch.object(github_pages.bounded, "run", side_effect=command), \
                 patch.object(github_pages.time, "sleep", side_effect=clock.sleep):
             with self.assertRaisesRegex(ContractError, "deadline"):
-                host.push(".", "wiki", "successor", "gh-pages", "stuck", deadline=2)
-        self.assertEqual(clock.now, 2)
-        self.assertEqual(reads, [2, 2])
+                host.push(".", "wiki", "successor", "gh-pages", "stuck", deadline=3)
+        self.assertEqual(clock.now, 3)
+        self.assertEqual(reads, [3, 3, 3])
         self.assertEqual([timeout for args, timeout in invocations], [2, 2, 0.5])
-        clock.now = 2
         with patch.object(host, "ref") as ref, patch.object(github_pages.bounded, "run") as run:
             with self.assertRaisesRegex(ContractError, "deadline"):
-                host.push(".", "wiki", "successor", "gh-pages", "stuck", deadline=2)
+                host.push(".", "wiki", "successor", "gh-pages", "stuck", deadline=3)
         ref.assert_not_called()
         run.assert_not_called()
+
+    def test_recovery_push_reserves_cleanup_for_ancestry_and_push(self):
+        reserve = github_pages.bounded.CLEANUP_SECONDS
+        for blocked in ("merge-base", "push"):
+            with self.subTest(blocked=blocked):
+                clock, host = Clock(), github_pages.GitHubPages("fixture")
+                host.clock = clock
+                def command(args, **kwargs):
+                    if blocked in args:
+                        clock.sleep(kwargs["timeout"] + reserve)
+                        raise subprocess.TimeoutExpired(args, kwargs["timeout"])
+                    return subprocess.CompletedProcess(args, 0, b"", b"")
+                with patch.object(host, "ref", return_value="stuck") as reads, \
+                        patch.object(github_pages.bounded, "run", side_effect=command) as calls:
+                    with self.assertRaises(ContractError):
+                        host.push(".", "wiki", "successor", "gh-pages", "stuck", deadline=reserve + 3)
+                self.assertEqual(clock.now, reserve + 3)
+                self.assertEqual(reads.call_count, 1)
+                self.assertEqual([call.kwargs["timeout"] for call in calls.call_args_list],
+                                 [3] if blocked == "merge-base" else [3, 3])
 
     def test_queued_grace_resets_for_a_new_run_or_attempt(self):
         for change in ("id", "run_attempt"):
@@ -214,14 +257,14 @@ class PagesStateTests(unittest.TestCase):
 
         def timeout(command, **kwargs):
             timeouts.append(kwargs["timeout"])
-            clock.sleep(kwargs["timeout"])
+            clock.sleep(kwargs["timeout"] + github_pages.bounded.CLEANUP_SECONDS)
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])
 
         with patch.object(github_pages.bounded, "run", side_effect=timeout), \
                 patch.object(github_pages.time, "sleep", side_effect=clock.sleep):
             with self.assertRaisesRegex(ContractError, "deadline"):
-                host.api("GET", "repos/fixture/wiki", deadline=3)
-        self.assertEqual(clock.now, 3)
+                host.api("GET", "repos/fixture/wiki", deadline=github_pages.bounded.CLEANUP_SECONDS + 3)
+        self.assertEqual(clock.now, github_pages.bounded.CLEANUP_SECONDS + 3)
         self.assertEqual(timeouts, [3])
 
     def test_all_queued_statuses_and_terminal_conclusions(self):
@@ -318,15 +361,15 @@ class PagesStateTests(unittest.TestCase):
 
     def test_wait_read_failure_exhausts_shared_deadline_without_more_retries(self):
         clock, host = Clock(), github_pages.GitHubPages("fixture")
-        host.clock, host.BUILD_DEADLINE = clock, 3
+        host.clock, host.BUILD_DEADLINE = clock, github_pages.bounded.CLEANUP_SECONDS + 3
         def timeout(command, **kwargs):
-            clock.sleep(kwargs["timeout"])
+            clock.sleep(kwargs["timeout"] + github_pages.bounded.CLEANUP_SECONDS)
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])
         with patch.object(github_pages.bounded, "run", side_effect=timeout) as calls, \
                 patch.object(github_pages.time, "sleep", side_effect=clock.sleep):
             with self.assertRaisesRegex(github_pages.BuildObservationError, "deadline"):
                 host.wait("wiki", "abc")
-        self.assertEqual(clock.now, 3)
+        self.assertEqual(clock.now, host.BUILD_DEADLINE)
         self.assertEqual(calls.call_count, 1)
 
     def test_retry_sleep_and_next_attempt_share_remaining_budget(self):
@@ -337,11 +380,12 @@ class PagesStateTests(unittest.TestCase):
             timeouts.append(kwargs["timeout"])
             clock.sleep(0.75)
             return subprocess.CompletedProcess(command, 1, b"", b"HTTP 503")
-        with patch.object(github_pages.bounded, "run", side_effect=retry), \
+        with patch.object(github_pages.bounded, "CLEANUP_SECONDS", 1), \
+                patch.object(github_pages.bounded, "run", side_effect=retry), \
                 patch.object(github_pages.time, "sleep", side_effect=clock.sleep):
             with self.assertRaisesRegex(ContractError, "deadline"):
-                host.api("GET", "repos/fixture/wiki", deadline=3)
-        self.assertEqual(clock.now, 3)
+                host.api("GET", "repos/fixture/wiki", deadline=4)
+        self.assertEqual(clock.now, 4)
         self.assertEqual(timeouts, [3, 1.25])
 
     def test_public_and_mediawiki_reads_exhaust_elapsed_budget(self):

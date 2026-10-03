@@ -667,6 +667,31 @@ class RecoveryBoundaryTests(unittest.TestCase):
                     self.run_deploy(host, plan, refs, journal)
                 self.assertEqual(len(host.pushes), 2)
 
+    def test_recovery_ref_failure_through_execute_never_pushes_a_rollback(self):
+        for failure in (ContractError("elapsed deadline exhausted"), ContractError("HTTP 503 after retries")):
+            with self.subTest(failure=failure):
+                host, plan, refs, journal = self.deploy_fixture()
+                plan.update(repository_id=1, verified=False)
+                state = {"release_id": "fixture", "repositories": {"hub": plan}, "groups": [[], []],
+                         "rollback": None, "fallback": {"tree": "fallback-tree", "files": {}}}
+                read = host.ref
+                def ref(name, branch, **kwargs):
+                    if host.recovering and kwargs.get("deadline") is not None:
+                        host.clock.now = 20
+                        raise failure
+                    return read(name, branch, **kwargs)
+                root = Path(__file__).resolve().parents[1]
+                with patch.object(host, "ref", side_effect=ref), \
+                        patch.object(host, "repository", create=True, return_value={"id": 1, "private": False}), \
+                        patch.object(publication, "save"), patch.object(publication, "pin"), \
+                        patch.object(publication, "git", return_value="tree"), \
+                        patch.object(publication.publication_git, "commit", return_value="fallback"):
+                    with self.assertRaises(ContractError) as raised:
+                        publication.execute(root, state, root / ".local/unused-journal.json", host, 1, refs)
+                self.assertEqual([push[0] for push in host.pushes], ["main", "stuck"])
+                self.assertIsNone(state["rollback"])
+                self.assertIsInstance(raised.exception, github_pages.BuildObservationError)
+
 
 class AdapterTests(unittest.TestCase):
     @staticmethod

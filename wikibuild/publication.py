@@ -112,13 +112,25 @@ class RehearsedRefs:
         if deadline is not None and getattr(host, "clock", monotonic)() >= deadline:
             raise github_pages.BuildObservationError("Publication deadline exhausted")
 
-    def observe(self, host, name, branch, *, deadline=None):
+    def read_ref(self, host, name, branch, *, deadline=None):
         self.check_deadline(host, deadline)
+        try:
+            actual = host.ref(name, branch, **({"deadline": deadline} if deadline is not None else {}))
+        except (ContractError, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            if deadline is None:
+                raise
+            # Recovery observations share the build deadline. An unknown outcome
+            # must not enter execute's rollback path with a fresh push budget.
+            raise github_pages.BuildObservationError(
+                f"Unable to observe Pages recovery ref {name}/{branch}: {exc}") from exc
+        self.check_deadline(host, deadline)
+        return actual
+
+    def observe(self, host, name, branch, *, deadline=None):
         key = (name, branch)
         if key not in self.expected:
             raise ContractError(f"Missing rehearsed ref: {name}/{branch}")
-        actual = host.ref(name, branch, **({"deadline": deadline} if deadline is not None else {}))
-        self.check_deadline(host, deadline)
+        actual = self.read_ref(host, name, branch, deadline=deadline)
         if actual != self.expected[key]:
             raise ContractError(f"Remote ref differs from rehearsal or this invocation's confirmed push: {name}/{branch}")
         return actual
@@ -134,9 +146,7 @@ class RehearsedRefs:
         # A failing call is never authority to adopt a coincidentally matching tip.
         self.check_deadline(host, deadline)
         host.push(path, name, commit, branch, expected, **({"deadline": deadline} if deadline is not None else {}))
-        self.check_deadline(host, deadline)
-        actual = host.ref(name, branch, **({"deadline": deadline} if deadline is not None else {}))
-        self.check_deadline(host, deadline)
+        actual = self.read_ref(host, name, branch, deadline=deadline)
         if actual != commit:
             raise ContractError(f"Publication push was not confirmed: {name}/{branch}")
         self.expected[key] = self.confirmed[key] = commit

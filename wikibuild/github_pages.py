@@ -117,7 +117,9 @@ class GitHubPages:
             data = json.dumps(body).encode()
         for attempt in range(4):
             try:
-                timeout = min(self.API_TIMEOUT, remaining())
+                timeout = min(self.API_TIMEOUT, remaining() - bounded.CLEANUP_SECONDS)
+                if timeout <= 0:
+                    raise ContractError(f"GitHub {method} {path}: elapsed deadline cannot cover process cleanup")
                 # Cancellation must reach bounded.run in this thread so it kills
                 # the process tree before the publisher releases its writer lock.
                 result = bounded.run(command, timeout=timeout, input=data)
@@ -177,8 +179,10 @@ class GitHubPages:
             raise ContractError(f"Fetch failed for {name}/{branch}: {result.stderr.decode(errors='replace')[:1200]}")
 
     def push(self, path, name, commit, branch, expected, *, deadline=None):
-        def budget():
+        def budget(*, cleanup=False):
             remaining = self.PUSH_TIMEOUT if deadline is None else deadline - self.clock()
+            if cleanup and deadline is not None:
+                remaining -= bounded.CLEANUP_SECONDS
             if remaining <= 0:
                 raise ContractError(f"Push deadline exhausted: {name}/{branch}")
             return min(self.PUSH_TIMEOUT, remaining)
@@ -199,7 +203,7 @@ class GitHubPages:
         if current:
             try:
                 ancestry = bounded.run(["git", "-C", str(path), "merge-base", "--is-ancestor", current, commit],
-                                       timeout=budget(), env=environment)
+                                       timeout=budget(cleanup=True), env=environment)
             except subprocess.TimeoutExpired:
                 raise ContractError(f"Push ancestry check timed out: {name}/{branch}") from None
             if ancestry.returncode:
@@ -208,7 +212,7 @@ class GitHubPages:
         for attempt in range(3):
             try:
                 result = bounded.run(["git", "-C", str(path), "push", "--porcelain", lease, url,
-                                      f"{commit}:refs/heads/{branch}"], timeout=budget(), env=environment)
+                                      f"{commit}:refs/heads/{branch}"], timeout=budget(cleanup=True), env=environment)
                 failure = result.stderr.decode(errors="replace")
             except subprocess.TimeoutExpired:
                 # The push may still have landed; the remote ref decides.
