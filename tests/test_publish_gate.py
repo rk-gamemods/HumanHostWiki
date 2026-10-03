@@ -32,12 +32,19 @@ class PublishGateTests(unittest.TestCase):
                                                         "head_branch": "main", "run_attempt": 1,
                                                         "status": "completed", "conclusion": "success"}]}
         self.pulls = [{"number": 27, "merged_at": "2026-10-03T00:00:00Z", "merge_commit_sha": self.commit}]
-        self.host.api.side_effect = lambda method, path: self.pulls if path.endswith("/pulls") else self.host.api.return_value
+        self.pages = {"source": {"branch": "gh-pages", "path": "/"}, "build_type": "legacy",
+                      "cname": None, "html_url": "https://rk-gamemods.github.io/Wiki-hub/"}
+        self.remote = {"id": 1, "full_name": "rk-gamemods/Wiki-hub", "private": False,
+                       "archived": False, "fork": False, "permissions": {"admin": True}}
+        self.host.repository.side_effect = lambda name: self.remote
+        self.host.api.side_effect = lambda method, path, **kwargs: (self.pulls if path.endswith("/pulls") else
+                                                                  self.pages if path.endswith("/pages") else self.host.api.return_value)
         self.host.ref.return_value = "c" * 40
         self.client = patch.object(publish_gate.github_pages, "GitHubPages", return_value=self.host)
         self.client.start()
         self.addCleanup(self.client.stop)
-        publish_gate.write_receipt(self.root, self.manifest["release_id"], self.commit, self.refs)
+        self.observations = [github_pages.validate_configuration(self.project["github_owner"], "Wiki-hub", self.remote, self.pages)]
+        publish_gate.write_receipt(self.root, self.manifest["release_id"], self.commit, self.refs, self.observations)
 
     def git_response(self, command, **options):
         self.assertEqual(options["timeout"], publish_gate.GIT_TIMEOUT)
@@ -87,7 +94,7 @@ class PublishGateTests(unittest.TestCase):
         self.assertEqual(result["ci_run_id"], 1)
         self.assertEqual(result["rehearsal"]["remote_refs"], self.refs)
         self.assertEqual(result["merged_pr"], 27)
-        self.assertEqual(self.host.api.call_count, 2)
+        self.assertEqual(self.host.api.call_count, 3)
         self.host.api.assert_any_call("GET", f"repos/rk-gamemods/HumanHostWiki/actions/runs?head_sha={self.commit}")
         self.host.api.assert_any_call("GET", f"repos/rk-gamemods/HumanHostWiki/commits/{self.commit}/pulls")
         self.assertEqual(self.host.ref.call_count, 2)
@@ -164,7 +171,7 @@ class PublishGateTests(unittest.TestCase):
                  ({"remote_refs": self.refs[:1]}, "every destination branch")]
         for values, message in cases:
             with self.subTest(values=values):
-                publish_gate.write_receipt(self.root, self.manifest["release_id"], self.commit, self.refs)
+                publish_gate.write_receipt(self.root, self.manifest["release_id"], self.commit, self.refs, self.observations)
                 self.edit_receipt(**values)
                 with self.assertRaisesRegex(ContractError, message):
                     self.check()
@@ -176,6 +183,49 @@ class PublishGateTests(unittest.TestCase):
                 self.host.ref.return_value = sha
                 with self.assertRaisesRegex(ContractError, "remote ref changed: Wiki-hub/main"):
                     self.check()
+
+    def test_absent_and_disabled_observations_pass_and_changes_fail(self):
+        original, pages = self.remote, self.pages
+        self.host.ref.return_value = None
+        refs = [{**row, "commit": None} for row in self.refs]
+        for observed in ("absent", "pages-disabled", "present"):
+            with self.subTest(observed=observed):
+                self.remote = None if observed == "absent" else original
+                self.pages = None if observed == "pages-disabled" else pages
+                row = github_pages.validate_configuration(self.project["github_owner"], "Wiki-hub", self.remote, self.pages)
+                self.edit_receipt(remote_refs=refs, destination_observations=[row])
+                self.check()
+                if observed == "absent":
+                    self.remote = original
+                elif observed == "pages-disabled":
+                    self.pages = pages
+                else:
+                    self.remote = {**original, "id": 2}
+                with self.assertRaisesRegex(ContractError, "destination observation changed"):
+                    self.check()
+
+    def test_destination_observations_require_complete_unique_coverage(self):
+        for observations in ([], self.observations * 2, [{"repository": "other", "observed": "absent"}],
+                             [{"repository": "Wiki-hub", "observed": "unknown"}], [None]):
+            with self.subTest(observations=observations):
+                self.edit_receipt(destination_observations=observations)
+                with self.assertRaises(ContractError):
+                    self.check()
+
+    def test_changed_pages_configuration_and_visibility_fail_read_only(self):
+        for key, value in (("cname", "other.example"), ("html_url", "https://other.example/"),
+                           ("source", {"branch": "main", "path": "/"})):
+            with self.subTest(key=key):
+                original = self.pages[key]
+                self.pages[key] = value
+                with self.assertRaisesRegex(ContractError, "Unexpected Pages"):
+                    self.check()
+                self.host.push.assert_not_called()
+                self.host.create.assert_not_called()
+                self.pages[key] = original
+        self.remote["private"] = True
+        with self.assertRaisesRegex(ContractError, "remote identity or permissions"):
+            self.check()
 
     def test_pending_gate_failure_preserves_journal_and_makes_no_host_call(self):
         path = self.root / ".local/publication/pending.json"
@@ -210,7 +260,7 @@ class PublishGateTests(unittest.TestCase):
         alias = self.root / ".local/publication/rehearsals/copy.json"
         alias.write_bytes(original)
         for identity in (related, last_gate, unrelated):
-            publish_gate.write_receipt(self.root, identity, self.commit, self.refs)
+            publish_gate.write_receipt(self.root, identity, self.commit, self.refs, self.observations)
         preserved = publish_gate.receipt_path(self.root, unrelated).read_bytes()
         publication.save(self.root / ".local/publication/pending.json",
                          {"phase": "hub", "release_id": target,
@@ -230,7 +280,7 @@ class PublishGateTests(unittest.TestCase):
         with patch.object(publication, "_run", side_effect=AssertionError("Engine reached before fresh rehearsal")):
             with self.assertRaisesRegex(ContractError, "rehearsal receipt is missing"):
                 publication.run(self.root, self.project, self.manifest, host=self.host)
-        publish_gate.write_receipt(self.root, target, self.commit, self.refs)
+        publish_gate.write_receipt(self.root, target, self.commit, self.refs, self.observations)
         self.assertEqual(self.check()["rehearsal"]["release_id"], target)
 
     def test_abandon_preserves_receipt_referenced_by_latest(self):
@@ -300,7 +350,7 @@ class PublishGateTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 publication.save(pending, payload)
                 before = pending.read_bytes()
-                publish_gate.write_receipt(self.root, self.manifest["release_id"], self.commit, self.refs)
+                publish_gate.write_receipt(self.root, self.manifest["release_id"], self.commit, self.refs, self.observations)
                 result = publication.abandon(self.root)
                 self.assertEqual(result["release_id"], "unknown")
                 archive = self.root / result["archive"]
@@ -400,7 +450,7 @@ class PublishGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "differs from rehearsal"):
             publication.deploy(self.root, plan, self.host, refs=publication.RehearsedRefs(self.refs))
         self.assertEqual(self.host.push.call_count, 1)
-        self.host.configure.assert_not_called()
+        self.host.configure.assert_called_once_with("Wiki-hub", defer=True)
 
     def test_failed_push_cannot_adopt_a_matching_unconfirmed_tip(self):
         refs = publication.RehearsedRefs(self.refs)
