@@ -221,16 +221,51 @@ class ArchitectureTests(unittest.TestCase):
         self.assertTrue(any("SKIP-UNSUPPORTED" in str(call) for call in output.call_args_list))
 
     def test_windows_ci_selection_includes_every_windows_only_test_owner(self):
-        self.put("tests/test_c.py", "# HHWIKI-PLATFORMS: win32\n")
-        self.assertEqual(runner.windows_components(self.root, self.contract(), self.files()), {"c"})
-        self.put("tests/test_c.py", "# HHWIKI-PLATFORMS: linux, win32\n")
-        self.assertEqual(runner.windows_components(self.root, self.contract(), self.files()), set())
+        body = (self.root / "tests/test_c.py").read_text()
+        for declaration, windows_owner, linux_supported, windows_supported in (
+                ("win32", True, False, True),
+                ("win32, darwin", True, False, True),
+                ("linux", False, True, False),
+                ("linux, win32", False, True, True),
+                (None, False, True, True)):
+            with self.subTest(declaration=declaration):
+                header = f"# HHWIKI-PLATFORMS: {declaration}\n" if declaration else ""
+                self.put("tests/test_c.py", header + body)
+                self.assertEqual(runner.windows_components(self.root, self.contract(), self.files()),
+                                 {"c"} if windows_owner else set())
+                for platform, supported in (("linux", linux_supported), ("win32", windows_supported)):
+                    with self.subTest(platform=platform), patch.object(runner.sys, "platform", platform):
+                        path = fixture_dir(self, "worker")
+                        result = runner.run_module(self.root, "tests.test_c", path)
+                        self.assertEqual(result.returncode, 0, result.output)
+                        self.assertEqual(result.unsupported, not supported)
+                        self.assertEqual((result.tests, result.skipped), (1, 0 if supported else 1))
+                        self.assertFalse(path.exists())
         self.put("tests/test_c.py", "# HHWIKI-PLATFORMS: unknown\n")
         with self.assertRaisesRegex(ValueError, "Invalid platform requirement"):
             runner.windows_components(self.root, self.contract(), self.files())
         actual = checker.load_contract(runner.ROOT / "components.json")
         self.assertTrue({"process", "availability"} <= runner.windows_components(
             runner.ROOT, actual, checker.repository_files(runner.ROOT)))
+
+    def test_real_platform_declarations_always_have_a_ci_job(self):
+        contract = checker.load_contract(runner.ROOT / "components.json")
+        files = checker.repository_files(runner.ROOT)
+        windows_owners = runner.windows_components(runner.ROOT, contract, files)
+        full = runner.Plan({name: [] for name in contract.components}, [], full=True)
+        for module in runner.test_modules(runner.ROOT, contract, full, files):
+            with self.subTest(module=module):
+                path = module if module.endswith(".ps1") else module.replace(".", "/") + ".py"
+                changed = runner.select_changed(contract, [path])
+                windows = runner.Plan({name: reasons for name, reasons in changed.selected.items()
+                                       if name in windows_owners}, [])
+                platforms = runner.test_platforms(runner.ROOT, module)
+                linux_runs = (not platforms or "linux" in platforms) and module in runner.test_modules(
+                    runner.ROOT, contract, changed, files)
+                windows_runs = (not platforms or "win32" in platforms) and module in runner.test_modules(
+                    runner.ROOT, contract, windows, files)
+                self.assertTrue(linux_runs or windows_runs,
+                                f"{module}: {sorted(platforms)} is unsupported by both PR CI jobs")
 
     def test_contract_and_shared_configuration_select_all(self):
         contract = self.contract()

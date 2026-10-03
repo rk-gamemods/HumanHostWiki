@@ -128,7 +128,8 @@ CI keeps the workflow name `CI`. Pull requests run the component checker and
 targeted tests against `origin/${{ github.base_ref }}`, with complete checkout
 history. Pushes to `main` and `workflow_dispatch` run the full suite on Ubuntu
 and Windows. On PRs the Windows job uses `--windows-relevant` to restrict changed
-components to process, availability and every owner of Windows-only tests.
+components to process, availability and every owner of tests declaring `win32`
+without `linux`, including combinations such as `win32, darwin`.
 JavaScript checks invoked by Python test
 modules retain their Node dependency and execution path, including the
 `node --test` server contract; its wrapper reports a skip when Node is unavailable.

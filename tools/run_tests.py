@@ -129,13 +129,15 @@ def test_platforms(root: Path, module: str) -> set[str]:
 
 
 def windows_components(root: Path, contract: Contract, files: list[str]) -> set[str]:
-    """Windows process/availability coverage plus owners of Windows-only tests."""
+    """Include process/availability and tests supporting Windows without Linux."""
     names = {"process", "availability"} & contract.components.keys()
     for name in contract.components:
         plan = Plan({name: []}, [])
-        if any(test_platforms(root, module) == {"win32"}
-               for module in test_modules(root, contract, plan, files)):
-            names.add(name)
+        for module in test_modules(root, contract, plan, files):
+            platforms = test_platforms(root, module)
+            if "win32" in platforms and "linux" not in platforms:
+                names.add(name)
+                break
     return names
 
 
@@ -414,7 +416,7 @@ def main(argv=None):
     parser.add_argument("-j", type=int, default=os.cpu_count() or 1, metavar="N")
     parser.add_argument("--fail-fast", action="store_true", help="stop and terminate workers on the first failed module")
     parser.add_argument("--windows-relevant", action="store_true",
-                        help="restrict selected components to process, availability and owners of Windows-only tests")
+                        help="restrict selected components to process, availability and owners of tests supporting win32 without linux")
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args(argv)
     if args.j < 1:
