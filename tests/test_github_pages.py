@@ -30,8 +30,7 @@ class PagesStateTests(unittest.TestCase):
         clock, host = Clock(), github_pages.GitHubPages("fixture")
         host.clock = clock
         reserve = github_pages.bounded.CLEANUP_SECONDS
-        self.assertEqual(reserve, github_pages.bounded.TASKKILL_SECONDS
-                         + github_pages.bounded.REAP_SECONDS + github_pages.bounded.DRAIN_SECONDS)
+        self.assertEqual(reserve, github_pages.bounded.REAP_SECONDS + github_pages.bounded.DRAIN_SECONDS)
         def timeout(command, **kwargs):
             clock.sleep(kwargs["timeout"] + reserve)
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])

@@ -117,6 +117,7 @@ class GitHubPages:
             data = json.dumps(body).encode()
         for attempt in range(4):
             try:
+                # Reserve the shared owned-tree reap and pipe-drain deadlines.
                 timeout = min(self.API_TIMEOUT, remaining() - bounded.CLEANUP_SECONDS)
                 if timeout <= 0:
                     raise ContractError(f"GitHub {method} {path}: elapsed deadline cannot cover process cleanup")

@@ -310,6 +310,13 @@ directory so earlier previews remain available.
 
 ## Failure and recovery
 
+On a watchdog timeout, the supervisor stops and reaps registered child trees,
+removes this process's writer owner metadata and registered temporary files, and
+exits 124. Cleanup has a 60-second grace; unfinished cleanup is reported before
+exit. The persistent OS lock file, journals and stage artifacts remain for
+recovery. Rerun an update; a timed-out publication requires
+`py -3 wiki.py abandon-publication` before a fresh rehearsal and publication.
+
 - **Pipeline execution failure:** inspect the reported `.local/pipeline/failures/`
   receipt. It lists completed stages and the failing stage separately from content
   exceptions. Repair the execution problem and rerun the same command. The prior
