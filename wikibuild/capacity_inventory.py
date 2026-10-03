@@ -2,10 +2,12 @@
 
 from dataclasses import dataclass
 import json
-import subprocess
 
-from . import capacity, ownership, physical, publication, release
+from . import bounded, capacity, ownership, physical, publication, release
 from .storage import ContractError, git, within
+
+# Reachable-object enumeration can span all retained releases and packed history.
+GIT_HISTORY_TIMEOUT = 1800
 
 
 @dataclass(frozen=True)
@@ -24,12 +26,10 @@ def history_size(path, refs):
     """
     if not refs or any(not isinstance(ref, str) or not ref or ref.startswith("-") for ref in refs):
         raise ContractError("History measurement needs explicit Git revisions")
-    revisions = subprocess.Popen(["git", "-C", str(path), "rev-list", "--objects", "--no-object-names", *refs, "--"],
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    objects = None
-    try:
-        objects = subprocess.Popen(["git", "-C", str(path), "cat-file", "--batch-check=%(objecttype) %(objectsize)"],
-                                   stdin=revisions.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    with bounded.stream(["git", "-C", str(path), "rev-list", "--objects", "--no-object-names", *refs, "--"],
+                        timeout=GIT_HISTORY_TIMEOUT) as revisions, \
+            bounded.stream(["git", "-C", str(path), "cat-file", "--batch-check=%(objecttype) %(objectsize)"],
+                           timeout=GIT_HISTORY_TIMEOUT, stdin=revisions.stdout) as objects:
         revisions.stdout.close()
         total, count, blobs, largest = 0, 0, 0, 0
         for line in objects.stdout:
@@ -42,22 +42,12 @@ def history_size(path, refs):
             if row[0] == b"blob":
                 blobs += 1
                 largest = max(largest, size)
-        object_error = objects.stderr.read().decode(errors="replace")
-        revision_error = revisions.stderr.read().decode(errors="replace")
         object_exit, revision_exit = objects.wait(), revisions.wait()
+        object_error = objects.stderr.decode(errors="replace")
+        revision_error = revisions.stderr.decode(errors="replace")
         if object_exit or revision_exit:
             raise ContractError("Cannot measure Git history: " + (revision_error or object_error).strip()[:1000])
         return {"history_bytes": total, "objects": count, "blobs": blobs, "largest_blob_bytes": largest}
-    finally:
-        for process in (objects, revisions):
-            if process is None:
-                continue
-            if process.poll() is None:
-                process.kill()
-                process.wait()
-            for stream in (process.stdout, process.stderr):
-                if stream and not stream.closed:
-                    stream.close()
 
 
 def read(root, project):

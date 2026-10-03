@@ -9,7 +9,23 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import subprocess
+import sys
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wikibuild import bounded
+
+# Conservation audits may consume the complete pinned object index.
+GIT_STREAM_TIMEOUT = 1800
+
+
+def object_index(source, commit):
+    with bounded.stream(["git", "-C", str(source), "show", commit + ":Catalog/views/object-index.jsonl"],
+                        timeout=GIT_STREAM_TIMEOUT) as process:
+        for line in process.stdout:
+            yield json.loads(line)
+        if process.wait():
+            raise ValueError("Could not inspect pinned object index: " + process.stderr.decode(errors="replace"))
 
 
 def checked(root, descriptor):
@@ -91,20 +107,12 @@ def check(root, source):
                 prior = technical.setdefault(target["target_source_id"], expected)
                 if prior != expected:
                     raise ValueError("A source target acquired conflicting type summaries")
-    process = subprocess.Popen(["git", "-C", str(source), "show", run["source_commit"] + ":Catalog/views/object-index.jsonl"],
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    for line in process.stdout:
-        record = json.loads(line)
+    for record in object_index(source, run["source_commit"]):
         if record["id"] in technical:
             expected = technical.pop(record["id"])
             if (record["type"], record.get("assembly"), record.get("class")) != expected:
                 raise ValueError("Technical edge has the wrong source type")
             assertions += 1
-    process.stdout.close()
-    error = process.stderr.read().decode(errors="replace")
-    process.stderr.close()
-    if process.wait():
-        raise ValueError("Could not inspect pinned object index: " + error)
     if technical:
         raise ValueError("A technical target is missing from the pinned catalog")
     return {"run_id": run["run_id"], "snapshot_id": run["snapshot_id"], "observations_checked": len(seen),

@@ -4,9 +4,10 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
+import subprocess
 
-from . import git_transaction, release, staging
-from .storage import ContractError, digest, json_bytes, within, write_changed
+from . import bounded, git_transaction, release, staging
+from .storage import ContractError, digest, git_records, json_bytes, within, write_changed
 
 
 def contract():
@@ -56,22 +57,27 @@ def compact(root, stage, summary):
         repository = regular(root, item["path"])
         # One tree read per repository. Stream local payloads in bounded chunks;
         # matching Git blob IDs independently proves the committed copy exists.
-        tree = git_transaction.command(repository, "ls-tree", "-r", "-z", plan["commit"])
         blobs = {}
-        for entry in tree.split(b"\0"):
+        for entry in git_records(repository, "--literal-pathspecs", "ls-tree", "-r", "-z", plan["commit"],
+                                 timeout=git_transaction.GIT_TREE_TIMEOUT):
             if entry:
                 metadata, name = entry.split(b"\t", 1)
                 mode, kind, oid = metadata.split()
                 if kind == b"blob" and mode in {b"100644", b"100755"}:
                     blobs[name.decode("utf-8")] = oid.decode("ascii")
-        objects = git_transaction.command(repository, "cat-file", "--batch-check",
-                                           data=("\n".join(sorted(set(blobs.values()))) + "\n").encode())
         sizes = {}
-        for line in objects.splitlines():
-            fields = line.split()
-            if len(fields) != 3 or fields[1] != b"blob":
-                raise ContractError("Committed payload object is missing; staging retained")
-            sizes[fields[0].decode("ascii")] = int(fields[2])
+        with bounded.stream(["git", "-C", str(repository), "--literal-pathspecs", "cat-file", "--batch-check"],
+                            timeout=git_transaction.GIT_TREE_TIMEOUT, stdin=subprocess.PIPE) as child:
+            for oid in sorted(set(blobs.values())):
+                child.stdin.write((oid + "\n").encode())
+                child.stdin.flush()
+                fields = child.stdout.readline().split()
+                if len(fields) != 3 or fields[1] != b"blob":
+                    raise ContractError("Committed payload object is missing; staging retained")
+                sizes[fields[0].decode("ascii")] = int(fields[2])
+            child.stdin.close()
+            if child.wait():
+                raise ContractError(child.stderr.decode("utf-8", errors="replace").strip())
         for name, record in plan["files"].items():
             path = regular(root, relative + "/" + identity + "/" + name)
             if record["new"] is None or not path.exists():

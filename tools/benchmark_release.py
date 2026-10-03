@@ -3,12 +3,29 @@
 import hashlib
 import json
 from pathlib import Path
-import subprocess
 import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.audit_ownership import expand
+from wikibuild import bounded
+
+# Benchmark metadata uses local revision and checkout plumbing.
+GIT_TIMEOUT = 60
+# The benchmark child performs a full unattended update and its retention stages.
+UPDATE_TIMEOUT = 3600
+
+
+def git(repo, *args):
+    result = bounded.run(["git", "-C", str(repo), *args], timeout=GIT_TIMEOUT)
+    result.check_returncode()
+    return result.stdout
+
+
+def run_update(root):
+    result = bounded.run([sys.executable, str(root / "wiki.py"), "update"], cwd=root, timeout=UPDATE_TIMEOUT)
+    result.check_returncode()
+    return result.stdout.decode()
 
 
 def observe(root):
@@ -31,9 +48,9 @@ def observe(root):
     heads = {}
     for topic, record in manifest["repositories"].items():
         repo = root / record["path"]
-        heads[topic] = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"]).decode().strip()
+        heads[topic] = git(repo, "rev-parse", "HEAD").decode().strip()
         assert heads[topic] == record["commit"]
-        assert not subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain=v1", "--untracked-files=all"])
+        assert not git(repo, "status", "--porcelain=v1", "--untracked-files=all")
         owner = repo / ".wiki-output.json"
         paths.append(owner)
         receipt, parts = expand(json.loads(owner.read_text()), lambda name: (repo / name).read_bytes())
@@ -47,10 +64,9 @@ def main():
     root = Path(__file__).resolve().parents[1]
     before = observe(root)
     start = time.perf_counter()
-    result = subprocess.run([sys.executable, str(root / "wiki.py"), "update"], cwd=root,
-                            capture_output=True, text=True, check=True)
+    result = run_update(root)
     elapsed = time.perf_counter() - start
-    output = json.loads(result.stdout)
+    output = json.loads(result)
     assert observe(root) == before, "An unchanged update changed commits, output bytes or timestamps"
     print(json.dumps({"status": "passed", "elapsed_seconds": round(elapsed, 3),
                       "repositories": len(before[0]), "stable_files": len(before[1]),

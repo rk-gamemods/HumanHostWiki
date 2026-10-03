@@ -2,10 +2,16 @@
 
 import os
 from pathlib import Path
-import subprocess
+
+from . import bounded
 
 from .extraction import file_hash
-from .storage import ContractError, git, within
+from .storage import ContractError, git, git_records, within
+
+# Local object/ref plumbing should finish quickly, including local Git hooks.
+GIT_TIMEOUT = 30
+# Index writes and tree scans may touch every generated file in a release.
+GIT_TREE_TIMEOUT = 600
 
 
 def command(path, *args, data=None, index=None, work_tree=None):
@@ -14,17 +20,24 @@ def command(path, *args, data=None, index=None, work_tree=None):
         environment["GIT_INDEX_FILE"] = str(index)
     if work_tree:
         environment["GIT_WORK_TREE"] = str(work_tree)
-    result = subprocess.run(["git", "-C", str(path), "--literal-pathspecs", *args],
-                            input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment)
+    options = args
+    while options[:1] == ("-c",) and len(options) >= 2:
+        options = options[2:]
+    operation = options[0] if options else ""
+    timeout = GIT_TREE_TIMEOUT if operation in {"add", "read-tree", "write-tree", "ls-tree", "diff-files", "ls-files"} else GIT_TIMEOUT
+    result = bounded.run(["git", "-C", str(path), "--literal-pathspecs", *args],
+                         timeout=timeout, input=data, env=environment)
     if result.returncode:
         raise ContractError(result.stderr.decode("utf-8", errors="replace").strip())
     return result.stdout
 
 
 def changed_paths(path):
-    tracked = command(path, "diff-files", "--name-only", "-z")
-    untracked = command(path, "ls-files", "--others", "--exclude-standard", "-z")
-    return {name.decode("utf-8") for name in (tracked + untracked).split(b"\0") if name}
+    result = set()
+    for arguments in (("diff-files", "--name-only", "-z"), ("ls-files", "--others", "--exclude-standard", "-z")):
+        result.update(name.decode("utf-8") for name in git_records(
+            path, "--literal-pathspecs", *arguments, timeout=GIT_TREE_TIMEOUT) if name)
+    return result
 
 
 def prepare(path, stage, files, message):

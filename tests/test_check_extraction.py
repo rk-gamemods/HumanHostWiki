@@ -418,8 +418,13 @@ class CheckExtractionTests(unittest.TestCase):
     def test_checker_does_not_import_builder_code(self):
         tree = ast.parse((ROOT / "tools/check_extraction.py").read_text())
         imports = [alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names]
-        imports += [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
-        self.assertFalse(any(name == "wikibuild" or name.startswith("wikibuild.") for name in imports))
+        imports += [f"{node.module}.{alias.name}" for node in ast.walk(tree)
+                    if isinstance(node, ast.ImportFrom) for alias in node.names]
+        project_imports = {name for name in imports if name == "wikibuild" or name.startswith("wikibuild.")}
+        self.assertEqual(project_imports, {"wikibuild.bounded"})
+        # Infrastructure sharing must not bring builder semantics into the audit.
+        owner = ast.parse((ROOT / "wikibuild/bounded.py").read_text())
+        self.assertFalse(any(isinstance(node, ast.ImportFrom) and node.level for node in ast.walk(owner)))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ from pathlib import Path
 from . import code_dependencies, curated_rules as rules, extraction, model, snapshots
 from .exceptions import Exceptions
 from .source import Source
-from .storage import ContractError, digest, git, json_bytes, within, write_changed
+from .storage import ContractError, digest, git, git_records, json_bytes, within, write_changed
 
 
 def contract(named_code=False):
@@ -32,7 +32,7 @@ def definitions(root, project):
             raise ContractError("Curated definitions directory is redirected")
         if git(checkout, "status", "--porcelain=v1", "--untracked-files=all", "--", "curated"):
             raise ContractError(f"Commit curated definitions before generation: {repo['id']}")
-        tracked = set(git(checkout, "ls-files", "-z", "--", "curated").split("\0"))
+        tracked = {name.decode("utf-8") for name in git_records(checkout, "ls-files", "-z", "--", "curated")}
         for path in sorted(folder.rglob("*.json")):
             name = path.relative_to(checkout).as_posix()
             if name not in tracked or path.resolve() != path or path.is_symlink():

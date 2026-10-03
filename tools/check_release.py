@@ -8,6 +8,7 @@ import sys
 from urllib.parse import urljoin
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wikibuild import bounded
 from tools.audit_shard_index import leaves
 from tools.audit_capture_catalog import expand
 from tools.audit_ownership import expand as expand_ownership
@@ -27,8 +28,22 @@ def read(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+# Committed output audits read whole release trees and their generated blobs.
+GIT_TIMEOUT = 600
+
+
 def git(path, *args):
-    return subprocess.check_output(["git", "-C", str(path), *args])
+    result = bounded.run(["git", "-C", str(path), *args], timeout=GIT_TIMEOUT)
+    result.check_returncode()
+    return result.stdout
+
+
+def tree_records(path, commit):
+    command = ["git", "-C", str(path), "ls-tree", "-rz", commit]
+    with bounded.stream(command, timeout=GIT_TIMEOUT) as child:
+        yield from child.stdout.records()
+        if child.wait():
+            raise subprocess.CalledProcessError(child.returncode, command, stderr=child.stderr)
 
 
 def contained(root, name):
@@ -60,7 +75,7 @@ def check(root):
         assert not git(path, "status", "--porcelain=v1", "--untracked-files=all")
         blobs = {}
         algorithm = git(path, "rev-parse", "--show-object-format").decode().strip()
-        for item in git(path, "ls-tree", "-rz", record["commit"]).split(b"\0"):
+        for item in tree_records(path, record["commit"]):
             if item:
                 meta, name = item.split(b"\t", 1)
                 mode, kind, oid = meta.split()
