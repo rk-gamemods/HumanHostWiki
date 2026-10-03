@@ -1,9 +1,11 @@
 #Requires -Version 7
+# HHWIKI-PLATFORMS: win32
 <# Offline tests of the real installer using a local archive and a small client exe. #>
+param([Parameter(Mandatory)][string]$FixtureRoot)
 $ErrorActionPreference = 'Stop'
 $installer = Join-Path (Split-Path -Parent $PSScriptRoot) 'tools/Install-SteamMetadataClient.ps1'
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'tools/SteamMetadataClient.Install.ps1')
-$fixture = Join-Path ([System.IO.Path]::GetTempPath()) ('steamcmd-test-' + [guid]::NewGuid().ToString('N'))
+$fixture = [System.IO.Path]::GetFullPath($FixtureRoot)
 $previousFixture = $env:WIKI_STEAMCMD_FIXTURE
 $cases = 0
 $ownedProcesses = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
@@ -72,7 +74,7 @@ function Assert-TreeExited {
     }
 }
 try {
-    New-Item -ItemType Directory -Path $fixture | Out-Null
+    Assert-True (Test-Path -LiteralPath $fixture -PathType Container) 'Runner fixture is missing.'
     $source = Join-Path $fixture 'Client.cs'
     $exe = Join-Path $fixture 'steamcmd.exe'
     # Framework csc emits a standalone Windows executable without NuGet/network.

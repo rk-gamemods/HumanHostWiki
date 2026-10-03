@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,6 +20,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -29,19 +32,39 @@ jobs:
         run: python -m pip install -r requirements-source.txt
       - name: Whitespace check
         run: git diff --check $(git hash-object -t tree /dev/null) HEAD
-      - name: Unit tests
-        run: python -m unittest discover -s tests
+      - name: Component boundaries
+        run: python tools/check_components.py
+      - name: Targeted pull request tests
+        if: github.event_name == 'pull_request'
+        run: python tools/run_tests.py --changed origin/${{ github.base_ref }}
+      - name: Full integration suite
+        if: github.event_name != 'pull_request'
+        run: python tools/run_tests.py --all
 
-  windows-process-tests:
-    name: Windows process tests
+  windows-tests:
+    name: Unit tests (windows)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install source-analysis dependencies
         run: python -m pip install -r requirements-source.txt
-      - name: Bounded external-process tests
-        run: python -m unittest tests.test_bounded -v
+      - name: Targeted Windows pull request tests
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # Production runs on Windows: PRs run the same affected tests here as on Ubuntu.
+          python tools/run_tests.py --changed "origin/$env:BASE_REF"
+      - name: Full integration suite
+        if: github.event_name != 'pull_request'
+        run: python tools/run_tests.py --all

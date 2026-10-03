@@ -5,10 +5,10 @@ import json
 import os
 import re
 from pathlib import Path
-import shutil
-import tempfile
 import unittest
 from unittest.mock import patch
+
+from tests._support import fixture_dir
 from urllib.parse import unquote, urlparse
 
 from wikibuild import manifest, navigation, snapshots, workspace
@@ -20,20 +20,8 @@ BASE = json.loads((PROJECT_ROOT / "project.json").read_text())
 
 class FoundationTests(unittest.TestCase):
     def setUp(self):
-        self.test_parent = PROJECT_ROOT / ".local" / "test-runs"
-        self.test_parent.mkdir(parents=True, exist_ok=True)
-        self.root = Path(tempfile.mkdtemp(dir=self.test_parent)).resolve()
+        self.root = fixture_dir(self, "found")
         self.project = copy.deepcopy(BASE)
-
-    def tearDown(self):
-        if self.root.is_relative_to(self.test_parent.resolve()):
-            # Ordinary removal only: no permission override or ignore-errors handler.
-            try:
-                shutil.rmtree(self.root)
-            except PermissionError:
-                # Git for Windows makes object files read-only. Retain them;
-                # cleanup cannot authorize overriding file protection.
-                print(f"Retained protected test fixture: {self.root}")
 
     def git_source(self, schema=1, failures=None):
         source = self.root / "source"
@@ -94,6 +82,7 @@ class FoundationTests(unittest.TestCase):
     def test_registry_map_is_deterministic(self):
         result = manifest.repository_map(self.project)
         self.assertEqual(result, manifest.repository_map(self.project))
+        self.assertEqual(result, (PROJECT_ROOT / "docs/REPOSITORIES.md").read_bytes())
         self.assertIn(b"Semantic cycles and backlinks are expected", result)
         for repo in self.project["repositories"]:
             self.assertIn(repo["github_name"].encode(), result)

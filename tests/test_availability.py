@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 import json
 import io
 from pathlib import Path
-import tempfile
 import unittest
 from unittest.mock import Mock, patch
+
+from tests._support import fixture_dir
 
 from wikibuild import availability, manifest, reader, steam_build
 from wikibuild.storage import ContractError, json_bytes
@@ -33,9 +34,7 @@ Unloading Steam API...OK
 
 class AvailabilityTests(unittest.TestCase):
     def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.root = Path(folder.name)
+        self.root = fixture_dir(self, "avail")
         self.project = {"availability": {"enabled": True, "cache_seconds": 3600, "retry_seconds": 60}}
         self.steam = {"app_id": "2393970", "build_id": "25548639", "branch": "public"}
         self.now = datetime(2026, 9, 27, 9, tzinfo=timezone.utc)
@@ -75,12 +74,16 @@ class AvailabilityTests(unittest.TestCase):
                 (b"x" * (steam_build.MAX_OUTPUT + 1), 0, "exceeds")]:
             process = Mock(stdout=io.BytesIO(output))
             process.wait.return_value = status
-            with patch.object(steam_build.subprocess, "Popen", return_value=process), \
+            # This test owns the SteamCMD output stand-in, not OS job setup.
+            # Real children still use bounded.start's mandatory tree ownership.
+            with patch.object(steam_build.bounded, "start", return_value=process) as start, \
                     patch.object(steam_build.bounded, "kill_tree") as kill:
                 with self.assertRaisesRegex(ContractError, error):
                     steam_build.fetch(client, "2393970", "public")
-            if error == "exceeds":
-                kill.assert_called_once_with(process)
+            start.assert_called_once()
+            self.assertEqual(start.call_args.args[0], [str(client), "+login", "anonymous",
+                "+app_info_update", "1", "+app_info_print", "2393970", "+quit"])
+            kill.assert_called_once_with(process)
 
     def test_repeat_is_byte_stable_and_expired_observation_is_replaced(self):
         first, metrics = self.refresh()
@@ -142,8 +145,8 @@ class AvailabilityTests(unittest.TestCase):
 
     def test_freshness_change_reuses_projection_and_hardlinks_immutable_packs(self):
         fixture = test_reader.ReaderTests()
+        fixture.addCleanup = self.addCleanup
         fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
         self.root = fixture.root
         fixture.project.update(self.project)
         settings = self.root / ".local/steamcmd.json"
@@ -172,8 +175,8 @@ class AvailabilityTests(unittest.TestCase):
 
     def test_unavailable_check_does_not_block_supported_pipeline_or_hide_exceptions(self):
         fixture = test_pipeline.PipelineTests()
+        fixture.addCleanup = self.addCleanup
         fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
         project = json.loads(json.dumps(test_pipeline.test_extraction.PROJECT))
         project.update(self.project)
         result = test_pipeline.pipeline.run(fixture.root, project, fixture.source)

@@ -12,7 +12,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from . import bounded
-from .mediawiki import response_deadline
+from .bounded_http import response_deadline
 from .storage import ContractError
 
 
@@ -155,6 +155,7 @@ class GitHubPages:
             data = json.dumps(body).encode()
         for attempt in range(4):
             try:
+                # Reserve the shared owned-tree reap and pipe-drain deadlines.
                 timeout = min(self.API_TIMEOUT, remaining() - bounded.CLEANUP_SECONDS)
                 if timeout <= 0:
                     raise ContractError(f"GitHub {method} {path}: elapsed deadline cannot cover process cleanup")

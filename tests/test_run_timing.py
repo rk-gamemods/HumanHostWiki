@@ -4,8 +4,6 @@ import copy
 import io
 import itertools
 import json
-from pathlib import Path
-import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
@@ -14,11 +12,11 @@ from unittest.mock import patch
 import test_pipeline
 import test_publication
 import wiki
+from tests._support import fixture_dir
 from wikibuild import manifest, pipeline, publication, release, run_timing, workspace
 from wikibuild.storage import ContractError, git, json_bytes
 
 
-ROOT = Path(__file__).resolve().parents[1]
 CAPTURE = {"schema": "humanhost.capture-timing.v1", "started_at": "2026-10-03T00:00:00Z",
            "finished_at": "2026-10-03T00:00:08Z", "seconds": 8, "outcome": "reused", "error": None,
            "output_path": "source", "output_commit": "a" * 40, "game": "HumanHost",
@@ -43,11 +41,7 @@ class ObservedLock:
 
 class TimingTests(unittest.TestCase):
     def setUp(self):
-        parent = ROOT / ".local/t"
-        parent.mkdir(parents=True, exist_ok=True)
-        self.folder = tempfile.TemporaryDirectory(dir=parent)
-        self.addCleanup(self.folder.cleanup)
-        self.root = Path(self.folder.name)
+        self.root = fixture_dir(self, "timing")
 
     def records(self):
         return list((self.root / ".local/runs").glob("*.json"))
@@ -62,10 +56,12 @@ class TimingTests(unittest.TestCase):
 
         with patch.object(manifest, "load", return_value={}), patch.object(pipeline, "run", side_effect=succeed):
             first = wiki.run(self.root, args)
-            before = self.records()[0].read_bytes()
+            # Names sort by UTC second, then random hex: identify records by set difference.
+            [earlier] = self.records()
+            before = earlier.read_bytes()
             self.assertEqual(wiki.run(self.root, args), first)
         self.assertEqual(len(self.records()), 2)
-        self.assertEqual(self.records()[0].read_bytes(), before)
+        self.assertEqual(earlier.read_bytes(), before)
         saved = json.loads(before)
         self.assertEqual(saved["outcome"], "succeeded")
         self.assertEqual([row["outcome"] for row in saved["stages"]], ["succeeded", "succeeded"])
@@ -75,10 +71,12 @@ class TimingTests(unittest.TestCase):
             kwargs["timing_sink"].enter("normalize")
             raise ContractError("fixture failure")
 
+        succeeded = set(self.records())
         with patch.object(manifest, "load", return_value={}), patch.object(pipeline, "run", side_effect=fail):
             with self.assertRaisesRegex(ContractError, "fixture failure"):
                 wiki.run(self.root, args)
-        failed = json.loads(self.records()[-1].read_bytes())
+        [newest] = set(self.records()) - succeeded
+        failed = json.loads(newest.read_bytes())
         self.assertEqual(failed["outcome"], "failed")
         self.assertEqual(failed["stages"][-1]["outcome"], "failed")
         self.assertFalse(list((self.root / ".local/runs").glob("*.tmp")))
@@ -113,12 +111,14 @@ class TimingTests(unittest.TestCase):
             if data:
                 receipt.write_text(data)
             stderr = io.StringIO()
+            existing = set(self.records())
             with patch.object(manifest, "load", return_value={}), patch.object(pipeline, "run", return_value={"release_id": "r"}), \
                     patch.object(run_timing.sys, "stderr", stderr):
                 result = wiki.run(self.root, SimpleNamespace(command="update", source="fixture", capture_timing=receipt))
             self.assertEqual(result["release_id"], "r")
             self.assertEqual(stderr.getvalue().count("WARNING:"), 1)
-            self.assertIsNone(json.loads(self.records()[-1].read_bytes())["capture"])
+            [record] = set(self.records()) - existing
+            self.assertIsNone(json.loads(record.read_bytes())["capture"])
 
     def test_write_failure_and_exclusive_collision_do_not_change_outcome(self):
         recorder = run_timing.Recorder(self.root, "update")
@@ -291,6 +291,8 @@ class TimingTests(unittest.TestCase):
                 release_writer.wait(5)
                 super().run()
         def writer(*args, **kwargs):
+            if kwargs.get("name") != "wiki-timeout-timing":
+                return original_thread(*args, **kwargs)
             thread = DelayedWriter(*args, **kwargs)
             writers.append(thread)
             return thread
@@ -413,8 +415,8 @@ class TimingTests(unittest.TestCase):
 class PipelineTimingTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_pipeline.PipelineTests()
+        self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
         self.root, self.source = self.fixture.root, self.fixture.source
         from test_extraction import PROJECT
         # Exercise the actual coordinated release rather than the pipeline
@@ -462,12 +464,8 @@ class PipelineTimingTests(unittest.TestCase):
 class PublishTimingTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_publication.PublicationTests()
-        parent = ROOT / ".local/t"
-        parent.mkdir(parents=True, exist_ok=True)
-        temporary = tempfile.TemporaryDirectory
-        with patch.object(tempfile, "TemporaryDirectory", side_effect=lambda **kwargs: temporary(dir=parent, **kwargs)):
-            self.fixture.setUp()
-        self.addCleanup(self.fixture.doCleanups)
+        self.fixture.addCleanup = self.addCleanup
+        self.fixture.setUp()
         self.root = self.fixture.root
 
     def invoke(self):

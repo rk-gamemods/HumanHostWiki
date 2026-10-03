@@ -1,5 +1,6 @@
 """Real publication engine, fake GitHub reads and disposable Git storage."""
 
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 import os
@@ -13,7 +14,8 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from tests import test_publication
+import test_publication
+from tests._support import fixture_dir, remove_tree
 from tools import rehearse_publication
 from wikibuild import capacity, capacity_inventory, github_pages, publication, publication_git, publish_gate, workspace
 from wikibuild.storage import ContractError, git
@@ -51,9 +53,7 @@ class DisposableCleanupTests(unittest.TestCase):
             stream.close()
 
     def test_clone_ignores_global_hooks_filters_templates_and_git_routing(self):
-        root = Path(tempfile.gettempdir()).resolve() / ("hhwiki-publication-" + uuid4().hex)
-        root.mkdir()
-        self.addCleanup(publication_git.remove_disposable, root)
+        root = fixture_dir(self, "clone")
         source, destination = root / "source", root / "clone"
         source.mkdir()
         git(source, "init", "-b", "main")
@@ -154,15 +154,17 @@ class DisposableCleanupTests(unittest.TestCase):
 class RehearsalTempLifecycleTests(unittest.TestCase):
     """Real filesystem boundaries without building a publication for each fault."""
     def setUp(self):
-        self.root = Path(tempfile.gettempdir()).resolve() / ("hhwiki-publication-" + uuid4().hex)
-        self.root.mkdir()
-        self.addCleanup(publication_git.remove_disposable, self.root)
+        self.root = fixture_dir(self, "lifecycle")
+        self.temp_root = fixture_dir(self, "runtime")
+        temporary = patch.object(tempfile, "gettempdir", return_value=str(self.temp_root))
+        temporary.start()
+        self.addCleanup(temporary.stop)
         self.pointer = self.root / rehearse_publication.TEMP_RECORD
         self.temporary = None
 
     def track(self, temporary):
         self.temporary = Path(temporary)
-        self.addCleanup(publication_git.remove_disposable, self.temporary)
+        self.addCleanup(remove_tree, self.temporary)
 
     def test_setup_failure_before_and_after_each_step_cleans_record_and_root(self):
         real_save, real_mkdir = publication.save, Path.mkdir
@@ -287,7 +289,7 @@ class RehearsalTempLifecycleTests(unittest.TestCase):
 class RehearsalTests(unittest.TestCase):
     def setUp(self):
         fixture = test_publication.PublicationTests()
-        self.addCleanup(fixture.doCleanups)
+        fixture.addCleanup = self.addCleanup
         fixture.setUp()
         self.fixture = fixture
         self.root, self.project, self.manifest = fixture.root, fixture.project, fixture.manifest
@@ -300,9 +302,22 @@ class RehearsalTests(unittest.TestCase):
         git(self.root, "add", ".")
         git(self.root, "commit", "-m", "Reviewed fixture")
         self.path = publish_gate.receipt_path(self.root, self.manifest["release_id"])
+        if self._testMethodName in {
+                "test_next_invocation_cleans_only_recorded_marked_temp_root_and_prints_new_path",
+                "test_recovery_refuses_unmarked_root_outside_temp_and_wrong_owner"}:
+            # Hand-built crash remnants belong to a registered fixture parent.
+            # Normal engine runs use the runner's shorter OS temp path so copied
+            # abandonment archives fit Windows' path-length limit.
+            temporary = fixture_dir(self, "runtime")
+            tempdir = patch.object(tempfile, "gettempdir", return_value=str(temporary))
+            tempdir.start()
+            self.addCleanup(tempdir.stop)
         api = patch.object(github_pages.GitHubPages, "api", side_effect=self.read_api)
         self.api = api.start()
         self.addCleanup(api.stop)
+        fetch = patch.object(rehearse_publication.RehearsalHost, "fetch", self.fetch)
+        fetch.start()
+        self.addCleanup(fetch.stop)
 
     def read_api(self, method, path, **kwargs):
         self.assertEqual(method, "GET", "Rehearsal attempted a GitHub write")
@@ -315,6 +330,13 @@ class RehearsalTests(unittest.TestCase):
         if len(path.split("/")) == 3:
             return self.remote.repository(name)
         raise AssertionError(f"Unexpected rehearsal read: {path}")
+
+    def fetch(self, path, name, branch):
+        """Fetch fake remote history from the real fixture Git store, never GitHub."""
+        record = next(repo for repo in self.project["repositories"] if repo["github_name"] == name)
+        source = self.root / record["path"]
+        revision = self.remote.ref(name, branch)
+        git(path, "fetch", "--no-tags", str(source), f"{revision}:refs/remotes/fake/{branch}")
 
     def rehearse(self):
         return rehearse_publication.rehearse(self.root, self.project, self.manifest, lambda message: None)
@@ -334,7 +356,7 @@ class RehearsalTests(unittest.TestCase):
     def abandoned_temp(self, *, marked=True):
         temporary = Path(tempfile.gettempdir()).resolve() / ("hhwiki-rehearsal-" + uuid4().hex)
         temporary.mkdir()
-        self.addCleanup(publication_git.remove_disposable, temporary)
+        self.addCleanup(remove_tree, temporary)
         record = {"path": str(temporary), "workspace": str(self.root.resolve()), "nonce": uuid4().hex,
                   "created_dirs": []}
         if marked:
@@ -347,7 +369,7 @@ class RehearsalTests(unittest.TestCase):
         abandoned = self.abandoned_temp()
         unrelated = Path(tempfile.gettempdir()).resolve() / ("hhwiki-rehearsal-" + uuid4().hex)
         unrelated.mkdir()
-        self.addCleanup(publication_git.remove_disposable, unrelated)
+        self.addCleanup(remove_tree, unrelated)
         (abandoned / "leftover.txt").write_text("abandoned")
         (unrelated / "keep.txt").write_text("unrecorded")
         messages = []
@@ -423,6 +445,14 @@ class RehearsalTests(unittest.TestCase):
         observations = {row["repository"]: row["observed"] for row in receipt["destination_observations"]}
         self.assertEqual(observations, {"Wiki-hub": "present", "Wiki-items": "present",
                                         "Wiki-loot": "present", "Wiki-extra": "absent"})
+        with self.production_gate():
+            result = publish_gate.check(self.root, self.project, self.manifest)
+        self.assertEqual(result["rehearsal"], receipt)
+        self.assertNotIn("Wiki-extra", self.remote.repos)
+
+    @contextmanager
+    def production_gate(self):
+        """Real gate, real local Git, synthetic origin/main and GitHub CI/PR reads."""
         sha = git(self.root, "rev-parse", "HEAD")
         real_git = publish_gate.git
         real_api = self.remote.api
@@ -449,9 +479,147 @@ class RehearsalTests(unittest.TestCase):
                 patch.object(self.remote, "api", side_effect=gate_api), \
                 patch.object(publish_gate.github_pages, "GitHubPages", return_value=self.remote), \
                 patch.object(publish_gate, "check", GATE_CHECK):
-            result = publish_gate.check(self.root, self.project, self.manifest)
-        self.assertEqual(result["rehearsal"], receipt)
-        self.assertNotIn("Wiki-extra", self.remote.repos)
+            yield
+
+    def test_success_restores_publication_state_then_writes_bound_receipt(self):
+        pending = self.root / ".local/publication/pending.json"
+        publication.save(pending, {"phase": "complete"})
+        before = pending.read_bytes()
+
+        def simulate(root, project, manifest, host, progress, timing, gate):
+            self.assertEqual(len(gate["rehearsal"]["remote_refs"]), 6)
+            with timing.lock:
+                timing["repositories"]["hub"] = publication.repository_timing(timing.lock)
+            with publication.measure(timing["phases"], "current"):
+                pass
+            publication.save(root / ".local/publication/pending.json", {"phase": "simulated"})
+            publication.save(root / "publications/latest.json", {"release_id": manifest["release_id"]})
+            host.simulated[("Wiki-hub", "main")] = "d" * 40
+            self.assertEqual(host.ref("Wiki-hub", "main"), "d" * 40)
+            return {"status": "published"}, {}
+
+        with patch.object(publication, "_run", side_effect=simulate), \
+                patch.object(publication, "run", side_effect=AssertionError("Production gate in rehearsal")):
+            path = self.rehearse()
+        self.assertEqual(path, self.path)
+        self.assertEqual(pending.read_bytes(), before)
+        self.assertFalse((self.root / "publications").exists())
+        receipt = publication.load(path)
+        self.assertEqual(receipt["release_id"], self.manifest["release_id"])
+        self.assertEqual(receipt["workspace_commit"], publish_gate.git(self.root, "rev-parse", "HEAD"))
+        self.assertEqual(receipt["contract"], publication.contract())
+        self.assertIn("tools/rehearse_publication.py", receipt["contract"])
+        self.assertIn("publish_gate.py", receipt["contract"])
+        self.assertEqual(len(receipt["remote_refs"]), 6)
+        self.assertTrue(all(ref["commit"] is None for ref in receipt["remote_refs"]))
+        self.assertTrue(receipt["created_utc"].endswith("+00:00"))
+
+    def test_interrupted_receipt_promotion_abandon_rehearse_and_fresh_publish(self):
+        self.existing_release()
+        self.rehearse()
+        pointer = self.root / "publications/latest.json"
+        previous = publication.published(self.root)
+        history = self.root / "publications" / (previous["release_id"] + ".json")
+        before = pointer.read_bytes(), history.read_bytes()
+        receipt = self.root / "publications" / (self.manifest["release_id"] + ".json")
+        original_save = publication.save
+
+        def fail_pointer(path, payload):
+            if path == pointer:
+                self.assertTrue(receipt.exists())
+                raise OSError("Injected failure after immutable receipt save")
+            original_save(path, payload)
+
+        with self.production_gate(), patch.object(publication, "save", side_effect=fail_pointer):
+            with self.assertRaisesRegex(OSError, "after immutable receipt save"):
+                self.fixture.run_publish()
+        orphan = receipt.read_bytes()
+        self.assertEqual((pointer.read_bytes(), history.read_bytes()), before)
+        result = publication.abandon(self.root)
+        self.assertEqual((self.root / result["archive"] / "publication.json").read_bytes(), orphan)
+        self.assertFalse(receipt.exists())
+        self.assertEqual((pointer.read_bytes(), history.read_bytes()), before)
+        with self.production_gate():
+            with self.assertRaisesRegex(ContractError, "rehearsal receipt is missing"):
+                self.fixture.run_publish()
+        self.rehearse()
+        with self.production_gate():
+            published, _ = self.fixture.run_publish()
+        self.assertEqual(published["status"], "published")
+        self.assertNotEqual(receipt.read_bytes(), orphan)
+        self.assertEqual(publication.load(pointer)["release_id"], self.manifest["release_id"])
+        self.assertEqual(history.read_bytes(), before[1])
+        self.assertEqual(publication.load(self.root / ".local/publication/pending.json")["phase"], "complete")
+
+    def test_failed_rehearsal_restores_journal_and_writes_no_receipt(self):
+        pending = self.root / ".local/publication/pending.json"
+        publication.save(pending, {"phase": "complete"})
+        before = pending.read_bytes()
+
+        def fail(root, *args):
+            publication.save(root / ".local/publication/pending.json", {"phase": "simulated"})
+            raise ContractError("Injected rehearsal failure")
+
+        with patch.object(publication, "_run", side_effect=fail):
+            with self.assertRaisesRegex(ContractError, "Injected rehearsal failure"):
+                self.rehearse()
+        self.assertEqual(pending.read_bytes(), before)
+        self.assertFalse(self.path.exists())
+
+    def test_disabled_rehearsal_does_not_write_receipt(self):
+        with patch.object(publication, "_run", return_value=({"status": "disabled"}, {})):
+            with self.assertRaisesRegex(ContractError, "did not complete"):
+                self.rehearse()
+        self.assertFalse(self.path.exists())
+
+    def test_dirty_rehearsal_refuses_before_lock_backup_contract_or_host(self):
+        for file in ("code.txt", "untracked.txt"):
+            with self.subTest(file=file):
+                path = self.root / file
+                path.write_text("dirty")
+                with patch.object(rehearse_publication, "writer_lock") as lock, \
+                        patch.object(publication, "contract") as contract, \
+                        patch.object(rehearse_publication, "RehearsalHost") as host:
+                    with self.assertRaisesRegex(ContractError, "workspace must be clean"):
+                        rehearse_publication.rehearse(self.root, self.project, {}, lambda message: None)
+                    lock.assert_not_called()
+                    contract.assert_not_called()
+                    host.assert_not_called()
+                self.assertFalse((self.root / ".local/rehearsal-backups").exists())
+                self.assertFalse(self.path.exists())
+                if file == "code.txt":
+                    path.write_text("reviewed code")
+                else:
+                    path.unlink()
+
+    def test_incomplete_publication_cannot_be_rehearsed_or_salvaged(self):
+        pending = self.root / ".local/publication/pending.json"
+        publication.save(pending, {"phase": "topics"})
+        before = pending.read_bytes()
+        with patch.object(rehearse_publication, "RehearsalHost") as host:
+            with self.assertRaisesRegex(ContractError, "abandon-publication"):
+                self.rehearse()
+            host.assert_not_called()
+        self.assertEqual(pending.read_bytes(), before)
+        self.assertFalse(self.path.exists())
+
+    def test_runner_contract_drift_prevents_receipt(self):
+        contract = publication.contract()
+        changed = {**contract, "tools/rehearse_publication.py": "f" * 64}
+        with patch.object(publication, "contract", side_effect=[contract, changed]), \
+                patch.object(publication, "_run", return_value=({"status": "published"}, {})):
+            with self.assertRaisesRegex(ContractError, "contract changed"):
+                self.rehearse()
+        self.assertFalse(self.path.exists())
+
+    def test_repeated_real_ref_reads_detect_drift_and_simulated_refs_do_not_replace_observations(self):
+        host = rehearse_publication.RehearsalHost("rk-gamemods", {}, lambda message: None)
+        with patch.object(github_pages.GitHubPages, "api", side_effect=[
+                {"object": {"sha": "c" * 40}}, {"object": {"sha": "d" * 40}}]):
+            self.assertEqual(host.ref("Wiki-hub", "main"), "c" * 40)
+            with self.assertRaisesRegex(ContractError, "changed during rehearsal"):
+                host.ref("Wiki-hub", "main")
+        self.assertEqual(host.observed[("Wiki-hub", "main")], "c" * 40)
 
     def test_real_engine_isolated_refs_pins_objects_state_and_repeat(self):
         self.existing_release()
@@ -577,7 +745,7 @@ class RehearsalTests(unittest.TestCase):
 
         def escaped_write(engine, *args):
             saved_roots.append(engine.parent)
-            self.addCleanup(publication_git.remove_disposable, engine.parent)
+            self.addCleanup(remove_tree, engine.parent)
             publication.save(pending, {"phase": "escaped"})
             return {"status": "published"}, {}
 

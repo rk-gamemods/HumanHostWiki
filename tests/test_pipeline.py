@@ -18,13 +18,8 @@ from wikibuild.storage import ContractError, git, json_bytes, writer_lock
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_extraction.ExtractionTests()
-        # Keep full-reader fixture paths below the existing Windows 260-char limit.
-        parent = test_extraction.ROOT / ".local/t"
-        parent.mkdir(parents=True, exist_ok=True)
-        temporary = test_extraction.tempfile.mkdtemp
-        with patch.object(test_extraction.tempfile, "mkdtemp", side_effect=lambda **options: temporary(dir=parent)):
-            self.fixture.setUp()
-        self.addCleanup(self.fixture.tearDown)
+        self.fixture.addCleanup = self.addCleanup
+        self.fixture.setUp()
         self.root, self.source = self.fixture.wiki, self.fixture.source
         registry = self.root / "presentation/fields.json"
         registry.parent.mkdir()

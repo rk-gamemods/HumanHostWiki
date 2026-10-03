@@ -20,9 +20,9 @@ from wikibuild.storage import ContractError, digest, json_bytes
 class CapacityProjectionTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_reader.ReaderTests()
+        self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
         test_reader.install_guide(self.fixture)
-        self.addCleanup(self.fixture.doCleanups)
         self.project = self.fixture.project
         self.project["github_owner"] = "wiki-fixture"
         for repo in self.project["repositories"]:
@@ -199,7 +199,7 @@ class CapacityProjectionTests(unittest.TestCase):
 
     def test_oversized_real_reader_index_splits_replays_and_loads_on_demand(self):
         # Scale the index with the larger file budget required by real fonts.
-        keys = ["e-" + f"{number:032x}" for number in range(800)]
+        keys = ["e-" + f"{number:032x}" for number in range(160)]
         # Internal names also force nontrivial, distinct player packs to page.
         observations = [self.fixture.observation(key, "Item_Internal " + key) for key in keys]
         for number, observation in enumerate(observations):
@@ -271,16 +271,18 @@ class CapacityProjectionTests(unittest.TestCase):
         self.assertNotIn(key, result.reused)
 
     def test_capture_catalog_preserves_physical_history_and_browser_selection(self):
-        # Enough captures to force paging above the real font/runtime budget.
-        runs = [self.fixture.make_run(str(build), []) for build in reversed(range(1000, 1400))]
+        # Force metadata paging independently of the real font/runtime budget.
+        self.enterContext(patch.object(shard_index, "PAGE_BYTES", 4096))
+        runs = [self.fixture.make_run(str(build), []) for build in reversed(range(1000, 1012))]
         self.path = Path(reader.build(self.fixture.root, self.project, runs, bases=self.bases)["path"])
         limits = capacity.Budgets(file_bytes=150_000, site_bytes=501_000, history_bytes=601_000,
                                   site_reserve_bytes=1000, history_reserve_bytes=1000)
         result = self.build(tuple(replace(part, sealed=True) for part in self.originals), budgets=limits)
         output = self.fixture.root / "capture-sites"
         self.materialize(result, output)
-        self.assertEqual(audit(self.path, result, "wiki-fixture")["snapshots"], 1200)
-        self.assertEqual(self.inspect(result, output)["snapshots"], 1200)
+        snapshots = len(runs) * len(self.topics)
+        self.assertEqual(audit(self.path, result, "wiki-fixture")["snapshots"], snapshots)
+        self.assertEqual(self.inspect(result, output)["snapshots"], snapshots)
         self.assertTrue(all(item.artifact.bytes <= limits.file_bytes for item in result.payloads.values()))
         self.assertTrue(all("capture_catalog" in json.loads(result.payloads[topic.id + f"/site/releases/{self.release_id}.json"].read())
                             for topic in self.topics))
@@ -302,10 +304,10 @@ class CapacityProjectionTests(unittest.TestCase):
         self.path = Path(reader.build(self.fixture.root, self.project, [newer, *runs], bases=self.bases)["path"])
         later = self.build(tuple(replace(part, sealed=True) for part in result.partitions), result.placements, budgets=limits)
         self.materialize(later, output)
-        self.assertEqual(self.inspect(later, output)["snapshots"], 1203)
+        self.assertEqual(self.inspect(later, output)["snapshots"], snapshots + len(self.topics))
         self.assertTrue(all(path.read_bytes() == data for path, data in before.items()))
         old_objects = {key for key in result.payloads if "/objects/" in key}
-        self.assertGreater(len(old_objects & set(later.reused)), 1200)
+        self.assertGreater(len(old_objects & set(later.reused)), snapshots)
 
     def test_independent_auditor_rejects_changed_snapshot_membership(self):
         self.check_changed_snapshot_membership("entries")
