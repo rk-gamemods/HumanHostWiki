@@ -264,7 +264,9 @@ py -3 wiki.py abandon-publication
 
 This local-only command moves the journal and a README under
 `.local/publication/abandoned/<timestamp>-<release>/`. Rehearse against the current
-live state, then publish afresh. Hub rollback remains part of a single failing run.
+live state, then publish afresh: abandonment archives the attempt's rehearsal
+receipts and any matching publication receipt that `latest.json` did not select.
+The current published receipt is preserved. Hub rollback remains part of a single failing run.
 See [publication](PUBLICATION.md) for the boundary and archived evidence.
 
 ## Build the architecture preview

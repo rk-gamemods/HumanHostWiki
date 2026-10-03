@@ -41,19 +41,61 @@ def abandon(root):
         state = load(path)
     except (ContractError, ValueError, KeyError, TypeError, AttributeError):
         state = {}
+    if not isinstance(state, dict):
+        state = {}
     if state.get("phase") == "complete":
         return {"status": "nothing-to-abandon"}
     identity = state.get("release_id", "unknown")
     if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{64}", identity):
         identity = "unknown"
+    related = {identity}
+    for key in ("gate", "last_gate"):
+        gate = state.get(key)
+        rehearsal = gate.get("rehearsal") if isinstance(gate, dict) else None
+        release_id = rehearsal.get("release_id") if isinstance(rehearsal, dict) else None
+        if isinstance(release_id, str) and re.fullmatch(r"[0-9a-f]{64}", release_id):
+            related.add(release_id)
+    records = []
+    for source in sorted((root / ".local/publication/rehearsals").rglob("*.json")):
+        source = within(root, source.relative_to(root))
+        try:
+            receipt = load(source)
+        except (ContractError, ValueError, KeyError, TypeError, AttributeError):
+            receipt = {}
+        release_id = receipt.get("release_id") if isinstance(receipt, dict) else None
+        # An unidentified attempt cannot prove that any rehearsal is unrelated.
+        if identity == "unknown" or source.stem in related or (isinstance(release_id, str) and release_id in related):
+            records.append((source, f"rehearsal-{len(records) + 1:03d}.json"))
+    if identity != "unknown":
+        receipt = within(root, f"publications/{identity}.json")
+        if receipt.exists():
+            pointer = root / "publications/latest.json"
+            latest = load(pointer) if pointer.exists() else {}
+            if (not isinstance(latest, dict) or (pointer.exists() and
+                    (not isinstance(latest.get("release_id"), str) or
+                     not re.fullmatch(r"[0-9a-f]{64}", latest["release_id"])))):
+                raise ContractError("Cannot abandon publication with an invalid latest publication pointer")
+            if latest.get("release_id") != identity:
+                try:
+                    belongs = load(receipt) == completed_receipt(state)
+                except (ContractError, ValueError, KeyError, TypeError, AttributeError):
+                    belongs = False
+                if belongs:
+                    records.append((receipt, "publication.json"))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     destination = within(root, f".local/publication/abandoned/{stamp}-{identity}")
     destination.mkdir(parents=True)
     (destination / "README.md").write_text(
         "# Abandoned publication\n\nThis failed run was scrapped and will never resume.\n"
-        "Only the local journal was moved; remote branches were not changed.\n"
-        "Rehearse the selected local release against current live state before publishing afresh.\n",
+        "Local evidence was archived; remote branches were not changed.\n"
+        "Rehearse the selected local release against current live state before publishing afresh.\n\n"
+        "Archived records (short names avoid Windows path limits):\n"
+        + "".join(f"- `{name}`: `{source.relative_to(root).as_posix()}`\n" for source, name in records)
+        + "- `pending.json`: `.local/publication/pending.json`\n",
         encoding="utf-8")
+    # Keep the pending boundary in place until all old eligibility is removed.
+    for source, name in records:
+        source.rename(destination / name)
     path.rename(destination / "pending.json")
     return {"status": "abandoned", "release_id": identity, "archive": destination.relative_to(root).as_posix()}
 
@@ -257,6 +299,17 @@ def health(plan):
     return {name: plan["files"][name]}
 
 
+def completed_receipt(state):
+    """The exact promotion record also proves an orphan belongs to this attempt."""
+    result = {"schema_version": 1, "release_id": state["release_id"], "contract": state["contract"],
+              "status": "published", "repositories": state["repositories"], "hub": state["repositories"]["hub"]["base"],
+              "entrypoints": state.get("entrypoints", {topic: topic for topic, plan in state["repositories"].items()
+                                                      if plan.get("role") != "partition"})}
+    if "gate" in state:
+        result["gate"] = state["gate"]
+    return result
+
+
 def rollback(root, state, path, host, refs, timing=None):
     hub = state["repositories"][state.get("hub_control", "hub")]
     repo = within(root, hub["path"])
@@ -336,12 +389,7 @@ def execute(root, state, path, host, workers, refs, timing=None):
                 restore()
             raise
     with measure(timing["phases"], "promote"):
-        result = {"schema_version": 1, "release_id": state["release_id"], "contract": state["contract"],
-                  "status": "published", "repositories": state["repositories"], "hub": state["repositories"]["hub"]["base"],
-                  "entrypoints": state.get("entrypoints", {topic: topic for topic, plan in state["repositories"].items()
-                                                          if plan.get("role") != "partition"})}
-        if "gate" in state:
-            result["gate"] = state["gate"]
+        result = completed_receipt(state)
         receipt = within(root, f"publications/{state['release_id']}.json")
         if receipt.exists() and load(receipt) != result:
             raise ContractError("Immutable publication receipt differs")

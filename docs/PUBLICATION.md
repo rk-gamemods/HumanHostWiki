@@ -126,8 +126,16 @@ The [capacity contract](CAPACITY.md) owns physical identities and size checks.
 An incomplete pending publication blocks every release. The operator runs
 `py -3 wiki.py abandon-publication`, which moves the journal to
 `.local/publication/abandoned/<UTC-timestamp>-<release-id>/pending.json` with a
-short README and makes no remote calls. Corrupt journals are archived under an
-`unknown` release label. The next publication starts fresh after a new rehearsal
+short README and makes no remote calls. It also archives every rehearsal for that
+release and releases named in the journal's gate receipts, including duplicate
+receipt files. Publishing requires a fresh rehearsal even when live refs did not
+change. A matching immutable publication receipt saved before `latest.json`
+advanced is archived as `publication.json`; a receipt referenced by `latest.json`
+is never moved. Other attempts' publication receipts are preserved. The archive
+uses short receipt names and records original paths in its README.
+Corrupt or non-object journals are archived under an `unknown` release label.
+Because their attempt cannot be identified, all rehearsal receipts are invalidated;
+completed publication history is preserved. The next publication starts fresh after a new rehearsal
 against current refs; preparation may adopt this workspace's previously published
 lineage, but only when it matches the rehearsed refs. Before the first completed
 publication, Pages lineage must start at a locally pinned publication root; main

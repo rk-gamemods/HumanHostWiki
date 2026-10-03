@@ -71,6 +71,70 @@ class RehearsalTests(unittest.TestCase):
         self.assertTrue(all(ref["commit"] == "c" * 40 for ref in receipt["remote_refs"]))
         self.assertTrue(receipt["created_utc"].endswith("+00:00"))
 
+    def test_interrupted_receipt_promotion_abandon_rehearse_and_fresh_publish(self):
+        fixture = self.fixture
+        fixture.client.start()  # Production gate uses its synthetic CI/PR responses.
+        manifest = {**self.manifest, "repositories": {"hub": {"path": "origin"}}}
+        current = {("Wiki-hub", "main"): "c" * 40, ("Wiki-hub", "gh-pages"): "c" * 40}
+        fixture.host.ref.side_effect = lambda name, branch: current[(name, branch)]
+        fixture.host.repository.return_value = {"id": 1, "private": False}
+
+        def push(path, name, commit, branch, expected):
+            self.assertEqual(current[(name, branch)], expected)
+            current[(name, branch)] = commit
+        fixture.host.push.side_effect = push
+        publish_gate.write_receipt(self.root, manifest["release_id"], fixture.commit, fixture.refs)
+        pointer = self.root / "publications/latest.json"
+        history = self.root / "publications" / ("b" * 64 + ".json")
+        publication.save(history, {"release_id": "b" * 64, "status": "published"})
+        publication.save(pointer, {"release_id": "b" * 64})
+        before = pointer.read_bytes(), history.read_bytes()
+        receipt = self.root / "publications" / (manifest["release_id"] + ".json")
+        original_save = publication.save
+
+        def fail_pointer(path, payload):
+            if path == pointer:
+                self.assertTrue(receipt.exists())
+                raise OSError("Injected failure after immutable receipt save")
+            original_save(path, payload)
+
+        with patch.object(publication.release, "verify"), \
+                patch.object(publication, "prepare", side_effect=lambda *args: fixture.prepared_publication("d" * 40)), \
+                patch.object(publication, "save", side_effect=fail_pointer):
+            with self.assertRaisesRegex(OSError, "after immutable receipt save"):
+                publication.run(self.root, self.project, manifest, host=fixture.host)
+        orphan = receipt.read_bytes()
+        self.assertEqual((pointer.read_bytes(), history.read_bytes()), before)
+        result = publication.abandon(self.root)
+        self.assertEqual((self.root / result["archive"] / "publication.json").read_bytes(), orphan)
+        self.assertFalse(receipt.exists())
+        self.assertEqual((pointer.read_bytes(), history.read_bytes()), before)
+        with self.assertRaisesRegex(ContractError, "rehearsal receipt is missing"):
+            publication.run(self.root, self.project, manifest, host=fixture.host)
+
+        def read_api(method, path, **kwargs):
+            if "/git/ref/heads/" in path:
+                return {"object": {"sha": current[("Wiki-hub", path.rsplit("/", 1)[1])]}}
+            return {"id": 1, "private": False}
+
+        def simulated_push(host, path, name, commit, branch, expected):
+            self.assertEqual(host.ref(name, branch), expected)
+            host.simulated[(name, branch)] = commit
+            host.events.append(("push", name, branch, commit))
+
+        with patch.object(publication.release, "verify"), \
+                patch.object(publication, "prepare", side_effect=lambda *args: fixture.prepared_publication("e" * 40)), \
+                patch.object(rehearse_publication.RehearsalHost, "api", side_effect=read_api), \
+                patch.object(rehearse_publication.RehearsalHost, "push", simulated_push), \
+                patch.object(rehearse_publication.RehearsalHost, "configure"):
+            rehearse_publication.rehearse(self.root, self.project, manifest, lambda message: None)
+            published, _ = publication.run(self.root, self.project, manifest, host=fixture.host)
+        self.assertEqual(published["status"], "published")
+        self.assertNotEqual(receipt.read_bytes(), orphan)
+        self.assertEqual(publication.load(pointer)["release_id"], manifest["release_id"])
+        self.assertEqual(history.read_bytes(), before[1])
+        self.assertEqual(publication.load(self.root / ".local/publication/pending.json")["phase"], "complete")
+
     def test_failed_rehearsal_restores_journal_and_writes_no_receipt(self):
         pending = self.root / ".local/publication/pending.json"
         publication.save(pending, {"phase": "complete"})

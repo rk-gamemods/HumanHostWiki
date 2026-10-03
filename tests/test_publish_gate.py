@@ -78,6 +78,22 @@ class PublishGateTests(unittest.TestCase):
         receipt = publication.load(path)
         publication.save(path, {**receipt, **values})
 
+    def prepared_publication(self, pages="c" * 40):
+        plan = {"path": "origin", "name": "Wiki-hub", "repository_id": 1, "role": "hub",
+                "base": "https://rk-gamemods.github.io/Wiki-hub/", "main": "c" * 40,
+                "old_main": "c" * 40, "old_pages": "c" * 40, "pages": pages,
+                "tree": "f" * 40, "files": {}, "checks": {}, "verified": False}
+        return {"schema_version": 1, "release_id": self.manifest["release_id"],
+                "owner": self.project["github_owner"], "contract": publication.contract(),
+                "phase": "hub", "repositories": {"hub": plan}, "groups": [[], []],
+                "entrypoints": {"hub": "hub"}, "hub_control": "hub", "rollback": None,
+                "fallback": {"tree": "f" * 40, "files": {}}}
+
+    def completed_publication(self, state):
+        return {"schema_version": 1, "release_id": state["release_id"], "status": "published",
+                "contract": state["contract"], "repositories": state["repositories"],
+                "hub": state["repositories"]["hub"]["base"], "entrypoints": {"hub": "hub"}}
+
     def test_pass_records_exact_commit_ci_and_receipt_and_ignores_local_files(self):
         result = self.check()
         self.assertEqual(result["workspace_commit"], self.commit)
@@ -216,6 +232,112 @@ class PublishGateTests(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "reached fresh gate"):
                 publication.run(self.root, self.project, self.manifest)
             gate.assert_called_once()
+
+    def test_abandon_invalidates_all_related_rehearsals_and_requires_a_fresh_one(self):
+        target = self.manifest["release_id"]
+        related, last_gate, unrelated = "b" * 64, "c" * 64, "d" * 64
+        original = publish_gate.receipt_path(self.root, target).read_bytes()
+        alias = self.root / ".local/publication/rehearsals/copy.json"
+        alias.write_bytes(original)
+        for identity in (related, last_gate, unrelated):
+            publish_gate.write_receipt(self.root, identity, self.commit, self.refs)
+        preserved = publish_gate.receipt_path(self.root, unrelated).read_bytes()
+        publication.save(self.root / ".local/publication/pending.json",
+                         {"phase": "hub", "release_id": target,
+                          "gate": {"rehearsal": {"release_id": related}},
+                          "last_gate": {"rehearsal": {"release_id": last_gate}}})
+        result = publication.abandon(self.root)
+        archive = self.root / result["archive"]
+        for identity in (target, related, last_gate):
+            self.assertFalse(publish_gate.receipt_path(self.root, identity).exists())
+        self.assertFalse(alias.exists())
+        self.assertEqual(publish_gate.receipt_path(self.root, unrelated).read_bytes(), preserved)
+        archived = list(archive.glob("rehearsal-*.json"))
+        self.assertEqual(len(archived), 4)
+        self.assertEqual({publication.load(path)["release_id"] for path in archived},
+                         {target, related, last_gate})
+        self.assertEqual(self.host.method_calls, [])
+        with patch.object(publication, "_run", side_effect=AssertionError("Engine reached before fresh rehearsal")):
+            with self.assertRaisesRegex(ContractError, "rehearsal receipt is missing"):
+                publication.run(self.root, self.project, self.manifest, host=self.host)
+        publish_gate.write_receipt(self.root, target, self.commit, self.refs)
+        self.assertEqual(self.check()["rehearsal"]["release_id"], target)
+
+    def test_abandon_preserves_receipt_referenced_by_latest(self):
+        state = self.prepared_publication()
+        state["repositories"]["hub"]["verified"] = True
+        publication.save(self.root / ".local/publication/pending.json", state)
+        receipt = self.root / "publications" / (state["release_id"] + ".json")
+        publication.save(receipt, self.completed_publication(state))
+        pointer = self.root / "publications/latest.json"
+        publication.save(pointer, {"release_id": state["release_id"]})
+        before = receipt.read_bytes(), pointer.read_bytes()
+        result = publication.abandon(self.root)
+        self.assertEqual((receipt.read_bytes(), pointer.read_bytes()), before)
+        self.assertFalse((self.root / result["archive"] / "publication.json").exists())
+
+    def test_abandon_does_not_archive_an_unreferenced_receipt_from_another_attempt(self):
+        state = self.prepared_publication()
+        publication.save(self.root / ".local/publication/pending.json", state)
+        receipt = self.root / "publications" / (state["release_id"] + ".json")
+        other = self.completed_publication(state)
+        other["gate"] = {"checked_utc": "a different attempt"}
+        publication.save(receipt, other)
+        before = receipt.read_bytes()
+        result = publication.abandon(self.root)
+        self.assertEqual(receipt.read_bytes(), before)
+        self.assertFalse((self.root / result["archive"] / "publication.json").exists())
+
+    def test_abandon_archives_own_orphan_when_latest_does_not_exist(self):
+        state = self.prepared_publication()
+        state["repositories"]["hub"]["verified"] = True
+        publication.save(self.root / ".local/publication/pending.json", state)
+        receipt = self.root / "publications" / (state["release_id"] + ".json")
+        publication.save(receipt, self.completed_publication(state))
+        before = receipt.read_bytes()
+        result = publication.abandon(self.root)
+        self.assertEqual((self.root / result["archive"] / "publication.json").read_bytes(), before)
+        self.assertFalse(receipt.exists())
+
+    def test_invalid_latest_pointer_blocks_archival_before_any_moves(self):
+        state = self.prepared_publication()
+        pending = self.root / ".local/publication/pending.json"
+        publication.save(pending, state)
+        receipt = self.root / "publications" / (state["release_id"] + ".json")
+        publication.save(receipt, self.completed_publication(state))
+        publication.save(self.root / "publications/latest.json", [])
+        rehearsal = publish_gate.receipt_path(self.root, state["release_id"])
+        before = pending.read_bytes(), receipt.read_bytes(), rehearsal.read_bytes()
+        with self.assertRaisesRegex(ContractError, "invalid latest publication pointer"):
+            publication.abandon(self.root)
+        self.assertEqual((pending.read_bytes(), receipt.read_bytes(), rehearsal.read_bytes()), before)
+        self.assertFalse((self.root / ".local/publication/abandoned").exists())
+
+    def test_malformed_rehearsal_identity_does_not_crash_abandonment(self):
+        target = self.manifest["release_id"]
+        self.edit_receipt(release_id=[])
+        broken = self.root / ".local/publication/rehearsals/broken.json"
+        publication.save(broken, {"release_id": []})
+        before = broken.read_bytes()
+        publication.save(self.root / ".local/publication/pending.json", {"phase": "hub", "release_id": target})
+        publication.abandon(self.root)
+        self.assertFalse(publish_gate.receipt_path(self.root, target).exists())
+        self.assertEqual(broken.read_bytes(), before)
+
+    def test_abandon_archives_checksum_valid_non_object_journals_as_unknown(self):
+        pending = self.root / ".local/publication/pending.json"
+        for payload in ([], None, "invalid", 42, True):
+            with self.subTest(payload=payload):
+                publication.save(pending, payload)
+                before = pending.read_bytes()
+                publish_gate.write_receipt(self.root, self.manifest["release_id"], self.commit, self.refs)
+                result = publication.abandon(self.root)
+                self.assertEqual(result["release_id"], "unknown")
+                archive = self.root / result["archive"]
+                self.assertEqual((archive / "pending.json").read_bytes(), before)
+                self.assertFalse(pending.exists())
+                self.assertFalse(publish_gate.receipt_path(self.root, self.manifest["release_id"]).exists())
+        self.assertEqual(self.host.method_calls, [])
 
     def test_origin_identity_accepts_only_canonical_https_and_ssh(self):
         for url in ("https://github.com/rk-gamemods/HumanHostWiki.git", "git@github.com:rk-gamemods/HumanHostWiki.git",
