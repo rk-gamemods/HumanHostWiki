@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tests._support import fixture_parent
 from tools import check_coded_values, check_extraction
 
 
@@ -30,8 +31,7 @@ def encoded(value):
 
 class CheckExtractionTests(unittest.TestCase):
     def setUp(self):
-        parent = ROOT / ".local/test-check-extraction"
-        parent.mkdir(parents=True, exist_ok=True)
+        parent = fixture_parent("test-check-extraction")
         self.work = Path(tempfile.mkdtemp(dir=parent))
         self.addCleanup(self.cleanup)
         self.source, self.wiki = self.work / "source", self.work / "wiki"

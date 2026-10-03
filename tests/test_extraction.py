@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tests._support import fixture_parent
 from wikibuild import extraction, snapshots
 from wikibuild.adapters import items_loot
 from wikibuild.exceptions import Exceptions
@@ -24,8 +25,7 @@ PROJECT.pop("external_articles", None)  # Article integration tests inject their
 
 class ExtractionTests(unittest.TestCase):
     def setUp(self):
-        self.parent = ROOT / ".local/test-extraction"
-        self.parent.mkdir(parents=True, exist_ok=True)
+        self.parent = fixture_parent("test-extraction")
         self.work = Path(tempfile.mkdtemp(dir=self.parent))
         self.wiki = self.work / "wiki"
         self.source = self.work / "source"

@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import unquote, urlparse
 
+from tests._support import fixture_parent
 from wikibuild import manifest, navigation, snapshots, workspace
 from wikibuild.storage import ContractError, git, json_bytes, writer_lock, write_changed
 
@@ -20,8 +21,7 @@ BASE = json.loads((PROJECT_ROOT / "project.json").read_text())
 
 class FoundationTests(unittest.TestCase):
     def setUp(self):
-        self.test_parent = PROJECT_ROOT / ".local" / "test-runs"
-        self.test_parent.mkdir(parents=True, exist_ok=True)
+        self.test_parent = fixture_parent("test-runs")
         self.root = Path(tempfile.mkdtemp(dir=self.test_parent)).resolve()
         self.project = copy.deepcopy(BASE)
 

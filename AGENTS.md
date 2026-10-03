@@ -70,9 +70,13 @@ in technical reference or a reviewed category addition, never silently dropped.
 py -3 wiki.py validate
 py -3 wiki.py map --check
 py -3 wiki.py check-lock
-py -3 -m unittest discover -s tests -v
+py -3 tools/check_components.py
+py -3 tools/run_tests.py --changed
 git diff --check
 ```
+
+See [component boundaries and test runs](docs/ARCHITECTURE.md) for focused runs.
+Use `py -3 tools/run_tests.py --all` for main integration and full validation.
 
 Changes to persistent generation must exercise repeat execution and failure
 before promotion. Do not bypass a failed boundary check or overwrite unknown
