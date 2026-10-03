@@ -49,6 +49,62 @@ def stop_recorded(path):
                     raise
 
 
+class BoundedStreamTests(unittest.TestCase):
+    def test_stalled_reader_reaps_the_entire_tree_at_deadline(self):
+        folder = fixture_dir(self, "stream")
+        pids = folder / "pids"
+        self.addCleanup(stop_recorded, pids)
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            with bounded.stream([sys.executable, "-c", HOLDS_PIPE, str(pids)], timeout=1) as child:
+                child.stdout.readline()
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertTrue(pids.exists())
+        self.assertTrue(all(not alive(int(pid)) for pid in pids.read_text().splitlines()))
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+    def test_stderr_flood_is_drained_and_capped(self):
+        with patch.object(bounded, "MAX_CAPTURE", 1000):
+            with bounded.stream([sys.executable, "-c",
+                                 "import sys; sys.stderr.buffer.write(b'e' * (4 << 20)); "
+                                 "sys.stderr.flush(); print('ok', flush=True)"], timeout=10) as child:
+                self.assertEqual(child.stdout.read(), b"ok\r\n" if os.name == "nt" else b"ok\n")
+                self.assertEqual(child.wait(), 0)
+                self.assertEqual(child.stderr, b"e" * 1000)
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+    def test_early_exit_reaps_without_waiting_for_the_deadline(self):
+        started = time.monotonic()
+        with bounded.stream([sys.executable, "-c", "import time; print('ready', flush=True); time.sleep(120)"],
+                            timeout=60) as child:
+            self.assertEqual(child.stdout.readline().strip(), b"ready")
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertFalse(alive(child.process.pid))
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+    def test_consumer_exception_preserved_after_cleanup(self):
+        with self.assertRaisesRegex(ValueError, "consumer"):
+            with bounded.stream([sys.executable, "-c", "import time; time.sleep(120)"], timeout=60) as child:
+                raise ValueError("consumer")
+        self.assertFalse(alive(child.process.pid))
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+    def test_stalled_input_write_is_also_bounded(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            with bounded.stream([sys.executable, "-c", "import time; time.sleep(120)"],
+                                timeout=1, stdin=subprocess.PIPE) as child:
+                child.stdin.write(b"x" * (8 << 20))
+                child.stdin.flush()
+        self.assertFalse(alive(child.process.pid))
+
+    def test_deadline_kills_child_even_while_consumer_is_idle(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            with bounded.stream([sys.executable, "-c", "import time; time.sleep(120)"], timeout=0.5) as child:
+                time.sleep(1)
+                self.assertFalse(alive(child.process.pid))
+        self.assertNotIn(child.process._wiki_owned, bounded._children)
+
+
 class BoundedRunTests(unittest.TestCase):
     def test_parent_exit_does_not_leave_a_descendant_holding_the_pipe(self):
         folder = fixture_dir(self, "bounded")

@@ -3,11 +3,11 @@
 import hashlib
 import json
 from pathlib import Path
-import subprocess
 import sys
 from urllib.parse import urljoin
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wikibuild import bounded
 from tools.audit_shard_index import leaves
 from tools.audit_capture_catalog import expand
 from tools.audit_ownership import expand as expand_ownership
@@ -27,8 +27,14 @@ def read(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+# Committed output audits read whole release trees and their generated blobs.
+GIT_TIMEOUT = 600
+
+
 def git(path, *args):
-    return subprocess.check_output(["git", "-C", str(path), *args])
+    result = bounded.run(["git", "-C", str(path), *args], timeout=GIT_TIMEOUT)
+    result.check_returncode()
+    return result.stdout
 
 
 def contained(root, name):

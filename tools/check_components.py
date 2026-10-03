@@ -7,11 +7,16 @@ import fnmatch
 from importlib.util import resolve_name
 import json
 from pathlib import Path
-import subprocess
 import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if __package__ in (None, ""):
+    sys.path.insert(0, str(ROOT))
+from wikibuild import bounded
+
+# Inventory and diff scans include pending files throughout the checkout.
+GIT_TIMEOUT = 600
 
 
 @dataclass(frozen=True)
@@ -77,7 +82,7 @@ def load_contract(path: Path) -> Contract:
 
 
 def git_output(root: Path, *args: str) -> list[str]:
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+    result = bounded.run(["git", "-C", str(root), *args], timeout=GIT_TIMEOUT)
     if result.returncode:
         raise ValueError(f"git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
     return [p.decode("utf-8", errors="surrogateescape") for p in result.stdout.split(b"\0") if p]

@@ -11,16 +11,24 @@ import json
 from pathlib import Path, PurePosixPath
 import subprocess
 
+from . import bounded
 from .storage import ContractError, git
 from .source_record import read_record
+
+# Metadata enumeration and diffs can traverse the entire pinned source tree.
+GIT_TREE_TIMEOUT = 600
+# A batch reader consumes large catalog blobs throughout extraction.
+GIT_STREAM_TIMEOUT = 1800
 
 
 class Source:
     def __init__(self, path, revision):
         self.path = Path(path).resolve()
         self.revision = git(self.path, "rev-parse", "--verify", revision + "^{commit}")
-        tree = subprocess.run(["git", "-C", str(self.path), "ls-tree", "-r", "-z", "-l", self.revision],
-                              check=True, capture_output=True).stdout
+        result = bounded.run(["git", "-C", str(self.path), "ls-tree", "-r", "-z", "-l", self.revision],
+                             timeout=GIT_TREE_TIMEOUT)
+        result.check_returncode()
+        tree = result.stdout
         self.blobs = {}
         for entry in tree.split(b"\0"):
             if not entry:
@@ -36,16 +44,20 @@ class Source:
         self.process = None
 
     def __enter__(self):
-        self.process = subprocess.Popen(["git", "-C", str(self.path), "cat-file", "--batch"],
-                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self._stream = bounded.stream(["git", "-C", str(self.path), "cat-file", "--batch"],
+                                      timeout=GIT_STREAM_TIMEOUT, stdin=subprocess.PIPE)
+        self.process = self._stream.__enter__()
         return self
 
     def __exit__(self, kind, value, traceback):
-        self.process.stdin.close()
-        self.process.stdout.close()
-        error = self.process.stderr.read()
-        self.process.stderr.close()
-        code = self.process.wait()
+        code = 0
+        try:
+            if kind is None:
+                self.process.stdin.close()
+                code = self.process.wait()
+        finally:
+            self._stream.__exit__(kind, value, traceback)
+        error = self.process.stderr
         if code and kind is None:
             raise ContractError(f"Git source reader failed: {error.decode('utf-8', errors='replace')}")
 
@@ -203,7 +215,9 @@ class Source:
     def changed_paths(self, previous):
         if previous is None:
             return {path: "A" for path in self.blobs}
-        output = subprocess.run(["git", "-C", str(self.path), "diff", "--name-status", "-z", "--no-renames",
-                                 previous, self.revision, "--"], check=True, capture_output=True).stdout
+        result = bounded.run(["git", "-C", str(self.path), "diff", "--name-status", "-z", "--no-renames",
+                              previous, self.revision, "--"], timeout=GIT_TREE_TIMEOUT)
+        result.check_returncode()
+        output = result.stdout
         fields = output.rstrip(b"\0").split(b"\0") if output else []
         return {fields[index + 1].decode("utf-8"): fields[index].decode("ascii") for index in range(0, len(fields), 2)}

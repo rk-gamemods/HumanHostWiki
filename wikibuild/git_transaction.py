@@ -2,10 +2,16 @@
 
 import os
 from pathlib import Path
-import subprocess
+
+from . import bounded
 
 from .extraction import file_hash
 from .storage import ContractError, git, within
+
+# Local object/ref plumbing should finish quickly, including local Git hooks.
+GIT_TIMEOUT = 30
+# Index writes and tree scans may touch every generated file in a release.
+GIT_TREE_TIMEOUT = 600
 
 
 def command(path, *args, data=None, index=None, work_tree=None):
@@ -14,8 +20,13 @@ def command(path, *args, data=None, index=None, work_tree=None):
         environment["GIT_INDEX_FILE"] = str(index)
     if work_tree:
         environment["GIT_WORK_TREE"] = str(work_tree)
-    result = subprocess.run(["git", "-C", str(path), "--literal-pathspecs", *args],
-                            input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment)
+    options = args
+    while options[:1] == ("-c",) and len(options) >= 2:
+        options = options[2:]
+    operation = options[0] if options else ""
+    timeout = GIT_TREE_TIMEOUT if operation in {"add", "read-tree", "write-tree", "ls-tree", "diff-files", "ls-files"} else GIT_TIMEOUT
+    result = bounded.run(["git", "-C", str(path), "--literal-pathspecs", *args],
+                         timeout=timeout, input=data, env=environment)
     if result.returncode:
         raise ContractError(result.stderr.decode("utf-8", errors="replace").strip())
     return result.stdout

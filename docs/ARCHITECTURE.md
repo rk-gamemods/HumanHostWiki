@@ -8,25 +8,38 @@ usually change one or two owners; shared primitives belong below stage orchestra
 
 | Component | Allowed direct dependencies |
 | --- | --- |
-| storage | None |
+| process-runtime | None |
+| storage | process-runtime |
 | run-timing | storage |
-| process | storage, test-support |
-| source | storage |
-| extraction | storage, source, test-support |
-| identity | storage, source, extraction, test-support |
+| process | process-runtime, storage, test-support |
+| source | process-runtime, storage |
+| extraction | process-runtime, storage, source, test-support |
+| identity | process-runtime, storage, source, extraction, test-support |
 | presentation | test-support |
 | gameplay | storage, source, extraction, identity, presentation, test-support |
 | curation | storage, source, extraction, identity |
-| availability | storage, process, test-support |
+| availability | process-runtime, storage, process, test-support |
 | external-links | storage, test-support |
-| capacity | storage, extraction, presentation, external-links, test-support |
+| capacity | process-runtime, storage, extraction, presentation, external-links, test-support |
 | workspace | storage, source, capacity, external-links, test-support |
 | reader | storage, source, extraction, identity, gameplay, curation, presentation, availability, external-links, workspace, test-support |
-| release | storage, process, source, extraction, reader, capacity, workspace, external-links, presentation, test-support |
-| publication | storage, process, release, run-timing, capacity, workspace, reader, test-tooling, test-support |
-| cli | All other production components, test-support |
+| release | process-runtime, storage, process, source, extraction, reader, capacity, workspace, external-links, presentation, test-support |
+| publication | process-runtime, storage, process, release, run-timing, capacity, workspace, reader, test-tooling, test-support |
+| cli | All other production components, test-tooling, test-support |
 | test-support | None |
-| test-tooling | test-support |
+| test-tooling | process-runtime, test-support |
+
+The process runtime in `wikibuild/bounded.py` owns every external child through
+a registered Windows job or POSIX process group, with shutdown fencing and
+bounded tree cleanup. Git and other command launches use `bounded.run` for
+captured output or `bounded.stream` for binary streaming, with an explicit
+operation timeout and a one-line reason beside its constant. Streaming pipe
+reads and writes share an elapsed deadline, stderr drains concurrently with a
+size cap, and every context exit reaps its tree, including early exits and
+exceptions. Callers with an overall deadline reserve `CLEANUP_SECONDS`.
+`tests/test_process_lint.py` rejects direct subprocess launches outside this
+owner; `tools/run_tests.py` is the explicit exception because its isolated
+workers already use jobs/process groups and bounded cleanup.
 
 The contract supplies one-line descriptions and exact file/test globs. It covers
 `wiki.py`, `wikibuild/**`, `tools/**` and `tests/**`, including browser assets,

@@ -5,14 +5,24 @@ This checks named enum constants, not gameplay behavior.
 """
 from collections import Counter
 import re
-import subprocess
+from pathlib import Path
+import sys
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from wikibuild import bounded
+
+# An enum lookup reads one committed decompiled source file.
+GIT_TIMEOUT = 60
 
 
 def check(source, commit, rows):
     texts, definitions = {}, {}
     def text(path):
         if path not in texts:
-            texts[path] = subprocess.check_output(['git', '-C', str(source), 'show', f'{commit}:{path}']).decode('utf-8')
+            result = bounded.run(['git', '-C', str(source), 'show', f'{commit}:{path}'], timeout=GIT_TIMEOUT)
+            result.check_returncode()
+            texts[path] = result.stdout.decode('utf-8')
         return texts[path]
     for row in rows:
         if row.get('fact_scope') != 'source-enumeration':

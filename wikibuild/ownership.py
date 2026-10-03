@@ -8,6 +8,8 @@ import json
 import re
 import subprocess
 
+from . import bounded
+
 from . import capacity, packs, shard_index
 from .storage import ContractError, digest, json_bytes, within
 
@@ -145,12 +147,15 @@ def checkout(path):
     return decode(marker.read_bytes(), lambda name: within(path, name).read_bytes())
 
 
+# A receipt may include many ownership pages, but never the full raw catalog.
+GIT_STREAM_TIMEOUT = 600
+
+
 def committed(path, commit):
     if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", commit):
         raise ContractError("Ownership read requires a pinned commit")
-    process = subprocess.Popen(["git", "-C", str(path), "cat-file", "--batch"],
-                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
+    with bounded.stream(["git", "-C", str(path), "cat-file", "--batch"],
+                        timeout=GIT_STREAM_TIMEOUT, stdin=subprocess.PIPE) as process:
         def fetch(name):
             if name != OWNER_FILE and not PAGE_PATH.fullmatch(name):
                 raise ContractError("Invalid committed ownership path")
@@ -171,10 +176,3 @@ def committed(path, commit):
         if process.wait():
             raise ContractError("Git ownership read failed")
         return result
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait()
-        for stream in (process.stdin, process.stdout, process.stderr):
-            if not stream.closed:
-                stream.close()

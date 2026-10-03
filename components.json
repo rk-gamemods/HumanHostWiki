@@ -1,6 +1,13 @@
 {
   "components": [
     {
+      "name": "process-runtime",
+      "description": "Dependency-free child ownership, deadlines, pipe I/O and tree cleanup.",
+      "paths": ["wikibuild/bounded.py"],
+      "tests": [],
+      "depends_on": []
+    },
+    {
       "name": "storage",
       "description": "Filesystem contracts, immutable packs, shard indexes and exception records.",
       "paths": [
@@ -14,7 +21,7 @@
       "tests": [
         "tests/test_shard_index.py"
       ],
-      "depends_on": []
+      "depends_on": ["process-runtime"]
     },
     {
       "name": "run-timing",
@@ -29,9 +36,8 @@
     },
     {
       "name": "process",
-      "description": "Bounded subprocess execution, bounded HTTP reads and exact Git transactions.",
+      "description": "Bounded HTTP reads and exact Git transactions using the process runtime.",
       "paths": [
-        "wikibuild/bounded.py",
         "wikibuild/git_transaction.py",
         "wikibuild/bounded_http.py"
       ],
@@ -40,6 +46,7 @@
         "tests/test_windows_fixtures.py"
       ],
       "depends_on": [
+        "process-runtime",
         "storage",
         "test-support"
       ]
@@ -58,6 +65,7 @@
         "tests/test_code_dependencies.py"
       ],
       "depends_on": [
+        "process-runtime",
         "storage"
       ]
     },
@@ -86,6 +94,7 @@
         "tests/test_world_configuration.py"
       ],
       "depends_on": [
+        "process-runtime",
         "storage",
         "source",
         "test-support"
@@ -106,6 +115,7 @@
         "tests/test_history.py"
       ],
       "depends_on": [
+        "process-runtime",
         "storage",
         "source",
         "extraction",
@@ -195,6 +205,7 @@
         "tests/*.ps1"
       ],
       "depends_on": [
+        "process-runtime",
         "storage",
         "process",
         "test-support"
@@ -240,6 +251,7 @@
         "tests/test_entrypoints.py"
       ],
       "depends_on": [
+        "process-runtime",
         "storage",
         "extraction",
         "presentation",
@@ -318,6 +330,7 @@
         "tests/release_bootstrap.test.js"
       ],
       "depends_on": [
+        "process-runtime",
         "storage",
         "process",
         "source",
@@ -346,6 +359,7 @@
         "tests/test_github_pages.py"
       ],
       "depends_on": [
+        "process-runtime",
         "storage",
         "process",
         "release",
@@ -367,9 +381,12 @@
       "tests": [
         "tests/test_pipeline.py",
         "tests/test_cli_publication.py",
-        "tests/test_run_timing.py"
+        "tests/test_run_timing.py",
+        "tests/test_git_bounds.py"
       ],
       "depends_on": [
+        "process-runtime",
+        "test-tooling",
         "storage",
         "process",
         "source",
@@ -407,9 +424,11 @@
         "tools/run_tests.py"
       ],
       "tests": [
-        "tests/test_architecture.py"
+        "tests/test_architecture.py",
+        "tests/test_process_lint.py"
       ],
       "depends_on": [
+        "process-runtime",
         "test-support"
       ]
     }
