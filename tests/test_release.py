@@ -65,6 +65,31 @@ def copy_children(root, project):
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_native_nested_extra_ownership_is_unrecognized_and_kept(self):
+        from wikibuild import staging
+        unknown = self.root / ".local/rs" / ("f" * 32)
+        unknown.mkdir(parents=True)
+        value = {"schema_version": 1, "stage": "release", "attempt_id": unknown.name,
+                 "created_utc": "2026-01-01T00:00:00+00:00", "state": "materializing"}
+        data = (json.dumps(value, separators=(",", ":")).encode()[:-1]
+                + b',"extra":' + b"[" * 500 + b"0" + b"]" * 500 + b"}")
+        self.assertLess(len(data), staging.MAX_RECORD_BYTES)
+        self.assertIsInstance(json.loads(data)["extra"], list)  # Native decoder, no substitutions.
+        marker = unknown / staging.OWNER
+        marker.write_bytes(data)
+        self.run_release()
+        self.assertEqual(marker.stat().st_size, len(data))
+        self.assertEqual(marker.read_bytes(), data)
+        with self.assertRaisesRegex(ContractError, "Unrecognized staging ownership record"):
+            staging.record(unknown, "release")
+        report = json.loads(unknown.parent.with_name(unknown.parent.name + "-retention.json").read_bytes())
+        self.assertTrue(any(row["stage"] == unknown.name and "Unrecognized staging ownership record" in row["reason"]
+                            for row in report["retained"]))
+        completed = [path for path in unknown.parent.iterdir() if path != unknown
+                     and staging.record(path, "release")[0]["state"] == "completed"]
+        self.assertTrue(completed)
+        self.assertTrue(all((path / staging.OWNER).stat().st_size <= staging.MAX_RECORD_BYTES for path in completed))
+
     def test_redirected_staging_root_is_refused_without_touching_target(self):
         from wikibuild import staging
         folder = self.root / ".local/rs"

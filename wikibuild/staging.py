@@ -14,6 +14,8 @@ from .storage import ContractError, json_bytes, write_changed
 OWNER = "attempt.json"
 MAX_ENTRIES = 100_000
 MAX_RECORD_BYTES = 4096
+FIELD_TYPES = {"schema_version": int, "stage": str, "attempt_id": str,
+               "created_utc": str, "state": str}
 
 
 def regular(path):
@@ -43,6 +45,24 @@ def child(folder, path):
     return regular(path)
 
 
+def validate(value, path, stage):
+    """The same exact scalar schema governs ownership reads and writes."""
+    if (not isinstance(value, dict) or value.keys() != FIELD_TYPES.keys()
+            or any(type(value[name]) is not kind for name, kind in FIELD_TYPES.items())
+            or value["schema_version"] != 1
+            or value["stage"] != stage or value["attempt_id"] != path.name
+            or not re.fullmatch(r"[0-9a-f]{12}|[0-9a-f]{32}", path.name)
+            or value["state"] not in {"materializing", "completed", "abandoned"}):
+        raise ContractError("Unrecognized staging ownership record")
+    try:
+        created = datetime.fromisoformat(value["created_utc"])
+    except ValueError as exc:
+        raise ContractError("Unrecognized staging ownership record: invalid creation time") from exc
+    if created.utcoffset() != timezone.utc.utcoffset(created):
+        raise ContractError("Staging creation time must be UTC")
+    return created
+
+
 def record(path, stage, *, folder=None):
     path = child(folder, path) if folder is not None else regular(path)
     marker = regular(path / OWNER)
@@ -56,22 +76,24 @@ def record(path, stage, *, folder=None):
         value = json.loads(data)
     except (ValueError, RecursionError) as exc:
         raise ContractError("Unrecognized staging ownership record: invalid JSON") from exc
-    if (not isinstance(value, dict) or value.get("schema_version") != 1
-            or value.get("stage") != stage or value.get("attempt_id") != path.name
-            or not re.fullmatch(r"[0-9a-f]{12}|[0-9a-f]{32}", path.name)
-            or value.get("state") not in {"materializing", "completed", "abandoned"}):
-        raise ContractError("Unrecognized staging ownership record")
-    created = datetime.fromisoformat(value["created_utc"])
-    if created.utcoffset() != timezone.utc.utcoffset(created):
-        raise ContractError("Staging creation time must be UTC")
-    return value, created
+    return value, validate(value, path, stage)
+
+
+def write_record(path, stage, value):
+    path = regular(path)
+    validate(value, path, stage)
+    data = json_bytes(value)
+    if len(data) > MAX_RECORD_BYTES:
+        raise ContractError("Staging ownership record exceeds its write bound")
+    write_changed(regular(path / OWNER), data)
 
 
 def finish(path, stage, state):
     value, _ = record(path, stage)
-    if state not in {"completed", "abandoned"} or value["state"] == "completed" and state != "completed":
+    if (type(state) is not str or state not in {"completed", "abandoned"}
+            or value["state"] == "completed" and state != "completed"):
         raise ContractError("Invalid staging terminal transition")
-    write_changed(path / OWNER, json_bytes({**value, "state": state}))
+    write_record(path, stage, {**value, "state": state})
 
 
 def signature(info):
@@ -196,10 +218,9 @@ def attempt(folder, stage, *, short=False, deferred=False):
     identity = uuid.uuid4().hex[:12] if short else uuid.uuid4().hex
     path = child(folder, folder / identity)
     path.mkdir(parents=True)
-    write_changed(path / OWNER, json_bytes({"schema_version": 1, "stage": stage,
-                                           "attempt_id": identity,
-                                           "created_utc": datetime.now(timezone.utc).isoformat(),
-                                           "state": "materializing"}))
+    write_record(path, stage, {"schema_version": 1, "stage": stage, "attempt_id": identity,
+                               "created_utc": datetime.now(timezone.utc).isoformat(),
+                               "state": "materializing"})
     try:
         yield path
     except Exception:

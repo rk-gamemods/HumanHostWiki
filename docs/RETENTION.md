@@ -44,7 +44,11 @@ resolution, rejects symlinks and reparse points throughout the deletion tree,
 and processes at most 100,000 entries per inventory or deletion tree. Files are
 unlinked first; read-only protection is cleared only on single-link files. A
 protected shared file that cannot be unlinked keeps its attempt and is reported.
-Ownership reads are capped at 4 KiB. Reader ownership stays outside promoted
+Ownership records contain exactly `schema_version` (integer 1), `stage`,
+`attempt_id`, `created_utc` and `state` (strings). Readers and writers reject
+extra fields and non-scalar values. Reads and encoded writes are capped at
+4 KiB; an oversized terminal write preserves the existing record.
+Reader ownership stays outside promoted
 candidate payloads; release ownership completes once the recovery journal is saved.
 
 Extraction caches, identity model caches, test fixtures and old diagnostic indexes

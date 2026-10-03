@@ -172,6 +172,73 @@ class OwnedAttemptsTests(unittest.TestCase):
     def setUp(self):
         self.root = fixture_dir(self, "attempts")
 
+    def test_exact_schema_rejects_invalid_reads_and_writes_without_replacement(self):
+        with staging.attempt(self.root / "stages", "reader", deferred=True) as path:
+            pass
+        marker = path / staging.OWNER
+        owner = json.loads(marker.read_bytes())
+        cases = [{**owner, "extra": "scalar"}, {**owner, "extra": {"nested": []}},
+                 {key: value for key, value in owner.items() if key != "created_utc"},
+                 {**owner, "schema_version": True}, {**owner, "schema_version": 1.0},
+                 {**owner, "created_utc": "not a timestamp"}]
+        for field in owner:
+            cases.extend({**owner, field: value} for value in (None, [], {}))
+        for index, value in enumerate(cases):
+            with self.subTest(case=index):
+                data = json.dumps(value, separators=(",", ":")).encode()
+                marker.write_bytes(data)
+                with self.assertRaises(ContractError):
+                    staging.record(path, "reader")
+                with self.assertRaises(ContractError):
+                    staging.finish(path, "reader", "abandoned")
+                with self.assertRaises(ContractError):
+                    staging.write_record(path, "reader", value)
+                self.assertEqual(marker.read_bytes(), data)
+        marker.write_bytes(json_bytes(owner))
+        for state in (None, [], {}):
+            with self.subTest(terminal_state=state):
+                with self.assertRaises(ContractError):
+                    staging.finish(path, "reader", state)
+                self.assertEqual(json.loads(marker.read_bytes()), owner)
+
+    def test_finish_refuses_terminal_encoding_above_read_limit(self):
+        with staging.attempt(self.root / "stages", "reader", deferred=True) as path:
+            pass
+        marker = path / staging.OWNER
+        owner = json.loads(marker.read_bytes())
+        owner["created_utc"] = "2026-01-01T00:00:00.0+00:00"
+        spare = staging.MAX_RECORD_BYTES - len(json.dumps(owner, separators=(",", ":")).encode())
+        owner["created_utc"] = "2026-01-01T00:00:00." + "0" * (spare + 1) + "+00:00"
+        data = json.dumps(owner, separators=(",", ":")).encode()
+        self.assertEqual(len(data), staging.MAX_RECORD_BYTES)
+        marker.write_bytes(data)
+        self.assertEqual(staging.record(path, "reader")[0], owner)
+        with self.assertRaisesRegex(ContractError, "write bound"):
+            staging.finish(path, "reader", "completed")
+        self.assertEqual(marker.read_bytes(), data)
+        self.assertEqual(staging.record(path, "reader")[0]["state"], "materializing")
+
+    def test_terminal_records_round_trip_with_exact_scalar_fields_within_limit(self):
+        fields = {"schema_version", "stage", "attempt_id", "created_utc", "state"}
+        for stage in ("extraction", "history", "reader", "release"):
+            for state in ("completed", "abandoned"):
+                with self.subTest(stage=stage, state=state):
+                    with staging.attempt(self.root / (stage + "-" + state), stage, deferred=True) as path:
+                        initial = json.loads((path / staging.OWNER).read_bytes())
+                        self.assertEqual(initial["state"], "materializing")
+                        self.assertEqual(set(initial), fields)
+                    staging.finish(path, stage, state)
+                    data = (path / staging.OWNER).read_bytes()
+                    value = json.loads(data)
+                    self.assertLessEqual(len(data), staging.MAX_RECORD_BYTES)
+                    self.assertEqual(set(value), fields)
+                    self.assertIs(type(value["schema_version"]), int)
+                    self.assertTrue(all(type(value[key]) is str for key in fields - {"schema_version"}))
+                    self.assertEqual(staging.record(path, stage)[0], value)
+                    self.assertEqual(value, {**initial, "state": state})
+                    staging.finish(path, stage, state)
+                    self.assertEqual((path / staging.OWNER).read_bytes(), data)
+
     def test_stage_crash_retry_completion_and_unknown_directory(self):
         for stage in ("extraction", "history", "reader", "release"):
             with self.subTest(stage=stage):
