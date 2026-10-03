@@ -50,7 +50,7 @@ def report(reports, previous=None):
             if groups else "No unresolved content in the implemented scope."}
 
 
-def run(root, project, source, progress=None):
+def run(root, project, source, progress=None, timing_sink=None):
     """Caller holds writer_lock. Stage receipts survive a later stage's failure."""
     started = datetime.now(timezone.utc)
     clock = perf_counter()
@@ -63,6 +63,8 @@ def run(root, project, source, progress=None):
         if stage_clock is not None:
             timings[stage] = now - stage_clock
         stage, stage_clock = name, now
+        if timing_sink is not None:
+            timing_sink.enter(name)
 
     stage, completed, reports, metrics = "resume", {}, {}, {}
     previous, request_key, receipt = None, None, None
@@ -163,6 +165,8 @@ def run(root, project, source, progress=None):
         if progress:
             progress(stage)
         released, metrics[stage] = release.run(root, project, projected)
+        if timing_sink is not None:
+            timing_sink.release_id = released["release_id"]
         completed[stage] = {"release_id": released["release_id"], "publication": released["publication"]}
         enter("retention")
         if progress:

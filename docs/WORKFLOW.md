@@ -29,6 +29,26 @@ once. The normal update then checks the captured branch using the configured cac
 and reports unavailable checks separately from content exceptions. See
 [availability setup and evidence](AVAILABILITY.md). This never installs a game update.
 
+## Run timing
+
+Every `update` and `publish` saves a diagnostic record under
+`.local/runs/wiki-<command>-<UTC>-<8 hex>.json`, including failures and watchdog
+timeouts when the process can still write. `update --operator-report` and
+`publish` end with an aligned timing table. Capture can pass its receipt with
+`update --capture-timing <path>`; a missing or invalid receipt produces one
+warning and processing continues.
+
+```powershell
+py -3 wiki.py timing
+py -3 wiki.py timing --last 5
+```
+
+These read-only commands show the latest records, capture phases when supplied,
+wiki stages, totals and the three largest items' shares of combined wall time.
+Publication repository sums can overlap parallel phases and are excluded from
+that ranking. Timing never determines content or release identities, and a
+timing save failure cannot fail the run. See the [schema](PIPELINE.md#run-timing-schema).
+
 ## Inspect and validate
 
 ```powershell
