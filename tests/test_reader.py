@@ -235,6 +235,7 @@ class ReaderTests(unittest.TestCase):
         fonts = config["fonts"]
         self.assertEqual(fonts["base"], "/hub/fonts/" + digest(json_bytes(fonts["files"])) + "/")
         sources = Path(reader.__file__).parent / "web/fonts"
+        self.assertEqual(set(fonts["files"]), {path.name for path in sources.iterdir() if path.is_file()})
         for name, meta in fonts["files"].items():
             data = (site / (fonts["base"] + name).lstrip("/")).read_bytes()
             original = (sources / name).read_bytes()

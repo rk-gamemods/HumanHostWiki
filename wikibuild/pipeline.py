@@ -51,6 +51,7 @@ def report(reports, previous=None):
 
 
 def contracts(root, project):
+    # Failures here name this helper in error.location.function, changing failure hashes and report filenames.
     return {"pipeline": digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n")),
             "availability": availability.contract(), "retention": release_retention.contract(),
             "reader_retention": reader_retention.contract(),
