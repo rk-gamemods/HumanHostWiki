@@ -1,0 +1,376 @@
+{
+  "change_origin": "game-input-change",
+  "contract_sha256": "93995dd47afdd858014913c687b9e16e64c69322758bcb0b3c8f23be3381f038",
+  "corrections_sha256": "5d62a235dcc2da9cda53d48b721d214c434e54eb8b580e1bd9e4a31852a2c79f",
+  "counts": {
+    "ambiguous": 154,
+    "changed": 10,
+    "new": 130,
+    "unchanged": 27134,
+    "unresolved": 143
+  },
+  "exceptions": {
+    "group_count": 22,
+    "groups": [
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10194",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10320",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10384",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10386",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10405",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10422",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10520",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10597"
+        ],
+        "id": "010f3b7252a3473b2e9a2780",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 11,
+        "pattern": "biome",
+        "topic": "biomes-resources"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10932"
+        ],
+        "id": "10eb89dcdbebfa243534e36a",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 1,
+        "pattern": "vehicle-rule",
+        "topic": "vehicles"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10769",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11021",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11623"
+        ],
+        "id": "15d34af88622a591485f6c6c",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 3,
+        "pattern": "world-rule",
+        "topic": "world-systems"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#9156"
+        ],
+        "id": "1969f0f9bbb71d9d7e619dd3",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 1,
+        "pattern": "construction-rule",
+        "topic": "construction"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11774"
+        ],
+        "id": "2d188054aa60df8415c37585",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 1,
+        "pattern": "population",
+        "topic": "spawning-populations"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10288",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10350",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10390",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10569"
+        ],
+        "id": "2de59b6736928d0c63717f0c",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 4,
+        "pattern": "configuration",
+        "topic": "technical-reference"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10299/_CraftSkills/0",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10299/_CraftSkills/1",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10299/_CraftSkills/2",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10299/_CraftSkills/3",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10299/_CraftSkills/4",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10299/_CraftSkills/5",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10299/_CraftSkills/6",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10299/_CraftSkills/7"
+        ],
+        "id": "51977f94e315730fa73b4396",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 35,
+        "pattern": "skill",
+        "topic": "skills-survival"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10196",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10322",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10386",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10388",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10407",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10424",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10522",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10599"
+        ],
+        "id": "696cba0f11f1857f24607310",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 11,
+        "pattern": "biome",
+        "topic": "biomes-resources"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10182",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10206",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10225",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10241",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10249",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10265",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10278",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10288"
+        ],
+        "id": "7316ff17c74b2e1ab97ecb13",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 24,
+        "pattern": "combat-rule",
+        "topic": "combat"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10773",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11019",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11621"
+        ],
+        "id": "76929e74db1852805f95d649",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 3,
+        "pattern": "world-rule",
+        "topic": "world-systems"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10290",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10352",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10392",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10571"
+        ],
+        "id": "78dc9ff37b6b10caf93c2492",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 4,
+        "pattern": "configuration",
+        "topic": "technical-reference"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10268",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10342",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10349",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10360",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10380",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10414",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10445",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10457"
+        ],
+        "id": "871b662b3ddccc83ca0740b4",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 15,
+        "pattern": "damage-type",
+        "topic": "combat"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11543"
+        ],
+        "id": "a6b5c4f730de504ef88d815f",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 1,
+        "pattern": "processing-rule",
+        "topic": "crafting-processing"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11537"
+        ],
+        "id": "aad5cbb48745e9f02260c4a9",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 1,
+        "pattern": "processing-rule",
+        "topic": "crafting-processing"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10588",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10266",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10288",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10505",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10588",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10610",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10637",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10640"
+        ],
+        "id": "acfede8773ac3857965dfa14",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 58,
+        "pattern": "equipment",
+        "topic": "items-equipment"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10266",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10340",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10347",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10358",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10378",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10412",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10443",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10455"
+        ],
+        "id": "b8ac97ae1bb7c071accd9490",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 15,
+        "pattern": "damage-type",
+        "topic": "combat"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#9154"
+        ],
+        "id": "c432dbf44a2e1fc40e178209",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 1,
+        "pattern": "construction-rule",
+        "topic": "construction"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#11776"
+        ],
+        "id": "c5ac54e34d2fb64b6f466caa",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 1,
+        "pattern": "population",
+        "topic": "spawning-populations"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10180",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10204",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10223",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10239",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10247",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10263",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10276",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10286"
+        ],
+        "id": "c8e3bd683244671caee1cf16",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 24,
+        "pattern": "combat-rule",
+        "topic": "combat"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10297/_CraftSkills/0",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10297/_CraftSkills/1",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10297/_CraftSkills/2",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10297/_CraftSkills/3",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10297/_CraftSkills/4",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10297/_CraftSkills/5",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10297/_CraftSkills/6",
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10297/_CraftSkills/7"
+        ],
+        "id": "dcf8c16c033d834daddd4d2e",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 35,
+        "pattern": "skill",
+        "topic": "skills-survival"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10930"
+        ],
+        "id": "ec5c822440e1bb3a23c12875",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 1,
+        "pattern": "vehicle-rule",
+        "topic": "vehicles"
+      },
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-0#10590",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10260",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10264",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10282",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10286",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10499",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10501",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#10503"
+        ],
+        "id": "ed0a9672d4dbaf574d7aa6ad",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 117,
+        "pattern": "equipment",
+        "topic": "items-equipment"
+      }
+    ],
+    "kind": "unresolved-wiki-content",
+    "next_action": "Ask the user how to handle these exceptions after supported work completes.",
+    "occurrences": 367,
+    "schema_version": 1
+  },
+  "extraction_run": "c9121c8480e4d13ba98c63beb0bc5cb459d5d25454aba3a5e701d323e8d78683",
+  "input_identity": {
+    "inventory": "4e5dfe3f500246d56e92702337633187670da0fe",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "25675256",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "8429577118566332905",
+          "size": "53522389239"
+        }
+      }
+    }
+  },
+  "models": {
+    "bytes": 111871140,
+    "path": ".local/history/objects/6e59c45fad5f1dffc863bc962947a4e1bef338dc8a960def65d9320b33dff4a7.jsonl",
+    "sha256": "6e59c45fad5f1dffc863bc962947a4e1bef338dc8a960def65d9320b33dff4a7"
+  },
+  "parent_run": "bf40b37c053c28a1b1b623e0ad756928de048eab62343aef19f3f1e09ac93a71",
+  "request_key": "2c4f053c99e9a4213f02715e37b87dec37236347777d896d0ad48d847d757e17",
+  "run_id": "23d4524096cae8433d4326451537395e8b8954cce620cc10c3b26f3579a44ba4",
+  "schema_version": 1,
+  "snapshot_id": "build-25675256-8764ea7be0f8",
+  "source_commit": "8764ea7be0f8b794dc16b547e556e4670bc3406c",
+  "state": {
+    "bytes": 33920731,
+    "path": "identity/states/e4cd3081f496edf4589b69a29b56516ce2baa8c7c74f10fbfd9bfd84a988759f.jsonl",
+    "sha256": "e4cd3081f496edf4589b69a29b56516ce2baa8c7c74f10fbfd9bfd84a988759f"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}
