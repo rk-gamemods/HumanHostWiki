@@ -139,6 +139,36 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertIn("tests.test_foundation", runner.test_modules(
                     runner.ROOT, actual, selected, checker.repository_files(runner.ROOT)))
 
+    def test_powershell_tests_are_selected_and_run_with_private_fixtures(self):
+        script = "tests/Test-Offline.ps1"
+        self.data["components"][0]["tests"].append("tests/*.ps1")
+        self.put(script, "param([string]$FixtureRoot)\n"
+                 "$ErrorActionPreference = 'Stop'\n"
+                 "if (-not (Test-Path -LiteralPath $FixtureRoot -PathType Container)) { throw 'No fixture' }\n"
+                 "Set-Content -LiteralPath (Join-Path $FixtureRoot 'owned.txt') -Value 'private'\n")
+        contract = self.contract()
+        plan = runner.select_changed(contract, [script])
+        self.assertIn(script, runner.test_modules(self.root, contract, plan, self.files()))
+        self.assertNotIn(script, runner.test_modules(self.root, contract,
+                                                   runner.Plan({'c': []}, []), self.files()))
+        path = fixture_dir(self, "worker")
+        result = runner.run_module(self.root, script, path)
+        if runner.shutil.which("pwsh"):
+            self.assertEqual(result.returncode, 0, result.output)
+            self.assertEqual(result.tests, 1)
+        else:
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("pwsh", result.output)
+        self.assertFalse(path.exists())
+        if runner.shutil.which("pwsh"):
+            self.put(script, "param([string]$FixtureRoot)\nthrow 'offline script failure'\n")
+            path = fixture_dir(self, "worker")
+            result = runner.run_module(self.root, script, path)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("offline script failure", result.output)
+            self.assertEqual(result.tests, 1)
+            self.assertFalse(path.exists())
+
     def test_contract_and_shared_configuration_select_all(self):
         contract = self.contract()
         for path in ("components.json", "tools/run_tests.py", "tools/check_components.py",

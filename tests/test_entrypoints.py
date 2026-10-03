@@ -44,6 +44,9 @@ class EntrypointReleaseTests(unittest.TestCase):
         self.root, self.project = self.fixture.root, self.fixture.project
         self.project["publication"] = {"enabled": True, "workers": 2}
         self.host = test_publication.Host(self.project["github_owner"])
+        gate = patch.object(publication.publish_gate, "check", side_effect=self.host.gate)
+        gate.start()
+        self.addCleanup(gate.stop)
 
     def make(self, title):
         self.project["official_links"] = [{"title": title, "url": "https://example.invalid/"}]
@@ -104,11 +107,13 @@ class EntrypointReleaseTests(unittest.TestCase):
             publication.run(self.root, self.project, second, host=self.host)
         self.assertEqual(self.host.ref("Wiki-hub", "gh-pages"), published["repositories"]["hub"]["pages"])
         self.assertEqual(self.host.ref("Wiki-items", "gh-pages"), published["repositories"]["items"]["pages"])
+        publication.abandon(self.root)
         self.host.fail_name = "Wiki-hub"
         with self.assertRaisesRegex(ContractError, "Injected public"):
             publication.run(self.root, self.project, second, host=self.host)
         pending = publication.load(self.root / ".local/publication/pending.json")
         self.assertEqual(pending["phase"], "rolled-back")
+        publication.abandon(self.root)
         public, _ = publication.run(self.root, self.project, second, host=self.host)
         self.assertEqual(public["entrypoints"], second["entrypoints"])
         new_hub = second["repositories"][second["entrypoints"]["hub"]]["github_name"]
@@ -139,6 +144,7 @@ class EntrypointReleaseTests(unittest.TestCase):
             publication.run(self.root, self.project, fourth, host=self.host)
         pending = publication.load(self.root / ".local/publication/pending.json")
         self.assertEqual((pending["hub_control"], pending["phase"]), (old_hub, "rolled-back"))
+        publication.abandon(self.root)
         self.assertEqual(publication.run(self.root, self.project, fourth, host=self.host)[0]["status"], "published")
 
 

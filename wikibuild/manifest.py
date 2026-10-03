@@ -135,5 +135,5 @@ def repository_map(manifest):
     lines += ["```", "", "| Stage | Owner | Implementation |", "| --- | --- | --- |"]
     for stage in manifest["pipeline"]:
         lines.append(f"| {stage['id']} | {stage['owner']} | {stage['status']} |")
-    lines += ["", "The navigation preview is an independent foundation build, not the publish stage above.", ""]
+    lines += ["", "The navigation preview is an independent foundation build. Production publication is a separate gated operator command; see [PUBLICATION.md](PUBLICATION.md).", ""]
     return "\n".join(lines).encode("utf-8")

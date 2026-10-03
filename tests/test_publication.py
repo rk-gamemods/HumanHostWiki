@@ -1,4 +1,4 @@
-"""Exercise publication ordering and recovery with real Git trees and a fake host."""
+"""Exercise publication ordering, abandonment and rollback with real Git trees."""
 
 import copy
 import hashlib
@@ -36,6 +36,18 @@ class Host:
 
     def ref(self, name, branch):
         return self.refs.get((name, branch))
+
+    def gate(self, root, project, manifest):
+        return {"rehearsal": {"fixture": True, "remote_refs": [
+            {"repository": name, "branch": branch, "commit": self.ref(name, branch)}
+            for name, branch in sorted(publication.publish_gate.destinations(root, project, manifest))]}}
+
+    def install_gate(self, test):
+        # Each private host supplies its own refs. A template-bound mock would
+        # compare the copied host's changing tips with the template's old tips.
+        gate = patch.object(publication.publish_gate, "check", side_effect=self.gate)
+        test.gate = gate.start()
+        test.addCleanup(gate.stop)
 
     def push(self, path, name, commit, branch, expected):
         current = self.ref(name, branch)
@@ -97,9 +109,9 @@ class PublicationTests(unittest.TestCase):
         baselines = {"test_next_release_adopts_an_abandoned_publication",
                      "test_remote_main_is_adopted_only_on_this_workspaces_release_history",
                      "test_foreign_commit_on_a_published_branch_is_still_refused",
-                     "test_topic_failure_preserves_hub_and_independent_success_then_resumes",
+                     "test_topic_failure_preserves_hub_then_fresh_run_adopts_abandoned_lineage",
                      "test_failed_hub_restores_previous_tree_without_rewriting_history",
-                     "test_unavailable_hub_build_observation_preserves_commit_for_retry",
+                     "test_unavailable_hub_build_observation_requires_abandonment_before_fresh_run",
                      "test_unchanged_immutable_packs_do_not_download_again"}
         if self._testMethodName in baselines:
             if _PUBLISHED_TEMPLATE is None or not _PUBLISHED_TEMPLATE.root.exists():
@@ -115,6 +127,7 @@ class PublicationTests(unittest.TestCase):
         self.host = copy.deepcopy(template.host)
         self.host.paths = {name: self.root / path.relative_to(template.root)
                            for name, path in self.host.paths.items()}
+        self.host.install_gate(self)
 
     def _build_fixture(self):
         self.fixture = test_release.ReleaseTests()
@@ -160,8 +173,30 @@ class PublicationTests(unittest.TestCase):
         self.project["official_links"] = [{"title": "Changed", "url": "https://example.invalid/"}]
         self.make_release()
 
+    def test_interrupted_final_promotion_blocks_until_abandoned_and_keeps_legacy_receipt(self):
+        result, _ = self.run_publish()
+        legacy = {key: value for key, value in result.items() if key != "gate"}
+        receipt = self.root / "publications" / (result["release_id"] + ".json")
+        publication.save(receipt, legacy)
+        before = receipt.read_bytes()
+        pending = self.root / ".local/publication/pending.json"
+        state = publication.load(pending)
+        state.pop("gate")
+        state["phase"] = "hub"
+        publication.save(pending, state)
+        with self.assertRaisesRegex(ContractError, "abandon-publication"):
+            self.run_publish()
+        publication.abandon(self.root)
+        current, _ = self.run_publish()
+        self.assertEqual(current, legacy)
+        self.assertEqual(receipt.read_bytes(), before)
+        self.assertFalse(pending.exists())
+
     def test_topics_verify_before_hub_and_repeat_is_stable(self):
         result, metrics = self.run_publish()
+        self.assertTrue(result["gate"]["rehearsal"]["fixture"])
+        self.assertEqual(len(result["gate"]["rehearsal"]["remote_refs"]), 6)
+        self.assertEqual(publication.load(self.root / ".local/publication/pending.json")["gate"], result["gate"])
         timing = metrics["timing"]
         self.assertEqual(set(timing["repositories"]), set(result["repositories"]))
         for row in timing["repositories"].values():
@@ -178,6 +213,7 @@ class PublicationTests(unittest.TestCase):
         before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in (self.root / "publications").glob("*.json")}
         pushes = [e for e in self.host.events if e[0] == "push"]
         again, metrics = self.run_publish()
+        self.assertEqual(self.gate.call_count, 2)
         self.assertTrue(metrics["reused"])
         self.assertEqual(set(metrics["timing"]["repositories"]), set(result["repositories"]))
         self.assertIn("current", metrics["timing"]["phases"])
@@ -195,7 +231,7 @@ class PublicationTests(unittest.TestCase):
         self.host.fail_name = "Wiki-items"
         with self.assertRaisesRegex(ContractError, "Topic publication failed"):
             self.run_publish()
-        (self.root / ".local/publication/pending.json").unlink()
+        publication.abandon(self.root)
         return first
 
     def test_next_release_adopts_an_abandoned_publication(self):
@@ -237,7 +273,7 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch: Wiki-loot"):
             self.run_publish()
 
-    def test_topic_failure_preserves_hub_and_independent_success_then_resumes(self):
+    def test_topic_failure_preserves_hub_then_fresh_run_adopts_abandoned_lineage(self):
         first, _ = self.run_publish()
         before = (self.root / "publications/latest.json").read_bytes()
         self.next_release()
@@ -249,8 +285,11 @@ class PublicationTests(unittest.TestCase):
         state = publication.load(self.root / ".local/publication/pending.json")
         self.assertTrue(state["repositories"]["loot"]["verified"])
         target = state["repositories"]["items"]["pages"]
+        with self.assertRaisesRegex(ContractError, "abandon-publication"):
+            self.run_publish()
+        publication.abandon(self.root)
         result, _ = self.run_publish()
-        self.assertEqual(result["repositories"]["items"]["pages"], target)
+        self.assertEqual(git(self.root / "repositories/items", "rev-parse", result["repositories"]["items"]["pages"] + "^"), target)
 
     def test_failed_hub_restores_previous_tree_without_rewriting_history(self):
         first, _ = self.run_publish()
@@ -269,6 +308,7 @@ class PublicationTests(unittest.TestCase):
         path = self.root / "repositories/hub"
         self.assertEqual(git(path, "rev-parse", rollback + "^{tree}"), first["repositories"]["hub"]["tree"])
         self.assertEqual(publication.load(self.root / ".local/publication/pending.json")["phase"], "rolled-back")
+        publication.abandon(self.root)
         result, _ = self.run_publish()
         self.assertEqual(result["release_id"], self.manifest["release_id"])
         self.assertEqual(git(path, "rev-parse", result["repositories"]["hub"]["pages"] + "^"), rollback)
@@ -280,9 +320,10 @@ class PublicationTests(unittest.TestCase):
         self.assertIsNone(publication.published(self.root))
         head = self.host.ref("Wiki-hub", "gh-pages")
         self.assertIn("No validated public release", git(self.root / "repositories/hub", "show", head + ":index.html"))
+        publication.abandon(self.root)
         self.assertEqual(self.run_publish()[0]["status"], "published")
 
-    def test_unavailable_hub_build_observation_preserves_commit_for_retry(self):
+    def test_unavailable_hub_build_observation_requires_abandonment_before_fresh_run(self):
         first, _ = self.run_publish()
         self.next_release()
         original = self.host.wait
@@ -300,20 +341,22 @@ class PublicationTests(unittest.TestCase):
         self.assertIsNone(pending["rollback"])
         self.assertFalse(pending["repositories"]["hub"]["verified"])
         self.assertEqual(publication.published(self.root), first)
+        publication.abandon(self.root)
         result, _ = self.run_publish()
-        self.assertEqual(result["repositories"]["hub"]["pages"], hub_commit)
+        self.assertEqual(git(self.root / "repositories/hub", "rev-parse", result["repositories"]["hub"]["pages"] + "^"), hub_commit)
         self.assertEqual(sum(e[:3] == ("push", "Wiki-hub", "gh-pages") and e[3] == hub_commit
                              for e in self.host.events), 1)
 
-    def test_lost_push_response_reuses_exact_prepared_commit(self):
+    def test_interrupted_push_requires_abandonment_and_prepares_fresh_history(self):
         self.host.interrupt_name = "Wiki-items"
         with self.assertRaises(KeyboardInterrupt):
             self.run_publish()
         target = self.host.ref("Wiki-items", "gh-pages")
         self.assertIsNone(publication.published(self.root))
+        publication.abandon(self.root)
         result, _ = self.run_publish()
-        self.assertEqual(result["repositories"]["items"]["pages"], target)
-        self.assertEqual(sum(e[:3] == ("push", "Wiki-items", "gh-pages") for e in self.host.events), 1)
+        self.assertEqual(git(self.root / "repositories/items", "rev-parse", result["repositories"]["items"]["pages"] + "^"), target)
+        self.assertEqual(sum(e[:3] == ("push", "Wiki-items", "gh-pages") for e in self.host.events), 2)
 
     def test_modified_journal_and_unexpected_remote_are_refused(self):
         self.host.fail_name = "Wiki-items"
@@ -324,11 +367,12 @@ class PublicationTests(unittest.TestCase):
         original = journal.read_bytes()
         value["payload"]["repositories"]["hub"]["main"] = "0" * 40
         journal.write_bytes(json_bytes(value))
-        with self.assertRaisesRegex(ContractError, "modified"):
+        with self.assertRaisesRegex(ContractError, "abandon-publication"):
             self.run_publish()
         journal.write_bytes(original)
         self.host.refs[("Wiki-items", "gh-pages")] = "f" * 40
-        with self.assertRaisesRegex(ContractError, "Remote branch changed"):
+        publication.abandon(self.root)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
             self.run_publish()
         self.assertIsNone(self.host.ref("Wiki-hub", "gh-pages"))
 
@@ -338,18 +382,23 @@ class PublicationTests(unittest.TestCase):
             self.run_publish()
         self.assertFalse(any(e[0] == "push" for e in self.host.events))
 
-    def test_pending_prior_publication_finishes_before_new_pages_parent_is_prepared(self):
+    def test_pending_prior_publication_is_scrapped_before_new_release_is_prepared(self):
         first = self.manifest
         self.host.fail_name = "Wiki-items"
         with self.assertRaises(ContractError):
             self.run_publish()
         self.next_release()
+        with self.assertRaisesRegex(ContractError, "abandon-publication"):
+            self.run_publish()
+        old_refs = dict(self.host.refs)
+        publication.abandon(self.root)
         result, _ = self.run_publish()
         self.assertEqual(result["release_id"], self.manifest["release_id"])
-        previous = publication.load(self.root / "publications" / (first["release_id"] + ".json"))
+        self.assertFalse((self.root / "publications" / (first["release_id"] + ".json")).exists())
         for identity, plan in result["repositories"].items():
-            self.assertEqual(git(self.root / plan["path"], "rev-parse", plan["pages"] + "^"),
-                             previous["repositories"][identity]["pages"])
+            if (plan["name"], "gh-pages") in old_refs:
+                self.assertEqual(git(self.root / plan["path"], "rev-parse", plan["pages"] + "^"),
+                                 old_refs[(plan["name"], "gh-pages")])
 
     def test_unchanged_immutable_packs_do_not_download_again(self):
         first, _ = self.run_publish()
@@ -469,8 +518,15 @@ class TimingTests(unittest.TestCase):
         class Steps:
             elapsed = 0
 
+            def __init__(self):
+                self.refs = {}
+
+            def ref(self, name, branch):
+                return self.refs.get(branch)
+
             def push(self, path, name, commit, branch, expected):
                 self.elapsed += 1 if branch == "main" else 2
+                self.refs[branch] = commit
 
             def configure(self, name):
                 self.elapsed += 3
@@ -667,10 +723,12 @@ class AdapterTests(unittest.TestCase):
     def test_hung_push_is_confirmed_by_the_remote_ref(self):
         host = github_pages.GitHubPages("fixture")
         hung = subprocess.TimeoutExpired(["git"], 1)
-        with patch.object(github_pages.bounded, "run", side_effect=hung) as calls, \
+        ancestry = subprocess.CompletedProcess([], 0, b"", b"")
+        with patch.object(github_pages.bounded, "run", side_effect=[ancestry, hung]) as calls, \
                 patch.object(host, "ref", side_effect=["old", "new"]):
             host.push(".", "wiki", "new", "main", "old")
-            self.assertIsNotNone(calls.call_args_list[0].kwargs.get("timeout"))
+            self.assertTrue(all(call.kwargs.get("timeout") for call in calls.call_args_list))
+            self.assertIn("--force-with-lease=refs/heads/main:old", calls.call_args.args[0])
 
     def test_empty_remote_response_and_transient_get_retry(self):
         host = github_pages.GitHubPages("fixture")

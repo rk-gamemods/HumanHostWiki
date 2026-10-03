@@ -33,9 +33,26 @@ Run once on this Windows workspace:
 pwsh -NoProfile -File tools/Install-SteamMetadataClient.ps1
 ```
 
-The setup script downloads Valve's bootstrap package into
-`.local/tools/steamcmd/`, verifies its Authenticode signer before execution and
-after updating, then saves the executable path in `.local/steamcmd.json`.
+The setup script downloads Valve's bootstrap package into a unique
+`.local/tools/steamcmd.staging-<guid>/` directory with a 60-second request timeout
+and a 120-second overall download deadline. Each bootstrap invocation has a
+600-second deadline; timeout cleanup tries `taskkill /T /F`, falls back to .NET
+tree kill, waits at most 30 seconds, and reports a surviving process. Descendant
+cleanup is best effort, which is acceptable for this manual, one-time setup.
+If the first invocation exits nonzero after updating, a second invocation must
+succeed. Setup verifies
+the Valve Authenticode signature before execution and after updating, atomically
+renames the staging directory to `.local/tools/steamcmd/`, writes its
+`.install-complete` marker, then saves the path in `.local/steamcmd.json`.
+Every staging directory receives `.hhwiki-steamcmd-owner.json` (installer name,
+GUID and creation time) before other files; promotion carries it into the final
+directory. The next run removes leftover staging directories and replaces an
+unmarked installation only with a valid ownership receipt. Directories without
+one are preserved and refused. An exclusive `.local/tools/steamcmd.lock` covers
+cleanup through settings writes; another invocation fails immediately. Setup
+refuses junctions or symlinks in the installation tree or its ancestors and paths
+outside the wiki root. The public entrypoint has fixed production settings;
+offline tests inject stand-ins only through the dot-sourced helper.
 It preserves a different existing configured path. SteamCMD updates itself, so
 its binary is recorded by hash per observation instead of being a pinned runtime
 package. This is an optional metadata dependency; reader generation remains

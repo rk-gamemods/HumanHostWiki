@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,20 @@ from tests._support import remove_tree
 FULL_SUITE_FILES = {"components.json", "tools/run_tests.py", "tools/check_components.py",
                     "tests/__init__.py", "tests/_support.py", "wikibuild/__init__.py",
                     "wikibuild/adapters/__init__.py"}
+
+POWERSHELL_WORKER = """
+import subprocess, sys, unittest
+script, shell, support_root = sys.argv[1:]
+sys.path.insert(0, support_root)
+from tests._support import fixture_dir
+class PowerShellTests(unittest.TestCase):
+    def test_script(self):
+        root = fixture_dir(self, 'ps')
+        result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-File', script,
+                                 '-FixtureRoot', str(root)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+unittest.main(argv=[script])
+"""
 
 
 @dataclass
@@ -80,9 +95,10 @@ def select_changed(contract: Contract, files: list[str]) -> Plan:
 
 def test_modules(root: Path, contract: Contract, plan: Plan, files: list[str]) -> list[str]:
     patterns = [glob for name in plan.selected for glob in contract.components[name].tests]
-    return sorted({module_name(path) for path in files
-                   if path.startswith("tests/") and Path(path).name.startswith("test")
-                   and path.endswith(".py") and (root / path).is_file()
+    return sorted({path if path.endswith(".ps1") else module_name(path) for path in files
+                   if path.startswith("tests/") and (path.endswith(".ps1") or
+                       (Path(path).name.startswith("test") and path.endswith(".py")))
+                   and (root / path).is_file()
                    and (plan.full or any(fnmatch.fnmatchcase(path, glob) for glob in patterns))})
 
 
@@ -170,9 +186,13 @@ class Workers:
                 if job:
                     # Wait for assignment before executing any test code that
                     # could spawn a child. POSIX setsid happens before exec.
-                    module = command[-1]
-                    command = [sys.executable, "-c", "import runpy,sys; sys.stdin.buffer.read(1); "
-                               "sys.argv[0]='unittest'; runpy.run_module('unittest',run_name='__main__')", module]
+                    barrier = "import runpy,sys; sys.stdin.buffer.read(1); "
+                    if command[1] == "-c":
+                        command = [command[0], "-c", barrier + command[2], *command[3:]]
+                    else:
+                        command = [sys.executable, "-c", barrier +
+                                   "sys.argv[0]='unittest'; runpy.run_module('unittest',run_name='__main__')",
+                                   command[-1]]
                     kwargs["stdin"] = subprocess.PIPE
                 process = subprocess.Popen(command, start_new_session=os.name != "nt", **kwargs)
                 if job:
@@ -229,7 +249,14 @@ def run_module(root: Path, module: str, temporary_root: Path, children: Workers 
         log = temporary_root / ".worker-output"
         # A file keeps inherited pipe handles and large output from blocking shutdown.
         with log.open("wb") as stream:
-            process = children.start([sys.executable, "-m", "unittest", module], cwd=root,
+            if module.endswith(".ps1"):
+                shell = shutil.which("pwsh")
+                if not shell:
+                    raise OSError(f"PowerShell 7 (pwsh) is required for {module}")
+                command = [sys.executable, "-c", POWERSHELL_WORKER, str(root / module), shell, str(ROOT)]
+            else:
+                command = [sys.executable, "-m", "unittest", module]
+            process = children.start(command, cwd=root,
                                      env=worker_environment(root, temporary_root),
                                      stdout=stream, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
             try:

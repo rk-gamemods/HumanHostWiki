@@ -9,6 +9,7 @@ usually change one or two owners; shared primitives belong below stage orchestra
 | Component | Allowed direct dependencies |
 | --- | --- |
 | storage | None |
+| run-timing | storage |
 | process | storage, test-support |
 | source | storage |
 | extraction | storage, source, test-support |
@@ -22,15 +23,17 @@ usually change one or two owners; shared primitives belong below stage orchestra
 | workspace | storage, source, capacity, external-links, test-support |
 | reader | storage, source, extraction, identity, gameplay, curation, presentation, availability, external-links, workspace, test-support |
 | release | storage, process, source, extraction, reader, capacity, workspace, external-links, presentation, test-support |
-| publication | storage, process, release, capacity, workspace, reader, test-tooling, test-support |
-| cli | All other production components |
+| publication | storage, process, release, run-timing, capacity, workspace, reader, test-tooling, test-support |
+| cli | All other production components, test-support |
 | test-support | None |
 | test-tooling | test-support |
 
 The contract supplies one-line descriptions and exact file/test globs. It covers
 `wiki.py`, `wikibuild/**`, `tools/**` and `tests/**`, including browser assets,
-non-Python tools and shared fixtures. Publication reserves `publish_gate.py`
-and `tests/test_publish*.py` for the concurrent gate work.
+non-Python tools and shared fixtures. Publication owns the publish gate, rehearsal
+and publication retention tests. Timing diagnostics are shared infrastructure;
+their command and pipeline integration tests belong to CLI. Availability owns
+the SteamCMD installer and its PowerShell tests.
 
 ## Enforcement
 
@@ -79,8 +82,10 @@ shared fixtures or package initializers select the full suite, as does any
 unowned or ambiguous path. Literal dynamic project imports count as dependency
 edges; imports with unknown names require an explicit known violation.
 
-Each module runs unittest in a separate Python process. The
-default concurrency is `os.cpu_count()`; `-j N` overrides it. Passing modules
+Each Python module runs unittest in a separate Python process. Selected
+`tests/*.ps1` scripts run through unittest workers with `pwsh` and
+`-NoProfile -NonInteractive -File`, using a fixture directory from the shared API.
+The default concurrency is `os.cpu_count()`; `-j N` overrides it. Passing modules
 produce a short result, failing output is printed in full, and the final table
 sorts per-module wall times. Any failed module makes the command fail.
 `--fail-fast` cancels pending modules after the first failure. Interruption and

@@ -12,9 +12,10 @@ The [delivery acceptance](ACCEPTANCE.md) lists implemented requirements and
 finite evidence limitations. The
 [normal update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
 starts when an operator invokes the decompile command and completes supported work
-through publication, including capacity management, without intermediate input.
+through a local release and retention, including capacity management, without intermediate input.
 The entrypoint now runs capture, registration, selected extraction, identity and
-the validated reader, coordinated local Git release and configured Pages publication. The
+the validated reader and coordinated local Git release. Publication is a separate
+gated operator step after review, merge, CI and rehearsal. The
 [runner contract](PIPELINE.md) defines receipts and recovery. At completion the operator presents
 unresolved wiki exceptions and requests direction; execution failures are separate.
 The manual examples below are foundation diagnostics, not extra maintenance steps.
@@ -27,6 +28,26 @@ For Steam build observations, run `pwsh -NoProfile -File tools/Install-SteamMeta
 once. The normal update then checks the captured branch using the configured cache
 and reports unavailable checks separately from content exceptions. See
 [availability setup and evidence](AVAILABILITY.md). This never installs a game update.
+
+## Run timing
+
+Every `update` and `publish` saves a diagnostic record under
+`.local/runs/wiki-<command>-<UTC>-<8 hex>.json`, including failures and watchdog
+timeouts when the process can still write. `update --operator-report` and
+`publish` end with an aligned timing table. Capture can pass its receipt with
+`update --capture-timing <path>`; a missing or invalid receipt produces one
+warning and processing continues.
+
+```powershell
+py -3 wiki.py timing
+py -3 wiki.py timing --last 5
+```
+
+These read-only commands show the latest records, capture phases when supplied,
+wiki stages, totals and the three largest items' shares of combined wall time.
+Publication repository sums can overlap parallel phases and are excluded from
+that ranking. Timing never determines content or release identities, and a
+timing save failure cannot fail the run. See the [schema](PIPELINE.md#run-timing-schema).
 
 ## Inspect and validate
 
@@ -222,7 +243,7 @@ runs an unchanged `wiki.py update` and checks child commits, output bytes and
 timestamps. It requires an already completed release for the current inputs.
 
 The normal update applies [storage capacity allocation](CAPACITY.md) before
-committing and publishing. New physical repositories retain their logical topic
+committing the local release. New physical repositories retain their logical topic
 owner, appear in the release manifest and checkout lock, and publish before their
 dependent entrypoints. Optional byte limits and reserves live in
 `project.json.capacity`; no separate allocation command is needed for maintenance.
@@ -232,14 +253,41 @@ preserving the original topic URLs and historical files. Indivisible control rec
 remain unfinished and fail before promotion if their budgets are exceeded. Live
 GitHub overflow acceptance is still pending; forced-threshold tests use a host adapter.
 
-## Publish or resume a release
+## Publish or abandon a release
 
-Publication is enabled in `project.json` and runs during `wiki.py update`.
-`py -3 wiki.py publish` resumes only the latest local release without recapturing
-game inputs. It provisions configured repositories, audits outgoing history,
+`wiki.py update` stops after release and retention and reports the release id and
+next step. Review and merge workspace changes into main, wait for exact-commit CI
+success, then rehearse the chosen release against live state and publish it:
+
+```powershell
+py -3 tools/rehearse_publication.py --release <id>
+py -3 wiki.py publish --release <id>
+```
+
+Publication is enabled in `project.json` for this explicit command. The
+[production gate](PUBLICATION.md#production-gate) checks a clean workspace,
+canonical HumanHostWiki origin, fetched `origin/main`, successful push CI from
+`.github/workflows/ci.yml` on main, a PR merged at this exact commit and a matching
+rehearsal receipt no older than 24 hours with unchanged remote refs. The receipt
+binds the rehearsal runner and publication modules. Refs are enforced again at
+preparation and every push, with explicit leases. There is no override flag.
+Refresh the rehearsal after ref drift or expiry.
+The command provisions configured repositories, audits outgoing history,
 verifies topic deployments and advances the hub last. Completed publication
 receipts live in `publications/`; incomplete work lives in `.local/publication/`.
-See [publication recovery](PUBLICATION.md) for interrupted pushes and hub rollback.
+Failed publications are scrapped, never resumed. An incomplete journal blocks
+publishing any release before the gate or remote calls. Run:
+
+```powershell
+py -3 wiki.py abandon-publication
+```
+
+This local-only command moves the journal and a README under
+`.local/publication/abandoned/<timestamp>-<release>/`. Rehearse against the current
+live state, then publish afresh: abandonment archives the attempt's rehearsal
+receipts and any matching publication receipt that `latest.json` did not select.
+The current published receipt is preserved. Hub rollback remains part of a single failing run.
+See [publication](PUBLICATION.md) for the boundary and archived evidence.
 
 ## Build the architecture preview
 

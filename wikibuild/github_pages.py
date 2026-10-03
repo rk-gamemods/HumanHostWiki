@@ -16,7 +16,7 @@ from .storage import ContractError
 
 
 class BuildObservationError(ContractError):
-    """Build outcome is unknown; preserve its commit and reconcile on the next run."""
+    """Build outcome is unknown; retain evidence for abandonment and a fresh run."""
 
 
 class GitHubPages:
@@ -96,15 +96,24 @@ class GitHubPages:
 
     def push(self, path, name, commit, branch, expected):
         current = self.ref(name, branch)
-        if current == commit:
-            return
         if current != expected:
             raise ContractError(f"Remote branch changed: {name}/{branch}")
+        if current == commit:
+            return
         url = f"https://github.com/{self.owner}/{name}.git"
         environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        if current:
+            try:
+                ancestry = bounded.run(["git", "-C", str(path), "merge-base", "--is-ancestor", current, commit],
+                                       timeout=self.PUSH_TIMEOUT, env=environment)
+            except subprocess.TimeoutExpired:
+                raise ContractError(f"Push ancestry check timed out: {name}/{branch}") from None
+            if ancestry.returncode:
+                raise ContractError(f"Non-fast-forward push: {name}/{branch}")
+        lease = f"--force-with-lease=refs/heads/{branch}:{expected or ''}"
         for attempt in range(3):
             try:
-                result = bounded.run(["git", "-C", str(path), "push", "--porcelain", url,
+                result = bounded.run(["git", "-C", str(path), "push", "--porcelain", lease, url,
                                       f"{commit}:refs/heads/{branch}"], timeout=self.PUSH_TIMEOUT, env=environment)
                 failure = result.stderr.decode(errors="replace")
             except subprocess.TimeoutExpired:

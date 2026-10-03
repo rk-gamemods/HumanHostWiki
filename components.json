@@ -17,6 +17,17 @@
       "depends_on": []
     },
     {
+      "name": "run-timing",
+      "description": "Cross-cutting command timing and diagnostic receipts, exercised by CLI integration tests.",
+      "paths": [
+        "wikibuild/run_timing.py"
+      ],
+      "tests": [],
+      "depends_on": [
+        "storage"
+      ]
+    },
+    {
       "name": "process",
       "description": "Bounded subprocess execution and exact Git transactions.",
       "paths": [
@@ -174,10 +185,12 @@
       "paths": [
         "wikibuild/availability.py",
         "wikibuild/steam_build.py",
-        "tools/Install-SteamMetadataClient.ps1"
+        "tools/Install-SteamMetadataClient.ps1",
+        "tools/SteamMetadataClient.Install.ps1"
       ],
       "tests": [
-        "tests/test_availability.py"
+        "tests/test_availability.py",
+        "tests/*.ps1"
       ],
       "depends_on": [
         "storage",
@@ -324,12 +337,15 @@
         "tools/rehearse_publication.py"
       ],
       "tests": [
-        "tests/test_publication.py"
+        "tests/test_publication*.py",
+        "tests/test_publish_gate.py",
+        "tests/test_rehearsal.py"
       ],
       "depends_on": [
         "storage",
         "process",
         "release",
+        "run-timing",
         "capacity",
         "workspace",
         "reader",
@@ -345,7 +361,9 @@
         "wikibuild/pipeline.py"
       ],
       "tests": [
-        "tests/test_pipeline.py"
+        "tests/test_pipeline.py",
+        "tests/test_cli_publication.py",
+        "tests/test_run_timing.py"
       ],
       "depends_on": [
         "storage",
@@ -359,10 +377,12 @@
         "capacity",
         "release",
         "publication",
+        "run-timing",
         "availability",
         "external-links",
         "presentation",
-        "workspace"
+        "workspace",
+        "test-support"
       ]
     },
     {

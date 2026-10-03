@@ -60,9 +60,14 @@ class FoundationTests(unittest.TestCase):
             manifest.validate(self.root, self.project)
 
     def test_pipeline_cycle_rejected(self):
-        self.project["pipeline"][0]["depends_on"] = ["publish"]
+        self.project["pipeline"][0]["depends_on"] = [self.project["pipeline"][-1]["id"]]
         with self.assertRaisesRegex(ContractError, "cycle"):
             manifest.validate(self.root, self.project)
+
+    def test_update_graph_ends_at_retention_and_excludes_publication(self):
+        stages = manifest.stage_order(self.project)
+        self.assertEqual(stages[-3:], ["release", "retention", "reader-retention"])
+        self.assertNotIn("publish", stages)
 
     def test_checkout_path_escape_rejected(self):
         self.project["repositories"][0]["path"] = "../other"

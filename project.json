@@ -103,6 +103,7 @@
     {"id": "project", "depends_on": ["identity", "external-articles"], "owner": "wikibuild/reader.py, curation.py, curated_rules.py, external_links.py, packs.py, pages.py and web/", "status": "implemented"},
     {"id": "verify", "depends_on": ["project"], "owner": "reader artifact checks, declared claim checks and independent tools/check_*.py; runtime verification remains explicitly scoped", "status": "implemented"},
     {"id": "release", "depends_on": ["verify"], "owner": "wikibuild/release.py and git_transaction.py; selected-fact Git releases", "status": "implemented"},
-    {"id": "publish", "depends_on": ["release"], "owner": "wikibuild/publication.py, publication_git.py and github_pages.py", "status": "implemented"}
+    {"id": "retention", "depends_on": ["release"], "owner": "wikibuild/release_retention.py; local update housekeeping", "status": "implemented"},
+    {"id": "reader-retention", "depends_on": ["retention"], "owner": "wikibuild/reader_retention.py; final local update stage", "status": "implemented"}
   ]
 }

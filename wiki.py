@@ -2,13 +2,12 @@
 """Human Host Wiki local workspace commands. Python standard library only."""
 
 import argparse
-import json
 import os
 from pathlib import Path
 import sys
 import threading
 
-from wikibuild import extraction, history, manifest, navigation, pipeline, publication, reader, release, snapshots, workspace
+from wikibuild import extraction, history, manifest, navigation, pipeline, publication, reader, release, run_timing, snapshots, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 # Backstop for every wait without its own bound. A normal update takes minutes; the
@@ -17,13 +16,32 @@ from wikibuild.storage import ContractError, json_bytes, within, writer_lock, wr
 UPDATE_DEADLINE = 4 * 3600
 
 
-def deadline(seconds, command, stop=os._exit):
-    """End an overdue update. Exiting releases the OS writer lock; every stage,
-    publication included, is journaled and recovers on the next run."""
+def deadline(seconds, command, stop=os._exit, timing=None, report=False):
+    """End an overdue run and release the OS writer lock. Stages are journaled;
+    failed publications must be abandoned before a fresh run."""
     def expire():
+        # Claim synchronously: a delayed diagnostic worker cannot lose to success
+        # and still terminate that successfully finalized command with exit 124.
+        if timing is not None and not timing.claim("timed-out"):
+            return
         try:
+            if timing is not None:
+                def save_timeout():
+                    try:
+                        timing.finish("timed-out")
+                        if report and timing.record is not None:
+                            print(run_timing.table(timing.record), flush=True)
+                    except (Exception, KeyboardInterrupt) as exc:
+                        run_timing.warning(f"Wiki timeout timing could not be saved: {exc}")
+                # Diagnostics must not defeat the watchdog on a blocked filesystem
+                # while another thread is already saving the selected terminal record.
+                attempt = threading.Thread(target=save_timeout, daemon=True)
+                attempt.start()
+                attempt.join(1)
             print(f"ERROR: wiki {command} exceeded its {seconds / 3600:g}-hour deadline and was stopped. "
-                  "Its stages are journaled; rerun the normal command to recover.", file=sys.stderr, flush=True)
+                  + ("Run py -3 wiki.py abandon-publication before rehearsing and publishing afresh."
+                     if command == "publish" else "Its stages are journaled; rerun the normal command to recover."),
+                  file=sys.stderr, flush=True)
         finally:
             stop(124)
     timer = threading.Timer(seconds, expire)
@@ -32,7 +50,23 @@ def deadline(seconds, command, stop=os._exit):
     return timer
 
 
-def run(root, args):
+def run(root, args, timing=None):
+    if args.command == "timing":
+        return run_timing.latest(root, args.last)
+    if args.command not in {"update", "publish"}:
+        return _run(root, args)
+    timing = timing or run_timing.Recorder(root, args.command, getattr(args, "release", None),
+                                         getattr(args, "capture_timing", None))
+    outcome, result = "failed", None
+    try:
+        result = _run(root, args, timing)
+        outcome = "succeeded"
+        return result
+    finally:
+        timing.finish(outcome, result)
+
+
+def _run(root, args, timing=None):
     project = manifest.load(root)
     if args.command == "validate":
         states = [workspace.inspect(root, repo) for repo in workspace.repositories(root, project)]
@@ -41,7 +75,7 @@ def run(root, args):
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in workspace.repositories(root, project)]}
     if args.command == "plan":
-        return {"stages": project["pipeline"], "note": "The decompile command runs capture, selected extraction, identity history, rendering, capacity allocation, coordinated release and configured Pages publication. Reports distinguish unresolved content from execution failures. Verification is limited to recorded checks; roadmap items are not run failures. See docs/ACCEPTANCE.md for the delivery evidence."}
+        return {"stages": project["pipeline"], "note": "The decompile command runs capture, selected extraction, identity history, rendering, capacity allocation and a coordinated local release, followed by release and reader retention. Publication is a separate operator step: rehearse the explicit release against live state, then run py -3 wiki.py publish --release <id> from clean, merged, CI-green main. See docs/PUBLICATION.md for the gate and docs/ACCEPTANCE.md for delivery evidence."}
     if args.command == "check-lock":
         result = workspace.checkout_lock(root, project, check=True)
         return {"lock": "current", "repositories": len(result["repositories"])}
@@ -56,14 +90,16 @@ def run(root, args):
             changed = write_changed(output, data)
         return {"map": str(output), "changed": changed}
     with writer_lock(root):
+        if args.command == "abandon-publication":
+            return publication.abandon(root)
         if args.command == "publish":
-            identity = json.loads((root / "releases/latest.json").read_text())["release_id"]
+            identity = args.release
             result, metrics = publication.run(root, project, release.read(root, identity),
-                progress=lambda message: print(message, file=sys.stderr, flush=True))
+                progress=lambda message: print(message, file=sys.stderr, flush=True), timing_sink=timing)
             return {"status": result["status"], "release_id": identity, "hub": result.get("hub"), "metrics": metrics}
         if args.command == "update":
             source = Path(args.source) if args.source else root / project["source"]["default_path"]
-            return pipeline.run(root, project, source, progress=lambda stage: print(f"Wiki: {stage}", file=sys.stderr, flush=True))
+            return pipeline.run(root, project, source, progress=lambda stage: print(f"Wiki: {stage}", file=sys.stderr, flush=True), timing_sink=timing)
         if args.command == "lock":
             result = workspace.checkout_lock(root, project)
             return {"lock": result["kind"], "repositories": len(result["repositories"])}
@@ -93,8 +129,11 @@ def run(root, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ["validate", "status", "plan", "init-repositories", "lock", "check-lock", "publish"]:
+    for command in ["validate", "status", "plan", "init-repositories", "lock", "check-lock"]:
         sub.add_parser(command)
+    sub.add_parser("publish", help="Publish a rehearsed release from clean, CI-green main").add_argument("--release", required=True)
+    sub.add_parser("abandon-publication", help="Scrap an incomplete publication journal locally; no remote calls")
+    sub.add_parser("timing", help="Show saved run timings without changing state").add_argument("--last", type=int, default=1)
     sub.add_parser("map").add_argument("--check", action="store_true")
     refresh = sub.add_parser("refresh", help="Register the current local catalog input; does not re-extract game data")
     refresh.add_argument("--source", help="Existing local codebase repository; default from project.json")
@@ -108,20 +147,38 @@ def main():
     update = sub.add_parser("update", help="Run supported wiki stages and report unresolved content")
     update.add_argument("--source", help="Captured local codebase; default from project.json")
     update.add_argument("--operator-report", action="store_true", help="Print the grouped exception list after supported stages finish")
+    update.add_argument("--capture-timing", help="Optional humanhost.capture-timing.v1 receipt")
     args = parser.parse_args()
-    watchdog = deadline(UPDATE_DEADLINE, args.command) if args.command in {"update", "publish"} else None
+    root = Path(__file__).resolve().parent
+    timing = (run_timing.Recorder(root, args.command, getattr(args, "release", None), getattr(args, "capture_timing", None))
+              if args.command in {"update", "publish"} else None)
+    show_timing = args.command == "publish" or (args.command == "update" and args.operator_report)
+    watchdog = deadline(UPDATE_DEADLINE, args.command, timing=timing, report=show_timing) if timing else None
     try:
-        result = run(Path(__file__).resolve().parent, args)
+        result = run(root, args, timing)
+        if watchdog:
+            watchdog.cancel()
+        if timing is not None and timing.outcome == "timed-out":
+            return 124
+        if args.command == "update" and args.operator_report:
+            # The command table replaces the legacy stage-only Time section.
+            report_result = {key: value for key, value in result.items() if key != "timings"}
+            sys.stdout.buffer.write(pipeline.operator_report(root, report_result).encode("utf-8"))
+        elif args.command == "timing":
+            sys.stdout.buffer.write(result.encode("utf-8"))
+        else:
+            sys.stdout.buffer.write(json_bytes(result))
     except (ContractError, OSError, ValueError, KeyError, TypeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
+        return 124 if timing is not None and timing.outcome == "timed-out" else 1
     finally:
         if watchdog:
             watchdog.cancel()
-    if args.command == "update" and args.operator_report:
-        sys.stdout.buffer.write(pipeline.operator_report(Path(__file__).resolve().parent, result).encode("utf-8"))
-    else:
-        sys.stdout.buffer.write(json_bytes(result))
+        if show_timing and timing.record is not None:
+            try:
+                sys.stdout.buffer.write(run_timing.table(timing.record).encode("utf-8"))
+            except (Exception, KeyboardInterrupt) as exc:
+                run_timing.warning(f"Wiki timing could not be printed: {exc}")
     return 0
 
 

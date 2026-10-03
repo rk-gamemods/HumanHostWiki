@@ -1,16 +1,65 @@
-# Publish and recover a coordinated release
+# Publish or abandon a coordinated release
 
-The normal decompile command runs publication after the local Git release. Enable
-it once with `publication.enabled` in `project.json`; `publication.workers` bounds
-concurrent topic deployments. The current project enables publication under
-`rk-gamemods`. The operator receives content exceptions after supported publication
-finishes. Execution failures retain a separate failure receipt.
+The normal decompile command stops at a local Git release and retention. Live sites
+change only through the separate `py -3 wiki.py publish --release <id>` operator
+command, after code review, merge and successful rehearsal against live state.
+`publication.enabled` in `project.json` enables this explicit command;
+`publication.workers` bounds concurrent topic deployments. Content exceptions are
+reported after the local update. Execution failures retain a separate failure receipt.
+
+## Production gate
+
+`wikibuild/publish_gate.py` fails closed on the first failed check, in this order,
+before any remote effect or provisioning. An incomplete pending journal first
+blocks the command and requires local abandonment; failed runs never resume.
+The production checks then run in this order:
+
+1. The HumanHostWiki workspace has no tracked changes or non-ignored untracked files.
+2. `git remote get-url origin` identifies `github.com/rk-gamemods/HumanHostWiki`
+   in HTTPS or SSH form. Local paths and other repositories or hosts are refused.
+3. A bounded fetch of `origin` main updates `origin/main`, and `HEAD` equals that commit.
+4. A read-only `GET /repos/rk-gamemods/HumanHostWiki/actions/runs?head_sha=<sha>`
+   finds workflow `CI` at `.github/workflows/ci.yml`, triggered by `push` on `main`,
+   completed with conclusion `success` for that exact commit.
+   The newest matching run/attempt must succeed; absent or unfinished CI is refused.
+5. `GET /repos/rk-gamemods/HumanHostWiki/commits/<sha>/pulls` returns a PR with
+   `merged_at` set and `merge_commit_sha` equal to this exact commit. A direct push
+   without matching merged-PR evidence is refused.
+6. `.local/publication/rehearsals/<release-id>.json` is a valid successful rehearsal
+   receipt for the requested release, current workspace commit and
+   `publication.contract()`. Its UTC timestamp must be at most 24 hours old and
+   cannot be in the future. The gate re-reads every recorded destination branch
+   ref and refuses drift. Both `main` and `gh-pages` must be covered for every
+   current destination.
+
+The rehearsal command requires `--release <id>` and the same clean workspace
+check before any other work. It reads live GitHub state and
+simulates pushes, builds and verification locally. Only success, after restoring
+publication state, writes a hash-checked receipt. The receipt records release id,
+workspace commit, publication contract, UTC timestamp and each repository name,
+branch and observed commit SHA (or `null` for an absent branch). It records actual
+remote observations, never simulated branch tips. Receipt validity does not prove
+that GitHub Pages will build; publication retains its deployment checks.
+The contract hashes the rehearsal runner, gate and existing publication modules.
+
+Publication journals the gate record and rehearsal receipt. Preparation refuses
+any ref that changed after the gate, including this workspace's own lineage.
+Before each push the ref must equal its rehearsed value, or this invocation's own
+confirmed previous push. The adapter also checks fast-forward ancestry and uses
+an explicit `--force-with-lease=refs/heads/<branch>:<expected>` to enforce that
+tip atomically, with an empty expected value for an absent branch.
+Every fresh invocation, including unchanged publication checks, passes the gate. There is
+no override flag. A bypass requires a code change through a reviewed PR; branch
+protection is unavailable for this private repository on GitHub Free.
+Gate Git commands have a 120-second timeout and GitHub reads reuse the existing
+bounded API adapter and authentication. No new credentials or dependencies are used.
 
 ## Owners and requirements
 
 | Owner | Responsibility |
 | --- | --- |
-| `wikibuild/publication.py` | Provisioning identity receipts, prepared plans, topic verification, hub promotion and recovery |
+| `wikibuild/publish_gate.py` | Clean merged commit, exact-commit CI and rehearsal/live-ref preflight |
+| `wikibuild/publication.py` | Provisioning identity receipts, prepared plans, topic verification, hub promotion, rollback and local abandonment |
 | `wikibuild/publication_git.py` | Public history audit and Pages commit trees without another checkout |
 | `wikibuild/github_pages.py` | GitHub CLI/API calls, fast-forward pushes, build observation and public HTTP hashes |
 | `wikibuild/release_bootstrap.js` | Resolve a requested release or follow the hub's coordinated selection |
@@ -35,14 +84,15 @@ repeated after a timeout or 5xx, because it may have taken effect, and its calle
 reconciles instead. Each `git push` times out after 600 seconds, and the remote
 ref then decides whether it landed. A Pages build still queued or building after
 30 minutes, ours or one ahead of it, stops the run with the publication left
-pending. The next run reconciles that commit. SteamCMD's metadata check stops
+pending. The operator must abandon the journal before rehearsing a fresh run.
+SteamCMD's metadata check stops
 after 300 seconds and is reported as unavailable. As a backstop for any wait
 without its own bound, `wiki.py update` and `publish` stop themselves after four
-hours; the OS then releases the writer lock and the journaled stages recover on
-the next run. On 2026-09-29 a run without these bounds waited three days on a
+hours; the OS then releases the writer lock. Local update stages recover on the
+next run; failed publications must be abandoned. On 2026-09-29 a run without these bounds waited three days on a
 build GitHub never finished.
 
-## Durable state and recovery
+## Durable state and abandonment
 
 The umbrella OS writer lock covers publication. Its holder records its PID, start
 time and command in `.local/writer.lock.owner.json`. A blocked run reports that
@@ -70,12 +120,27 @@ Replacement topic fronts verify before the successor records that select them.
 For hub rollover, the new hub front verifies before the retiring hub publishes
 its successor record. That retiring hub is the selection point for the transaction;
 otherwise the active hub is the selection point. The publication journal records
-this identity and the dependency groups, so retry and rollback address the same
-repository even after the active map changes. Older pending journals retain their
-original hub behavior.
+this identity and the dependency groups, so deployment and rollback address the same
+repository during that invocation even after the active map changes.
 The [capacity contract](CAPACITY.md) owns physical identities and size checks.
-An earlier pending publication is completed before preparing a newer deployment;
-if this changes the prepared Pages parent, its exact history is checked again.
+An incomplete pending publication blocks every release. The operator runs
+`py -3 wiki.py abandon-publication`, which moves the journal to
+`.local/publication/abandoned/<UTC-timestamp>-<release-id>/pending.json` with a
+short README and makes no remote calls. It also archives every rehearsal for that
+release and releases named in the journal's gate receipts, including duplicate
+receipt files. Publishing requires a fresh rehearsal even when live refs did not
+change. A matching immutable publication receipt saved before `latest.json`
+advanced is archived as `publication.json`; a receipt referenced by `latest.json`
+is never moved. Other attempts' publication receipts are preserved. The archive
+uses short receipt names and records original paths in its README.
+Corrupt or non-object journals are archived under an `unknown` release label.
+Because their attempt cannot be identified, all rehearsal receipts are invalidated;
+completed publication history is preserved. The next publication starts fresh after a new rehearsal
+against current refs; preparation may adopt this workspace's previously published
+lineage, but only when it matches the rehearsed refs. Before the first completed
+publication, Pages lineage must start at a locally pinned publication root; main
+must be an ancestor of the selected release. If the Pages parent changed,
+its exact history is checked again.
 The hub remains at its
 previous release until every topic verifies. Direct topic landing pages consult
 the hub's selection, so preparing a newer topic does not advertise an incomplete
@@ -83,8 +148,8 @@ release. Explicit historical release links continue to load their pinned content
 
 If the new hub fails verification, a new commit restores the previous validated
 tree at that selection point. On the first publication, the fallback is an explicit unavailable page.
-No force push or history rewrite is used. A rollback interruption is recorded and
-completed on retry before attempting the new hub again.
+No history rewrite is allowed. Rollback is attempted only within the failing run.
+A rollback interruption leaves evidence for abandonment, never automatic recovery.
 
 After success, `publications/<release-id>.json` records remote identities, commits,
 expected public bytes and validation completion. `publications/latest.json` advances
@@ -98,13 +163,17 @@ entry shells; unchanged packs retain their earlier verification evidence.
 
 ```powershell
 py -3 wiki.py update --operator-report
-py -3 wiki.py publish
+py -3 tools/rehearse_publication.py --release <id>
+py -3 wiki.py publish --release <id>
+# After an incomplete publication, before a new rehearsal:
+py -3 wiki.py abandon-publication
 py -3 -m unittest discover -s tests -p test_publication.py -v
 ```
 
-`publish` is a recovery/diagnostic entrypoint for the latest local release. Normal
-maintenance uses the integrated update. On a transient network failure, rerun the
-same command; completed stage receipts and confirmed pushes are reused. A queued
+`publish` selects an explicit local release; it never falls back to the latest
+pointer. Review and merge workspace changes, wait for CI, then rehearse and publish.
+On a publication failure, abandon the local journal, rehearse the selected release
+against current live state, then publish afresh. A queued
 or running build is polled without restarting it, up to the 30-minute build deadline.
 Once GitHub returns a build identity, subsequent reads address that build. If the
 latest record belongs to another commit, the adapter checks the recent build
@@ -119,7 +188,7 @@ three times; a fourth failure stops publication with the run's link.
 
 An exhausted observation retry, missing build record or unknown build status keeps
 the prepared publication pending. It does not trigger another build or a hub
-rollback. Rerunning reconciles the same commit. An explicitly failed build or a
+rollback. The operator abandons this failed run before a new rehearsal. An explicitly failed build or a
 failed public-content check still uses the rollback procedure above. Build reads
 use the documented [Pages build endpoints](https://docs.github.com/en/rest/pages/pages#get-a-github-pages-build).
 
@@ -127,6 +196,7 @@ Tests use real Git objects and an isolated host adapter for exact deployment ord
 independent completion, duplicate runs, interrupted pushes, changed remote refs,
 modified journals, both rollback cases and history audits. Local HTTP tests cover
 content hashing and oversized responses. Observation tests cover long-lived builds,
-another latest build, missing records, unknown states and retry without another
-hub push. They do not establish live GitHub availability;
+another latest build, missing records and unknown states. Gate tests cover origin,
+CI identity, merged-PR evidence, receipt bindings, ref drift and local abandonment.
+They do not establish live GitHub availability;
 real deployment evidence belongs in [IMPLEMENTATION.md](IMPLEMENTATION.md).

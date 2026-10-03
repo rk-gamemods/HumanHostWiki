@@ -179,6 +179,25 @@ and [1 GB per Pages site](https://docs.github.com/en/pages/getting-started-with-
 
 ## 6. Refresh, build and coordinated release
 
+### Decision amendment, 2026-10-02
+
+The user decided that routine updates must not change live sites. The decompile
+handoff and `wiki.py update` now stop after the local release, release retention
+and reader retention. Publication is a separate operator step selecting an explicit
+release with `wiki.py publish --release <id>`, after successful rehearsal against
+live state. This supersedes the integrated-publication sequence described in the
+original decision below and its unattended-publication acceptance wording.
+
+GitHub branch protection is unavailable for this private repository on GitHub Free,
+so code enforces the boundary before any provisioning or pending resume: clean
+workspace, HEAD equal to fetched origin/main, exact-commit `CI` success, then a
+rehearsal receipt binding release, workspace commit, publication contract and every
+observed destination branch ref. Receipts expire after 24 hours; changed refs,
+commit or contract require another rehearsal. There is no override flag; bypass
+requires a reviewed PR. Local updates remain unattended. Deployment, rollback and
+resume retain their existing behavior after the gate. [PUBLICATION.md](../PUBLICATION.md)
+owns the implementation contract.
+
 The operator-invoked decompile command owns this sequence. It checks for stable
 installed build/catalog changes, skips unchanged work and invokes wiki generation
 after a successful capture, including an unchanged capture.
