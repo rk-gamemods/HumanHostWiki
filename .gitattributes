@@ -2,3 +2,5 @@
 *.py text eol=lf
 *.md text eol=lf
 *.json text eol=lf
+# Third-party license texts stay byte-identical to upstream.
+wikibuild/web/fonts/OFL-*.txt -whitespace
