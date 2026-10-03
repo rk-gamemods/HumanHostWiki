@@ -4,6 +4,7 @@ import argparse
 import ast
 from dataclasses import dataclass
 import fnmatch
+from importlib.util import resolve_name
 import json
 from pathlib import Path
 import subprocess
@@ -183,7 +184,32 @@ def import_edges(root: Path, files: list[str]) -> set[tuple[str, str]]:
                 argument = node.args[0] if node.args else next(
                     (keyword.value for keyword in node.keywords if keyword.arg == "name"), None)
                 if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
-                    targets = [resolve(argument.value)]
+                    name = argument.value
+                    builtin = isinstance(node.func, ast.Name) and node.func.id == "__import__"
+                    level = node.args[4] if len(node.args) > 4 else next(
+                        (keyword.value for keyword in node.keywords if keyword.arg == "level"), None)
+                    if builtin and level is not None and not (
+                            isinstance(level, ast.Constant) and level.value == 0):
+                        # __import__ needs globals/level to establish its package;
+                        # unresolved forms must not silently lose project edges.
+                        targets = ["wikibuild.*"]
+                    else:
+                        package_arg = node.args[1] if len(node.args) > 1 else next(
+                            (keyword.value for keyword in node.keywords if keyword.arg == "package"), None)
+                        if name.startswith("."):
+                            if not isinstance(package_arg, ast.Constant) or not isinstance(package_arg.value, str):
+                                targets = ["wikibuild.*"]
+                                name = None
+                            else:
+                                try:
+                                    name = resolve_name(name, package_arg.value)
+                                except (ImportError, ValueError) as error:
+                                    raise ValueError(f"{path}:{node.lineno}: unresolved relative dynamic import") from error
+                        if name is not None:
+                            target = resolve(name)
+                            if target is None and (name == "wikibuild" or name.startswith("wikibuild.")):
+                                raise ValueError(f"{path}:{node.lineno}: unresolved project dynamic import: {name}")
+                            targets = [target]
                 else:
                     # An unknown name may select the project package. Require an
                     # explicit exception rather than silently losing its edges.

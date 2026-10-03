@@ -81,10 +81,15 @@ Changes to `components.json`, either test tool, `.github/**`, `requirements*.txt
 shared fixtures or package initializers select the full suite, as does any
 unowned or ambiguous path. Literal dynamic project imports count as dependency
 edges; imports with unknown names require an explicit known violation.
+Literal relative dynamic imports resolve their `package` argument into edges;
+unresolved project-module names fail the check.
 
 Each Python module runs unittest in a separate Python process. Selected
 `tests/*.ps1` scripts run through unittest workers with `pwsh` and
 `-NoProfile -NonInteractive -File`, using a fixture directory from the shared API.
+Tests can declare supported `sys.platform` values in their first ten lines, for
+example `# HHWIKI-PLATFORMS: win32`. Unsupported tests report
+`SKIP-UNSUPPORTED` and count as skipped before resolving platform tools.
 The default concurrency is `os.cpu_count()`; `-j N` overrides it. Passing modules
 produce a short result, failing output is printed in full, and the final table
 sorts per-module wall times. Any failed module makes the command fail.
@@ -96,11 +101,15 @@ temporary file so inherited pipes cannot delay termination.
 Tests create directories through `tests/_support.py`'s `fixture_dir(test, label)`,
 which uses `os.mkdir` to inherit the parent's ACL and immediately registers test
 or class cleanup. Tests never write inside the repository. The default root is
-`<tempdir>/hhw`; module workers receive private `<tempdir>/hhw/w<N>` roots through
+`<tempdir>/hhw`; each runner invocation owns a unique
+`<tempdir>/hhw/<pid>-<8 hex>` parent, with private `w<N>` module roots supplied through
 `HHWIKI_TEST_ROOT`, `TEMP`, `TMP` and `TMPDIR`. `remove_tree(path)` clears read-only
 attributes and retries Windows sharing violations for up to five seconds;
 cleanup failures fail the test, and the runner removes each worker root after
-its module and fails on leftovers. Release fixtures copy a module-local Git
+its module and scans only its own invocation parent for leftovers. Concurrent
+runs never clean or inspect another invocation's fixtures. The resolved fixture
+parent must be outside the checkout, including through junctions and symlinks.
+Release fixtures copy a module-local Git
 template, including `.git`; publication fixtures also copy their initial local
 release. Every test owns a private mutable checkout.
 Release fixtures share stable Git metadata query results until refs, config or
@@ -110,15 +119,17 @@ to detect edits, staging and deletions. Mutations and blob reads always execute;
 the local publication host verifies blobs in one Git batch. Tests of later
 releases copy completed release or publication baselines before making changes;
 promotion-failure tests copy a checkpoint stopped after real preparation.
+Cache stderr/stdin streams live in sibling fixture directories outside copied trees.
 Paging scenarios use smaller catalogs and force the metadata-page threshold
 independently of the real physical file budget.
 Bare sibling fixture imports remain supported through the worker's `PYTHONPATH`.
 
 CI keeps the workflow name `CI`. Pull requests run the component checker and
 targeted tests against `origin/${{ github.base_ref }}`, with complete checkout
-history. Pushes to `main` and `workflow_dispatch` run the full suite. The Windows
-job runs the process component (`tests.test_bounded`) when a PR selects it and
-always on main or manual dispatch. JavaScript checks invoked by Python test
+history. Pushes to `main` and `workflow_dispatch` run the full suite on Ubuntu
+and Windows. On PRs the Windows job uses `--windows-relevant` to restrict changed
+components to process, availability and every owner of Windows-only tests.
+JavaScript checks invoked by Python test
 modules retain their Node dependency and execution path, including the
 `node --test` server contract; its wrapper reports a skip when Node is unavailable.
 

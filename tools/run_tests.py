@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import uuid
 from time import perf_counter
 
 if __package__ in (None, ""):
@@ -110,6 +111,32 @@ class Result:
     output: str
     tests: int
     skipped: int
+    unsupported: bool = False
+
+
+def test_platforms(root: Path, module: str) -> set[str]:
+    """A test file may declare supported sys.platform values in its header."""
+    path = root / (module if module.endswith(".ps1") else module.replace(".", "/") + ".py")
+    with path.open(encoding="utf-8-sig") as stream:
+        for _ in range(10):
+            line = stream.readline()
+            if line.startswith("# HHWIKI-PLATFORMS:"):
+                platforms = {value.strip() for value in line.partition(":")[2].split(",")}
+                if not platforms or not platforms <= {"win32", "linux", "darwin"}:
+                    raise ValueError(f"Invalid platform requirement in {path}: {line.strip()}")
+                return platforms
+    return set()
+
+
+def windows_components(root: Path, contract: Contract, files: list[str]) -> set[str]:
+    """Windows process/availability coverage plus owners of Windows-only tests."""
+    names = {"process", "availability"} & contract.components.keys()
+    for name in contract.components:
+        plan = Plan({name: []}, [])
+        if any(test_platforms(root, module) == {"win32"}
+               for module in test_modules(root, contract, plan, files)):
+            names.add(name)
+    return names
 
 
 def worker_environment(root: Path, temporary_root: Path) -> dict[str, str]:
@@ -246,29 +273,34 @@ def run_module(root: Path, module: str, temporary_root: Path, children: Workers 
     children = children or Workers()
     process = None
     try:
-        log = temporary_root / ".worker-output"
-        # A file keeps inherited pipe handles and large output from blocking shutdown.
-        with log.open("wb") as stream:
-            if module.endswith(".ps1"):
-                shell = shutil.which("pwsh")
-                if not shell:
-                    raise OSError(f"PowerShell 7 (pwsh) is required for {module}")
-                command = [sys.executable, "-c", POWERSHELL_WORKER, str(root / module), shell, str(ROOT)]
-            else:
-                command = [sys.executable, "-m", "unittest", module]
-            process = children.start(command, cwd=root,
-                                     env=worker_environment(root, temporary_root),
-                                     stdout=stream, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-            try:
-                process.wait()
-            finally:
-                children.finish(process)
-        output = log.read_text(encoding="utf-8", errors="replace")
-        count = re.search(r"Ran (\d+) tests? in", output)
-        skipped = re.search(r"OK \(skipped=(\d+)\)", output)
-        result = Result(module, 0, process.returncode, output,
-                        int(count[1]) if count else 0, int(skipped[1]) if skipped else 0)
-    except (OSError, subprocess.SubprocessError) as error:
+        platforms = test_platforms(root, module)
+        if platforms and sys.platform not in platforms:
+            result = Result(module, 0, 0, f"{sys.platform} unsupported; requires {', '.join(sorted(platforms))}",
+                            1, 1, unsupported=True)
+        else:
+            log = temporary_root / ".worker-output"
+            # A file keeps inherited pipe handles and large output from blocking shutdown.
+            with log.open("wb") as stream:
+                if module.endswith(".ps1"):
+                    shell = shutil.which("pwsh")
+                    if not shell:
+                        raise OSError(f"PowerShell 7 (pwsh) is required for {module}")
+                    command = [sys.executable, "-c", POWERSHELL_WORKER, str(root / module), shell, str(ROOT)]
+                else:
+                    command = [sys.executable, "-m", "unittest", module]
+                process = children.start(command, cwd=root,
+                                         env=worker_environment(root, temporary_root),
+                                         stdout=stream, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+                try:
+                    process.wait()
+                finally:
+                    children.finish(process)
+            output = log.read_text(encoding="utf-8", errors="replace")
+            count = re.search(r"Ran (\d+) tests? in", output)
+            skipped = re.search(r"OK \(skipped=(\d+)\)", output)
+            result = Result(module, 0, process.returncode, output,
+                            int(count[1]) if count else 0, int(skipped[1]) if skipped else 0)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
         result = Result(module, 0, 1, str(error), 0, 0)
     finally:
         try:
@@ -291,8 +323,15 @@ def execute(root: Path, modules: list[str], workers: int, fail_fast: bool = Fals
     if not modules:
         print("No tests selected.")
         return 0
-    parent = Path(tempfile.gettempdir()) / "hhw"
-    parent.mkdir(parents=True, exist_ok=True)
+    base = Path(tempfile.gettempdir()) / "hhw"
+    base.mkdir(parents=True, exist_ok=True)
+    while True:
+        parent = base / f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
+        try:
+            os.mkdir(parent)
+            break
+        except FileExistsError:
+            continue
     temporary_roots = []
     index = 0
     children = Workers()
@@ -319,9 +358,11 @@ def execute(root: Path, modules: list[str], workers: int, fail_fast: bool = Fals
                 for future in completed:
                     result = future.result()
                     results.append(result)
-                    state = "PASS" if result.returncode == 0 else "FAIL"
+                    state = "FAIL" if result.returncode else "SKIP-UNSUPPORTED" if result.unsupported else "PASS"
                     print(f"{state} {result.module}: {result.tests} tests, "
                           f"{result.skipped} skipped, {result.seconds:.3f}s", flush=True)
+                    if result.unsupported:
+                        print(f"  {result.output}", flush=True)
                     if result.returncode:
                         print(result.output, end="" if result.output.endswith("\n") else "\n", flush=True)
                         if fail_fast:
@@ -344,14 +385,22 @@ def execute(root: Path, modules: list[str], workers: int, fail_fast: bool = Fals
     leftovers = sorted(parent.iterdir())
     for path in leftovers:
         print(f"Leftover test fixture: {path}", file=sys.stderr)
+    cleanup_failed = False
+    if not leftovers:
+        try:
+            parent.rmdir()
+        except OSError as error:
+            cleanup_failed = True
+            print(f"Invocation cleanup failed: {parent}: {error}", file=sys.stderr)
     print("\nModule durations (slowest first):")
     for result in sorted(results, key=lambda item: (-item.seconds, item.module)):
-        print(f"{result.seconds:9.3f}s  {result.module}  {'FAIL' if result.returncode else 'PASS'}")
+        state = "FAIL" if result.returncode else "SKIP-UNSUPPORTED" if result.unsupported else "PASS"
+        print(f"{result.seconds:9.3f}s  {result.module}  {state}")
     failures = sum(result.returncode != 0 for result in results)
     print(f"Summary: {len(results)} modules, {sum(r.tests for r in results)} tests, "
           f"{sum(r.skipped for r in results)} skipped, {failures} failed modules; "
           f"wall {perf_counter() - started:.3f}s with {workers} workers")
-    return 130 if interrupted else 1 if failures or leftovers else 0
+    return 130 if interrupted else 1 if failures or leftovers or cleanup_failed else 0
 
 
 def main(argv=None):
@@ -364,6 +413,8 @@ def main(argv=None):
     parser.add_argument("--json", action="store_true", help="machine-readable plan; requires --list")
     parser.add_argument("-j", type=int, default=os.cpu_count() or 1, metavar="N")
     parser.add_argument("--fail-fast", action="store_true", help="stop and terminate workers on the first failed module")
+    parser.add_argument("--windows-relevant", action="store_true",
+                        help="restrict selected components to process, availability and owners of Windows-only tests")
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args(argv)
     if args.j < 1:
@@ -386,6 +437,10 @@ def main(argv=None):
             plan = Plan({name: ["explicit --component"] for name in args.component}, [])
         else:
             plan = select_changed(contract, changed_files(root, args.changed or "origin/main"))
+        if args.windows_relevant:
+            relevant = windows_components(root, contract, files)
+            plan = Plan({name: reasons for name, reasons in plan.selected.items() if name in relevant},
+                        plan.explanation + ["restricted to Windows-relevant components"])
         modules = test_modules(root, contract, plan, files)
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Test planning failed: {error}", file=sys.stderr)

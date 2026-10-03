@@ -36,7 +36,8 @@
         "wikibuild/bounded_http.py"
       ],
       "tests": [
-        "tests/test_bounded.py"
+        "tests/test_bounded.py",
+        "tests/test_windows_fixtures.py"
       ],
       "depends_on": [
         "storage",

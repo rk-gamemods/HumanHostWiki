@@ -89,6 +89,39 @@ class ArchitectureTests(unittest.TestCase):
         self.put("wikibuild/b.py", 'import importlib; importlib.import_module("json")\n')
         self.assertEqual(self.errors(), [])
 
+    def test_relative_dynamic_imports_are_dependency_edges(self):
+        self.data["components"][1]["depends_on"] = []
+        for statement in (
+                'import importlib; importlib.import_module(".a", package="wikibuild")',
+                'import importlib as loader; loader.import_module(name=".a", package="wikibuild")',
+                'from importlib import import_module as load; load(".a", "wikibuild")',
+                'import importlib; importlib.import_module("..a", package="wikibuild.nested")'):
+            with self.subTest(statement=statement):
+                self.put("wikibuild/b.py", statement + "\n")
+                self.assertTrue(any("Undeclared import: wikibuild/b.py (b) -> wikibuild/a.py (a)" in error
+                                    for error in self.errors()))
+                self.data["components"][1]["depends_on"] = ["a"]
+                self.assertEqual(self.errors(), [])
+                self.data["components"][1]["depends_on"] = []
+
+    def test_unresolved_project_dynamic_imports_fail_closed(self):
+        for statement in (
+                'import importlib; importlib.import_module(".missing", package="wikibuild")',
+                'import importlib; importlib.import_module("wikibuild.missing")',
+                '__import__("wikibuild.missing")',
+                'import importlib; importlib.import_module("..a", package="wikibuild")'):
+            with self.subTest(statement=statement):
+                self.put("wikibuild/b.py", statement + "\n")
+                with self.assertRaisesRegex(ValueError, "unresolved .*dynamic import"):
+                    self.errors()
+        for statement in (
+                'import importlib; importlib.import_module(".a", package=package)',
+                'import importlib; importlib.import_module(".a")',
+                '__import__("a", globals(), level=1)'):
+            with self.subTest(statement=statement):
+                self.put("wikibuild/b.py", statement + "\n")
+                self.assertTrue(any("Non-literal dynamic import" in error for error in self.errors()))
+
     def test_relative_parent_import(self):
         self.data["components"][1]["paths"] = ["wikibuild/nested/**"]
         (self.root / "wikibuild/b.py").unlink()
@@ -169,6 +202,36 @@ class ArchitectureTests(unittest.TestCase):
             self.assertEqual(result.tests, 1)
             self.assertFalse(path.exists())
 
+    def test_windows_only_tests_skip_before_resolving_pwsh_on_linux(self):
+        script = "tests/Test-Windows.ps1"
+        self.put(script, "# HHWIKI-PLATFORMS: win32\nthrow 'must not execute'\n")
+        path = fixture_dir(self, "worker")
+        with patch.object(runner.sys, "platform", "linux"), \
+                patch.object(runner.shutil, "which", side_effect=AssertionError("must skip first")):
+            result = runner.run_module(self.root, script, path)
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertTrue(result.unsupported)
+        self.assertEqual((result.tests, result.skipped), (1, 1))
+        self.assertIn("linux unsupported; requires win32", result.output)
+        self.assertFalse(path.exists())
+        with patch.object(runner.sys, "platform", "linux"), \
+                patch.object(runner.tempfile, "gettempdir", return_value=str(self.root)), \
+                patch("builtins.print") as output:
+            self.assertEqual(runner.execute(self.root, [script], 1), 0)
+        self.assertTrue(any("SKIP-UNSUPPORTED" in str(call) for call in output.call_args_list))
+
+    def test_windows_ci_selection_includes_every_windows_only_test_owner(self):
+        self.put("tests/test_c.py", "# HHWIKI-PLATFORMS: win32\n")
+        self.assertEqual(runner.windows_components(self.root, self.contract(), self.files()), {"c"})
+        self.put("tests/test_c.py", "# HHWIKI-PLATFORMS: linux, win32\n")
+        self.assertEqual(runner.windows_components(self.root, self.contract(), self.files()), set())
+        self.put("tests/test_c.py", "# HHWIKI-PLATFORMS: unknown\n")
+        with self.assertRaisesRegex(ValueError, "Invalid platform requirement"):
+            runner.windows_components(self.root, self.contract(), self.files())
+        actual = checker.load_contract(runner.ROOT / "components.json")
+        self.assertTrue({"process", "availability"} <= runner.windows_components(
+            runner.ROOT, actual, checker.repository_files(runner.ROOT)))
+
     def test_contract_and_shared_configuration_select_all(self):
         contract = self.contract()
         for path in ("components.json", "tools/run_tests.py", "tools/check_components.py",
@@ -234,6 +297,49 @@ class ArchitectureTests(unittest.TestCase):
         self.assertIn("PASS tests.test_b: 1 tests", result.stdout)
         self.assertIn("1 failed modules", result.stdout)
         self.assertFalse((self.root / ".local").exists())
+
+    def test_concurrent_invocations_clean_only_their_own_roots(self):
+        ready, release = self.root / "ready", self.root / "release"
+        first_parent, second_parent = self.root / "first-parent", self.root / "second-parent"
+        self.put("tests/test_a.py", "import os,time,unittest\nfrom pathlib import Path\n"
+                 "class Case(unittest.TestCase):\n    def test_wait(self):\n"
+                 f"        Path({str(first_parent)!r}).write_text(str(Path(os.environ['HHWIKI_TEST_ROOT']).parent))\n"
+                 f"        Path({str(ready)!r}).touch()\n"
+                 "        deadline=time.monotonic()+10\n"
+                 f"        while not Path({str(release)!r}).exists() and time.monotonic()<deadline: time.sleep(.01)\n"
+                 f"        self.assertTrue(Path({str(release)!r}).exists())\n")
+        self.put("tests/test_b.py", "import os,unittest\nfrom pathlib import Path\n"
+                 "class Case(unittest.TestCase):\n    def test_ok(self):\n"
+                 f"        Path({str(second_parent)!r}).write_text(str(Path(os.environ['HHWIKI_TEST_ROOT']).parent))\n")
+        self.contract()
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
+        environment = os.environ.copy()
+        environment.update(TEMP=str(self.root), TMP=str(self.root), TMPDIR=str(self.root))
+        command = [sys.executable, str(runner.ROOT / "tools/run_tests.py"),
+                   "--root", str(self.root), "-j", "1", "--component"]
+        first = subprocess.Popen([*command, "a"], env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        try:
+            deadline = time.monotonic() + 5
+            while not ready.exists() and first.poll() is None and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(ready.exists(), "First invocation did not start")
+            second = subprocess.run([*command, "b"], env=environment, capture_output=True, text=True, timeout=10)
+            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+            first_root, second_root = Path(first_parent.read_text()), Path(second_parent.read_text())
+            self.assertNotEqual(first_root, second_root)
+            self.assertTrue(first_root.exists(), "Second invocation removed the first invocation's root")
+            self.assertFalse(second_root.exists())
+        finally:
+            release.touch()
+            try:
+                output = first.communicate(timeout=15)[0]
+            except subprocess.TimeoutExpired:
+                first.kill()
+                first.communicate()
+                raise
+        self.assertEqual(first.returncode, 0, output.decode(errors="replace"))
+        self.assertFalse(first_root.exists())
+        self.assertEqual(list((self.root / "hhw").iterdir()), [])
 
     def hanging_worker(self):
         pids = self.root / "worker-pids.json"
@@ -344,6 +450,31 @@ class ArchitectureTests(unittest.TestCase):
         Case.doClassCleanups()
         self.assertEqual(Case.tearDown_exceptions, [])
         self.assertFalse(path.exists())
+
+    def test_fixture_parent_inside_repository_fails_before_creation(self):
+        for parent in (runner.ROOT, runner.ROOT / ".local/rejected-fixture",
+                       runner.ROOT / "tests/../.local/rejected-fixture"):
+            with self.subTest(parent=parent), patch.dict(os.environ, {"HHWIKI_TEST_ROOT": str(parent)}), \
+                    patch.object(_support.os, "mkdir", side_effect=AssertionError("must reject before mkdir")):
+                with self.assertRaisesRegex(ValueError, "Fixture parent must be outside repository"):
+                    fixture_dir(self, "rejected")
+        with patch.dict(os.environ), patch.object(_support.tempfile, "gettempdir", return_value=str(runner.ROOT)), \
+                patch.object(_support.os, "mkdir", side_effect=AssertionError("must reject before mkdir")):
+            os.environ.pop("HHWIKI_TEST_ROOT", None)
+            with self.assertRaisesRegex(ValueError, "Fixture parent must be outside repository"):
+                fixture_dir(self, "rejected")
+        alias = self.root / "checkout-alias"
+        if os.name == "nt":
+            subprocess.run(["cmd", "/d", "/c", "mklink", "/J", str(alias), str(runner.ROOT)],
+                           check=True, capture_output=True)
+            self.addCleanup(alias.rmdir)  # Remove this junction, never its target.
+        else:
+            alias.symlink_to(runner.ROOT, target_is_directory=True)
+            self.addCleanup(alias.unlink)
+        with patch.dict(os.environ, {"HHWIKI_TEST_ROOT": str(alias / ".local/rejected-fixture")}), \
+                patch.object(_support.os, "mkdir", side_effect=AssertionError("must reject redirected parent")):
+            with self.assertRaisesRegex(ValueError, "Fixture parent must be outside repository"):
+                fixture_dir(self, "rejected")
 
     def test_remove_tree_clears_read_only_files_and_is_repeatable(self):
         path = fixture_dir(self, "readonly")

@@ -12,10 +12,15 @@ import uuid
 from unittest.mock import patch
 
 
-def fixture_dir(test, label: str) -> Path:
+def fixture_dir(test, label: str, *, parent=None) -> Path:
     """Create an ACL-inheriting directory and immediately register its cleanup."""
     private = os.environ.get("HHWIKI_TEST_ROOT")
-    parent = Path(private) if private else Path(tempfile.gettempdir()) / "hhw"
+    if parent is None:
+        parent = Path(private) if private else Path(tempfile.gettempdir()) / "hhw"
+    parent = Path(parent).resolve()
+    repository = Path(__file__).resolve().parents[1]
+    if parent.is_relative_to(repository):
+        raise ValueError(f"Fixture parent must be outside repository {repository}: {parent}")
     parent.mkdir(parents=True, exist_ok=True)
     while True:
         path = parent / (label[:8] + "-" + uuid.uuid4().hex[:8])
@@ -65,6 +70,9 @@ def cache_git_queries(test, root):
     cache = {}
     batches = {}
     logs = threading.local()
+    # Copying an open TemporaryFile fails on Windows. Keep cache streams beside
+    # the snapshot, within the same worker root, and close them before cleanup.
+    log_root = fixture_dir(test, "git-log", parent=Path(root).resolve().parent)
 
     def native(command, *args, **kwargs):
         # With one captured pipe, communicate reads directly instead of
@@ -72,7 +80,7 @@ def cache_git_queries(test, root):
         if not kwargs.get("capture_output") and kwargs.get("stderr") != subprocess.PIPE:
             return original(command, *args, **kwargs)
         if not hasattr(logs, 'error'):
-            logs.error = tempfile.TemporaryFile(dir=root)
+            logs.error = tempfile.TemporaryFile(dir=log_root)
             test.addCleanup(logs.error.close)
         stream = logs.error
         stream.seek(0)
@@ -84,7 +92,7 @@ def cache_git_queries(test, root):
         data = options.pop('input', None)
         if data is not None:
             if not hasattr(logs, 'input'):
-                logs.input = tempfile.TemporaryFile(dir=root)
+                logs.input = tempfile.TemporaryFile(dir=log_root)
                 test.addCleanup(logs.input.close)
             source = logs.input
             source.seek(0)

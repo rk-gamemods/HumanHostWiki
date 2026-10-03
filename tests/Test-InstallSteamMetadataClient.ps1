@@ -1,4 +1,5 @@
 #Requires -Version 7
+# HHWIKI-PLATFORMS: win32
 <# Offline tests of the real installer using a local archive and a small client exe. #>
 param([Parameter(Mandatory)][string]$FixtureRoot)
 $ErrorActionPreference = 'Stop'

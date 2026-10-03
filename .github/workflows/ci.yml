@@ -41,10 +41,10 @@ jobs:
         if: github.event_name != 'pull_request'
         run: python tools/run_tests.py --all
 
-  windows-process-tests:
-    name: Windows process tests
+  windows-tests:
+    name: Unit tests (windows)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,23 +52,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install source-analysis dependencies
         run: python -m pip install -r requirements-source.txt
-      - name: Select Windows process tests
-        id: selection
+      - name: Targeted Windows pull request tests
+        if: github.event_name == 'pull_request'
         shell: pwsh
         env:
-          EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
         run: |
-          if ($env:EVENT_NAME -eq 'pull_request') {
-            $plan = python tools/run_tests.py --list --json --changed "origin/$env:BASE_REF"
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            $selected = (($plan | ConvertFrom-Json).components.PSObject.Properties.Name -contains 'process')
-          } else {
-            $selected = $true
-          }
-          "run=$($selected.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-      - name: Bounded external-process tests
-        if: steps.selection.outputs.run == 'true'
-        run: python tools/run_tests.py --component process -j 1
+          python tools/run_tests.py --changed "origin/$env:BASE_REF" --windows-relevant
+      - name: Full integration suite
+        if: github.event_name != 'pull_request'
+        run: python tools/run_tests.py --all
