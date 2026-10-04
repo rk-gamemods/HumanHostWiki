@@ -169,6 +169,47 @@ def payloads(ctx):
     return result
 
 
+class GuideQueryModuleTests(unittest.TestCase):
+    def test_all_guide_query_modules_are_fingerprinted(self):
+        folder = ROOT / "wikibuild"
+        modules = {"guide_queries.py", *(path.name for path in folder.glob("guide_query_*.py"))}
+        self.assertLessEqual(modules, reader.contract().keys())
+
+    def test_family_edits_and_additions_change_renderer_contract(self):
+        folder = fixture_dir(self, "guide_fp")
+        original = reader.contract()
+        for name in original:
+            path = folder / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"renderer input\n")
+        with patch.object(reader, "__file__", str(folder / "reader.py")):
+            baseline = reader.contract()
+            self.assertEqual(reader.contract(), baseline)
+            for name in original:
+                if name == "guide_queries.py" or name.startswith("guide_query_"):
+                    with self.subTest(module=name):
+                        before = reader.contract()
+                        path = folder / name
+                        path.write_bytes(path.read_bytes() + b"# changed query\n")
+                        after = reader.contract()
+                        self.assertEqual({key for key in before if before[key] != after[key]}, {name})
+            future = folder / "guide_query_future.py"
+            future.write_bytes(b"# additional query family\n")
+            self.assertIn(future.name, reader.contract())
+
+    def test_query_registry_preserves_family_and_entry_order(self):
+        self.assertEqual(list(queries.QUERIES), [
+            "start.first_biome", "start.materials", "start.gathering_intro",
+            "start.hand_intro", "start.benches_intro", "start.hand_recipes", "start.benches",
+            "start.tools_and_weapons", "world.rings", "world.near_spawn", "world.zombie_scaling",
+            "world.loot_quality_scaling", "rings", "ring.span", "ring.new_materials",
+            "ring.easier_gathering", "ring.new_recipes", "ring.new_benches", "ring.exclusive_loot",
+            "ring.merchant_summary", "weapons.stat_labels", "weapons.melee", "weapons.guns",
+            "weapons.bows", "weapons.ammo_sources", "weapons.variants", "benches.overview",
+            "benches", "bench.summary", "bench.cost", "bench.recipes",
+        ])
+
+
 class GuideQueryTests(unittest.TestCase):
     def setUp(self):
         self.ctx = context()
