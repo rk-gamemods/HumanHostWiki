@@ -6,6 +6,7 @@ import os
 import stat
 from pathlib import Path
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -13,6 +14,50 @@ from tests._support import fixture_dir
 
 from wikibuild import release_retention, staging
 from wikibuild.storage import ContractError, digest, git, json_bytes
+
+
+STAGING_CHILD = r'''
+import os
+from pathlib import Path
+import sys
+from wikibuild import staging
+from wikibuild.storage import json_bytes, write_changed
+
+root, point, stage = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+folder = root / "stages"
+def terminate(reached):
+    if reached == point:
+        (root / "death-point").write_text(reached)
+        os._exit(73)
+staging._checkpoint = terminate  # Test-only hook; production has no exit switch.
+if point == "ownership-renamed":
+    directory_sync = staging._sync_directory
+    def after_ownership_rename(directory):
+        if directory.parent == folder and (directory / staging.OWNER).is_file():
+            terminate("ownership-renamed")  # Rename happened; attempt-directory fsync has not.
+        directory_sync(directory)
+    staging._sync_directory = after_ownership_rename
+try:
+    if point in {"retirement-recorded", "owner-removed", "directory-removed"}:
+        staging.retire(folder, stage)
+    else:
+        with staging.attempt(folder, stage, short=stage == "release", deferred=True) as path:
+            payload = path / "payload"
+            payload.mkdir()
+            (payload / "data").write_bytes(b"new output")
+            if point in {"promoted", "promotion-completed"}:
+                os.rename(payload, root / "promoted")
+                terminate("promoted")
+                staging.finish(path, stage, "completed")
+                terminate("promotion-completed")
+            elif point in {"pending", "pending-completed"}:
+                write_changed(root / "pending.json", json_bytes({"stage": path.name, "complete": False}))
+                terminate("pending")
+                staging.finish(path, stage, "completed")
+                terminate("pending-completed")
+finally:
+    (root / "finally-ran").write_text("unexpected graceful exit")
+'''
 
 
 class RetentionTests(unittest.TestCase):
@@ -185,6 +230,481 @@ class RetentionTests(unittest.TestCase):
 class OwnedAttemptsTests(unittest.TestCase):
     def setUp(self):
         self.root = fixture_dir(self, "attempts")
+
+    def crash(self, point, *, stage="reader"):
+        root = fixture_dir(self, "death")
+        folder = root / "stages"
+        with staging.attempt(folder, stage) as completed:
+            (completed / "output").write_bytes(b"completed output")
+        completed_bytes = {path.name: path.read_bytes() for path in completed.iterdir()}
+        unknown = folder / "unknown"
+        unknown.mkdir()
+        (unknown / "evidence").write_bytes(b"unrecognized output")
+        target = None
+        if point in {"retirement-recorded", "owner-removed", "directory-removed"}:
+            with staging.attempt(folder, stage, deferred=True) as target:
+                (target / "payload").write_bytes(b"partial")
+            # A newer failure makes target eligible without invoking retirement yet.
+            newest = folder / ("e" * 32)
+            newest.mkdir()
+            staging.write_record(newest, stage, {"schema_version": 1, "stage": stage,
+                "attempt_id": newest.name, "created_utc": "2099-01-01T00:00:00+00:00", "state": "abandoned"})
+        environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+                       "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+        process = subprocess.run([sys.executable, "-B", "-c", STAGING_CHILD, str(root), point, stage],
+                                 cwd=root, env=environment, capture_output=True, text=True)
+        self.assertEqual(process.returncode, 73, process.stdout + process.stderr)
+        self.assertEqual((root / "death-point").read_text(), point)
+        self.assertFalse((root / "finally-ran").exists())
+        if point == "registration-intent":
+            owner = json.loads(self.recovery_records(folder)[0].read_bytes())["owner"]
+            self.assertFalse((folder / owner["attempt_id"]).exists())
+        if target is None and point != "registration-intent":
+            target = next(path for path in folder.iterdir() if path not in (completed, unknown))
+        return root, folder, target, completed, completed_bytes
+
+    def recovery_records(self, folder):
+        records = folder.with_name(folder.name + "-records")
+        return list(records.iterdir()) if records.exists() else []
+
+    def assert_completed_and_unknown(self, folder, completed, completed_bytes):
+        self.assertEqual({path.name: path.read_bytes() for path in completed.iterdir()}, completed_bytes)
+        self.assertEqual((folder / "unknown/evidence").read_bytes(), b"unrecognized output")
+
+    def test_process_death_during_creation_promotion_and_pending_persistence(self):
+        for point in ("registration-intent", "directory-created", "registered", "owned",
+                      "promoted", "promotion-completed", "pending", "pending-completed"):
+            with self.subTest(point=point):
+                stage = "release" if point.startswith("pending") else "reader"
+                root, folder, target, completed, completed_bytes = self.crash(point, stage=stage)
+                pending_bytes = (root / "pending.json").read_bytes() if point.startswith("pending") else None
+                first = staging.retire(folder, stage)
+                second = staging.retire(folder, stage)
+                self.assert_completed_and_unknown(folder, completed, completed_bytes)
+                self.assertEqual(second["removed"], [])
+                if point == "registered":
+                    self.assertFalse(target.exists())
+                    self.assertEqual(first["removed"], [target.name])
+                else:
+                    self.assertEqual(first["removed"], [])
+                    if target is not None:
+                        self.assertTrue(target.exists())
+                        if point != "directory-created":
+                            state = "completed" if point.endswith("completed") else "abandoned"
+                            self.assertEqual(staging.record(target, stage)[0]["state"], state)
+                self.assertEqual(len(self.recovery_records(folder)), int(point == "directory-created"))
+                if point.startswith("promot"):
+                    self.assertEqual((root / "promoted/data").read_bytes(), b"new output")
+                if pending_bytes is not None:
+                    self.assertEqual((root / "pending.json").read_bytes(), pending_bytes)
+                    self.assertEqual(json.loads(pending_bytes)["stage"], target.name)
+                    self.assertEqual((target / "payload/data").read_bytes(), b"new output")
+
+    def test_process_death_during_final_removal_finishes_tombstone_cleanup(self):
+        for point in ("retirement-recorded", "owner-removed", "directory-removed"):
+            with self.subTest(point=point):
+                root, folder, target, completed, completed_bytes = self.crash(point)
+                receipts = self.recovery_records(folder)
+                self.assertEqual(len(receipts), 1)
+                self.assertEqual(json.loads(receipts[0].read_bytes())["kind"], "retirement")
+                self.assertEqual(target.exists(), point != "directory-removed")
+                if target.exists():
+                    self.assertEqual((target / staging.OWNER).exists(), point == "retirement-recorded")
+                staging.retire(folder, "reader")
+                self.assertFalse(target.exists())
+                self.assertEqual(self.recovery_records(folder), [])
+                self.assertEqual(staging.retire(folder, "reader")["removed"], [])
+                self.assert_completed_and_unknown(folder, completed, completed_bytes)
+
+    def test_record_consumption_syncs_stage_root_and_retries_after_fsync_failure(self):
+        for point in ("registered", "owned", "retirement-recorded", "owner-removed",
+                      "directory-removed", "registration-intent"):
+            with self.subTest(point=point):
+                root, folder, target, completed, completed_bytes = self.crash(point)
+                receipt = self.recovery_records(folder)[0]
+                receipt_bytes = receipt.read_bytes()
+                syncs, consumed, persisted = [], [], []
+                unlink = Path.unlink
+
+                def sync(directory):
+                    syncs.append(directory)
+                    if directory == folder and not consumed:
+                        self.assertTrue(receipt.exists())
+                        if syncs.count(folder) == 1:
+                            raise OSError("stage root fsync failed")
+                    elif directory == receipt.parent and not receipt.exists():
+                        persisted.append(directory)
+
+                def consume(path, *args, **kwargs):
+                    if path == receipt:
+                        self.assertTrue(syncs, "stage root must be synced before record removal")
+                        self.assertEqual(syncs[-1], folder)
+                        self.assertGreater(syncs.count(folder), 1)
+                        self.assertEqual(path.read_bytes(), receipt_bytes)
+                        consumed.append(path)
+                    return unlink(path, *args, **kwargs)
+
+                with patch.object(staging, "_sync_directory", side_effect=sync), \
+                        patch.object(Path, "unlink", new=consume):
+                    first = staging.retire(folder, "reader")
+                    self.assertTrue(any("stage root fsync failed" in row["reason"]
+                                        for row in first["retained"]))
+                    self.assertEqual(receipt.read_bytes(), receipt_bytes)
+                    self.assertEqual(consumed, [])
+                    if target is not None:
+                        self.assertEqual(target.exists(), point == "owned")
+                    staging.retire(folder, "reader")
+                self.assertEqual(consumed, [receipt])
+                self.assertEqual(persisted, [receipt.parent])
+                self.assertEqual(self.recovery_records(folder), [])
+                self.assertEqual(staging.retire(folder, "reader")["removed"], [])
+                self.assert_completed_and_unknown(folder, completed, completed_bytes)
+
+    def test_new_attempt_syncs_stage_root_before_consuming_registration(self):
+        folder = self.root / "stages"
+        records = folder.with_name(folder.name + "-records")
+        syncs, consumed = [], []
+        unlink = Path.unlink
+
+        def consume(path, *args, **kwargs):
+            if path.parent == records and path.suffix == ".json":
+                self.assertIn(folder / path.stem, syncs)
+                self.assertEqual(syncs[-1], folder)
+                self.assertEqual(staging.record(folder / path.stem, "reader")[0],
+                                 json.loads(path.read_bytes())["owner"])
+                consumed.append(path)
+            return unlink(path, *args, **kwargs)
+
+        with patch.object(staging, "_sync_directory", side_effect=syncs.append), \
+                patch.object(Path, "unlink", new=consume):
+            with staging.attempt(folder, "reader") as target:
+                self.assertEqual(consumed, [records / (target.name + ".json")])
+                self.assertEqual(self.recovery_records(folder), [])
+        self.assertEqual(staging.record(target, "reader")[0]["state"], "completed")
+
+    def test_registration_recovery_syncs_ownership_before_consumption(self):
+        for point in ("ownership-renamed", "owned"):
+            with self.subTest(point=point):
+                root, folder, target, completed, completed_bytes = self.crash(point)
+                receipt = self.recovery_records(folder)[0]
+                receipt_bytes = receipt.read_bytes()
+                marker_bytes = (target / staging.OWNER).read_bytes()
+                syncs, consumed = [], []
+                unlink = Path.unlink
+
+                def sync(directory):
+                    syncs.append(directory)
+                    if directory == target and not consumed:
+                        self.assertEqual(receipt.read_bytes(), receipt_bytes)
+                        self.assertEqual((target / staging.OWNER).read_bytes(), marker_bytes)
+                        if syncs.count(target) == 1:
+                            raise OSError("ownership directory fsync failed")
+
+                def consume(path, *args, **kwargs):
+                    if path == receipt:
+                        self.assertGreater(syncs.count(target), 1)
+                        self.assertEqual(syncs[-1], folder)
+                        self.assertEqual((target / staging.OWNER).read_bytes(), marker_bytes)
+                        consumed.append(path)
+                    return unlink(path, *args, **kwargs)
+
+                with patch.object(staging, "_sync_directory", side_effect=sync), \
+                        patch.object(Path, "unlink", new=consume):
+                    first = staging.retire(folder, "reader")
+                    self.assertTrue(any("ownership directory fsync failed" in row["reason"]
+                                        for row in first["retained"]))
+                    self.assertEqual(consumed, [])
+                    self.assertEqual(receipt.read_bytes(), receipt_bytes)
+                    self.assertEqual((target / staging.OWNER).read_bytes(), marker_bytes)
+                    staging.retire(folder, "reader")
+                self.assertEqual(consumed, [receipt])
+                self.assertEqual(self.recovery_records(folder), [])
+                self.assertEqual(staging.record(target, "reader")[0]["state"], "abandoned")
+                self.assertEqual(staging.retire(folder, "reader")["removed"], [])
+                self.assert_completed_and_unknown(folder, completed, completed_bytes)
+
+    def test_record_consumption_preserves_redirected_records_and_replaced_receipts(self):
+        for change in ("redirected-directory", "replaced-directory", "replaced-receipt", "redirected-during-sync"):
+            with self.subTest(change=change):
+                root, folder, target, completed, completed_bytes = self.crash("retirement-recorded")
+                receipt = self.recovery_records(folder)[0]
+                records = receipt.parent
+                receipt_bytes = receipt.read_bytes()
+                saved = root / "saved-records"
+                outside = root / "outside"
+                outside.mkdir()
+                unrelated = outside / receipt.name
+                unrelated.write_bytes(b"unrelated outside file")
+                changed, armed = [], []
+                directory_sync = staging._sync_directory
+
+                def replace(point):
+                    if point == "directory-removed" and change == "redirected-during-sync":
+                        armed.append(point)
+                    if point != "retirement-recorded" or change == "redirected-during-sync" and not armed:
+                        return
+                    changed.append(point)
+                    if change == "replaced-receipt":
+                        receipt.rename(root / "saved-receipt.json")
+                        receipt.write_bytes(receipt_bytes)
+                    else:
+                        records.rename(saved)
+                        if change == "replaced-directory":
+                            records.mkdir()
+                            receipt.write_bytes(receipt_bytes)
+                        elif os.name == "nt":
+                            created = subprocess.run(["cmd", "/d", "/c", "mklink", "/J", str(records), str(outside)],
+                                                     capture_output=True)
+                            self.assertEqual(created.returncode, 0, created.stderr.decode(errors="replace"))
+                        else:
+                            records.symlink_to(outside, target_is_directory=True)
+
+                def sync(directory):
+                    directory_sync(directory)
+                    if directory == folder and armed:
+                        replace("retirement-recorded")
+                        armed.clear()
+
+                try:
+                    with patch.object(staging, "_checkpoint", side_effect=replace), \
+                            patch.object(staging, "_sync_directory", side_effect=sync):
+                        summary = staging.retire(folder, "reader")
+                    self.assertEqual(changed, ["retirement-recorded"])
+                    self.assertTrue(any("Redirected" in row["reason"] or "recovery record changed" in row["reason"]
+                                        for row in summary["retained"]))
+                    self.assertEqual(unrelated.read_bytes(), b"unrelated outside file")
+                    if change == "replaced-receipt":
+                        self.assertEqual((root / "saved-receipt.json").read_bytes(), receipt_bytes)
+                    else:
+                        self.assertEqual((saved / receipt.name).read_bytes(), receipt_bytes)
+                    if not change.startswith("redirected-"):
+                        self.assertEqual(receipt.read_bytes(), receipt_bytes)
+                    self.assert_completed_and_unknown(folder, completed, completed_bytes)
+                finally:
+                    if change.startswith("redirected-") and changed:
+                        if os.name == "nt":
+                            records.rmdir()  # Remove only this junction, never its target.
+                        else:
+                            records.unlink()
+
+    def test_first_use_registration_death_recovers_without_a_stage_root(self):
+        root = fixture_dir(self, "first-use")
+        folder = root / "stages"
+        environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+                       "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+        process = subprocess.run([sys.executable, "-B", "-c", STAGING_CHILD, str(root), "registration-intent", "reader"],
+                                 cwd=root, env=environment, capture_output=True, text=True)
+        self.assertEqual(process.returncode, 73, process.stdout + process.stderr)
+        self.assertEqual((root / "death-point").read_text(), "registration-intent")
+        self.assertFalse((root / "finally-ran").exists())
+        self.assertFalse(folder.exists())
+        receipt = self.recovery_records(folder)[0]
+        receipt_bytes = receipt.read_bytes()
+        self.assertEqual(json.loads(receipt_bytes)["kind"], "registration")
+        self.assertIsNone(json.loads(receipt_bytes)["directory"])
+        syncs, consumed = [], []
+        unlink = Path.unlink
+
+        def sync(directory):
+            syncs.append(directory)
+            if not directory.is_dir():  # Simulate POSIX's missing-directory error on Windows too.
+                raise FileNotFoundError(directory)
+
+        def consume(path, *args, **kwargs):
+            if path == receipt:
+                self.assertEqual(syncs[-1], receipt.parent.parent)
+                self.assertEqual(path.read_bytes(), receipt_bytes)
+                consumed.append(path)
+            return unlink(path, *args, **kwargs)
+
+        with patch.object(staging, "_sync_directory", side_effect=sync), \
+                patch.object(Path, "unlink", new=consume):
+            for _ in range(2):
+                self.assertEqual(staging.retire(folder, "reader"), {"removed": [], "retained": []})
+        self.assertEqual(consumed, [receipt])
+        self.assertEqual(syncs, [receipt.parent.parent, receipt.parent])
+        self.assertFalse(folder.exists())
+        self.assertEqual(self.recovery_records(folder), [])
+
+    def test_recovery_records_never_remove_replaced_directories_even_with_valid_ownership(self):
+        for point in ("registered", "owner-removed"):
+            with self.subTest(point=point):
+                root, folder, target, completed, completed_bytes = self.crash(point)
+                receipt = self.recovery_records(folder)[0]
+                data = receipt.read_bytes()
+                owner = json.loads(data)["owner"]
+                target.rename(root / "original-directory")
+                target.mkdir()
+                (target / "evidence").write_bytes(b"replacement")
+                staging.write_record(target, "reader", owner)
+                newest = folder / ("d" * 32)
+                newest.mkdir()
+                staging.write_record(newest, "reader", {**owner, "attempt_id": newest.name,
+                    "created_utc": "2099-02-01T00:00:00+00:00", "state": "abandoned"})
+                for _ in range(2):
+                    summary = staging.retire(folder, "reader")
+                    self.assertTrue(any("identity does not match" in row["reason"] for row in summary["retained"]))
+                    self.assertEqual((target / "evidence").read_bytes(), b"replacement")
+                    self.assertEqual(receipt.read_bytes(), data)
+                    self.assert_completed_and_unknown(folder, completed, completed_bytes)
+
+    def test_retirement_recovery_rechecks_identity_before_deleting_replacement_payload(self):
+        root, folder, target, completed, completed_bytes = self.crash("retirement-recorded")
+        receipt = self.recovery_records(folder)[0]
+        receipt_bytes = receipt.read_bytes()
+        owner_bytes = (target / staging.OWNER).read_bytes()
+        remove = staging.remove
+        swapped = []
+
+        def replace_before_removal(path, stage, owner, **kwargs):
+            self.assertEqual(path, target)
+            path.rename(root / "original-directory")
+            path.mkdir()
+            (path / staging.OWNER).write_bytes(owner_bytes)
+            (path / "payload").write_bytes(b"replacement payload")
+            swapped.append(path)
+            return remove(path, stage, owner, **kwargs)
+
+        with patch.object(staging, "remove", side_effect=replace_before_removal):
+            summary = staging.retire(folder, "reader")
+        self.assertEqual(swapped, [target])
+        self.assertTrue(any("changed" in row["reason"] for row in summary["retained"]))
+        for _ in range(2):
+            self.assertEqual((target / "payload").read_bytes(), b"replacement payload")
+            self.assertEqual((target / staging.OWNER).read_bytes(), owner_bytes)
+            self.assertEqual(receipt.read_bytes(), receipt_bytes)
+            self.assert_completed_and_unknown(folder, completed, completed_bytes)
+            staging.retire(folder, "reader")
+
+    def test_markerless_recovery_only_rmdirs_recreated_directory_with_reused_identity(self):
+        for point in ("registered", "owner-removed"):
+            with self.subTest(point=point):
+                root, folder, target, completed, completed_bytes = self.crash(point)
+                receipt = self.recovery_records(folder)[0]
+                value = json.loads(receipt.read_bytes())
+                value["directory"][2] = None  # Linux stat has no stable birth time.
+                receipt.write_bytes(json_bytes(value))
+                receipt_bytes = receipt.read_bytes()
+                target.rmdir()  # Release the original inode, rather than keeping it allocated by rename.
+                target.mkdir()
+                (target / "evidence").write_bytes(b"replacement content")
+                target.chmod(stat.S_IREAD | stat.S_IEXEC)
+                self.addCleanup(target.chmod, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
+                identity = staging._directory_identity
+                rmdir = Path.rmdir
+                rmdir_calls = []
+
+                def recycled(path):
+                    return value["directory"] if path == target else identity(path)
+
+                def empty_only(path):
+                    rmdir_calls.append(path)
+                    return rmdir(path)
+
+                with patch.object(staging, "_directory_identity", side_effect=recycled), \
+                        patch.object(staging, "remove", side_effect=AssertionError("markerless recovery must not recurse")), \
+                        patch.object(Path, "chmod", side_effect=AssertionError("markerless recovery must not change protection")), \
+                        patch.object(Path, "rmdir", new=empty_only):
+                    for _ in range(2):
+                        summary = staging.retire(folder, "reader")
+                        self.assertEqual(summary["removed"], [])
+                self.assertEqual(rmdir_calls, [target, target])
+                self.assertEqual((target / "evidence").read_bytes(), b"replacement content")
+                self.assertEqual(receipt.read_bytes(), receipt_bytes)
+                self.assert_completed_and_unknown(folder, completed, completed_bytes)
+
+    def test_records_directory_parent_is_synced_before_tombstone_and_on_retry(self):
+        folder = self.root / "stages"
+        target = folder / ("a" * 32)
+        target.mkdir(parents=True)
+        owner = {"schema_version": 1, "stage": "reader", "attempt_id": target.name,
+                 "created_utc": "2026-01-01T00:00:00+00:00", "state": "abandoned"}
+        staging.write_record(target, "reader", owner)
+        marker_bytes = (target / staging.OWNER).read_bytes()
+        (target / "payload").write_bytes(b"owned payload")
+        records = folder.with_name(folder.name + "-records")
+        receipt = records / (target.name + ".json")
+        self.assertFalse(records.exists())
+        syncs, checkpoints = [], []
+
+        def sync(directory):
+            syncs.append(directory)
+            if directory == records.parent:
+                self.assertTrue(records.is_dir())
+                self.assertEqual((target / staging.OWNER).read_bytes(), marker_bytes)
+                self.assertEqual((target / "payload").read_bytes(), b"owned payload")
+                if syncs.count(records.parent) == 1:
+                    self.assertFalse(receipt.exists())
+                    raise OSError("records parent fsync failed")
+            elif directory == records and syncs.count(records) == 1:
+                self.assertTrue(receipt.exists())
+                raise OSError("records entry fsync failed")
+
+        def checkpoint(point):
+            checkpoints.append(point)
+            if point == "retirement-recorded":
+                self.assertEqual(json.loads(receipt.read_bytes())["kind"], "retirement")
+                self.assertEqual((target / staging.OWNER).read_bytes(), marker_bytes)
+                self.assertEqual((target / "payload").read_bytes(), b"owned payload")
+
+        with patch.object(staging, "_sync_directory", side_effect=sync), \
+                patch.object(staging, "_checkpoint", side_effect=checkpoint):
+            with self.assertRaisesRegex(OSError, "records parent fsync failed"):
+                staging.remove(target, "reader", owner, folder=folder)
+            self.assertFalse(receipt.exists())
+            self.assertEqual((target / "payload").read_bytes(), b"owned payload")
+            with self.assertRaisesRegex(OSError, "records entry fsync failed"):
+                staging.remove(target, "reader", owner, folder=folder)
+            self.assertTrue(receipt.exists())
+            self.assertEqual((target / "payload").read_bytes(), b"owned payload")
+            staging.remove(target, "reader", owner, folder=folder)
+        self.assertEqual(syncs[:5], [records.parent, records.parent, records, records.parent, records])
+        self.assertEqual(checkpoints, ["retirement-recorded", "owner-removed", "directory-removed"])
+        self.assertFalse(target.exists())
+        self.assertEqual(self.recovery_records(folder), [])
+
+    def test_recovery_records_preserve_completed_invalid_and_unexpected_contents(self):
+        for point in ("registered", "owner-removed"):
+            for change in ("completed", "invalid-owner", "unexpected-file", "invalid-record", "oversized-record"):
+                with self.subTest(point=point, change=change):
+                    root, folder, target, completed, completed_bytes = self.crash(point)
+                    receipt = self.recovery_records(folder)[0]
+                    if change == "completed":
+                        owner = json.loads(receipt.read_bytes())["owner"]
+                        staging.write_record(target, "reader", {**owner, "state": "completed"})
+                    elif change == "invalid-owner":
+                        (target / staging.OWNER).write_bytes(b"{}")
+                    elif change == "unexpected-file":
+                        (target / "evidence").write_bytes(b"keep")
+                    else:
+                        receipt.write_bytes(b"{}" if change == "invalid-record" else b" " * (staging.MAX_RECORD_BYTES + 1))
+                    before = {path.name: path.read_bytes() for path in target.iterdir()}
+                    staging.retire(folder, "reader")
+                    staging.retire(folder, "reader")
+                    self.assertTrue(target.exists())
+                    self.assertEqual({path.name: path.read_bytes() for path in target.iterdir()}, before)
+                    self.assertEqual(len(self.recovery_records(folder)), int(change != "completed"))
+                    self.assert_completed_and_unknown(folder, completed, completed_bytes)
+
+    def test_fsync_failure_prevents_creation_and_marker_removal(self):
+        folder = self.root / "stages"
+        with patch.object(staging.os, "fsync", side_effect=OSError("fsync denied")):
+            with self.assertRaisesRegex(OSError, "fsync denied"):
+                with staging.attempt(folder, "reader"):
+                    self.fail("unsynced registration must not create an attempt")
+        self.assertFalse(folder.exists())
+        self.assertEqual(self.recovery_records(folder), [])
+        root, folder, target, completed, completed_bytes = self.crash("retirement-recorded")
+        receipt = self.recovery_records(folder)[0]
+        receipt.unlink()  # Exercise a fresh tombstone write, rather than its identical no-op.
+        with patch.object(staging.os, "fsync", side_effect=OSError("fsync denied")):
+            summary = staging.retire(folder, "reader")
+        self.assertTrue(any("fsync denied" in row["reason"] for row in summary["retained"]))
+        self.assertTrue((target / staging.OWNER).exists())
+        staging.retire(folder, "reader")
+        self.assertFalse(target.exists())
+        self.assertEqual(self.recovery_records(folder), [])
+        self.assert_completed_and_unknown(folder, completed, completed_bytes)
 
     def test_exact_schema_rejects_invalid_reads_and_writes_without_replacement(self):
         with staging.attempt(self.root / "stages", "reader", deferred=True) as path:

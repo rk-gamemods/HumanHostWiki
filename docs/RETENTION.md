@@ -54,6 +54,32 @@ extra fields and non-scalar values. Reads and encoded writes are capped at
 Reader ownership stays outside promoted
 candidate payloads; release ownership completes once the recovery journal is saved.
 
+Before creating an attempt, staging atomically writes and fsyncs a registration
+in the stage root's sibling `-records` directory, then binds its directory identity
+before writing ownership. On POSIX, the records directory's parent is also synced
+before a record is published, including on retry. Retirement writes a tombstone
+before checked content removal, keeps `attempt.json` until last, removes the empty
+directory with non-recursive `rmdir`, then deletes the tombstone. Recovery retains
+the recorded identity guard when resuming valid owned retirement; registrations
+with valid ownership return to ordinary retention. A markerless registration or
+tombstone permits only non-recursive `rmdir`, never content deletion or protection
+changes, even if an inode was recycled. Nonempty remnants, completed attempts and
+unbound or mismatched identities stay preserved; resolved records are removed.
+Before consuming either record kind, POSIX syncs the stage root even if the
+attempt directory is already absent; a sync failure keeps the record for retry.
+If first-use registration never created the stage root, its parent is synced
+instead. Consumption revalidates the literal records directory and regular file
+against the signature captured when written or read, preserving redirected or
+replaced receipts.
+Ownership writes sync the attempt directory after renaming `attempt.json`;
+recovery repeats that sync before consuming a registration with valid ownership.
+
+**Threat model:** Staging runs under the exclusive workspace lock in
+`wikibuild/storage.py` for a single operator. Recovery covers process death,
+power loss and stale or unrecognized state. Concurrent replacement of files or
+directories inside staging by another process is outside this model; callers
+must hold the workspace lock.
+
 `tests/test_extraction.py`, `tests/test_history.py`, `tests/test_reader.py` and
 `tests/test_release.py` cover repeat failure, ownership validation and retirement
 at each stage. [ACCEPTANCE.md](ACCEPTANCE.md#current-engineering-limits) owns

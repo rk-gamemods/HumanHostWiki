@@ -18,6 +18,45 @@ FIELD_TYPES = {"schema_version": int, "stage": str, "attempt_id": str,
                "created_utc": str, "state": str}
 
 
+def _checkpoint(point):
+    """Inert seam overridden by subprocess process-death tests only."""
+
+
+def _sync_directory(path):
+    if os.name != "nt":  # Windows does not support opening directories for fsync.
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
+def _durable_write(path, data):
+    path = regular(path)
+    existing = signature(path.lstat()) if path.exists() else None
+    if existing is not None and path.read_bytes() == data:
+        # A prior rename may have succeeded while either directory fsync failed.
+        _sync_directory(path.parent.parent)
+        _sync_directory(path.parent)
+        return existing
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Persist the directory's own entry, including a retry after its fsync failed.
+    _sync_directory(path.parent.parent)
+    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        written = signature(regular(temporary).lstat())
+        os.replace(temporary, path)
+        _sync_directory(path.parent)
+        return written
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
 def regular(path):
     """Check ancestors as well as leaves; never follow a junction or symlink."""
     path = Path(path)
@@ -85,7 +124,7 @@ def write_record(path, stage, value):
     data = json_bytes(value)
     if len(data) > MAX_RECORD_BYTES:
         raise ContractError("Staging ownership record exceeds its write bound")
-    write_changed(regular(path / OWNER), data)
+    _durable_write(path / OWNER, data)
 
 
 def finish(path, stage, state):
@@ -98,6 +137,139 @@ def finish(path, stage, state):
 
 def signature(info):
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_mode
+
+
+def _directory_identity(path):
+    info = regular(path).lstat()
+    if not stat.S_ISDIR(info.st_mode) or not info.st_ino:
+        raise ContractError("Staging directory has no usable identity")
+    # Size/mtime change as children are removed. Birth time is stable on Windows;
+    # Unix ctime is not a birth time and must not be used as one. This is a guard,
+    # not proof of content ownership: an inode may have been recycled.
+    birth = getattr(info, "st_birthtime_ns", info.st_ctime_ns if os.name == "nt" else None)
+    return [info.st_dev, info.st_ino, birth]
+
+
+def _recovery_path(folder, path):
+    return regular(folder.with_name(folder.name + "-records") / (path.name + ".json"))
+
+
+def _recovery_signature(receipt, folder):
+    records = child(folder.parent, folder.with_name(folder.name + "-records"))
+    if not stat.S_ISDIR(records.lstat().st_mode):
+        raise ContractError("Unrecognized staging recovery directory")
+    receipt = child(records, receipt)
+    info = receipt.lstat()
+    if not stat.S_ISREG(info.st_mode) or receipt.suffix != ".json":
+        raise ContractError("Unrecognized staging recovery record")
+    return signature(info)
+
+
+def _read_recovery(receipt, folder, stage):
+    expected = _recovery_signature(receipt, folder)
+    with receipt.open("rb") as stream:
+        data = stream.read(MAX_RECORD_BYTES + 1)
+    if len(data) > MAX_RECORD_BYTES:
+        raise ContractError("Staging recovery record exceeds its read bound")
+    try:
+        value = json.loads(data)
+    except (ValueError, RecursionError) as exc:
+        raise ContractError("Unrecognized staging recovery record: invalid JSON") from exc
+    if (not isinstance(value, dict) or value.keys() != {"kind", "owner", "directory"}
+            or type(value["kind"]) is not str or value["kind"] not in {"registration", "retirement"}):
+        raise ContractError("Unrecognized staging recovery record")
+    path = child(folder, folder / receipt.stem)
+    validate(value["owner"], path, stage)
+    identity = value["directory"]
+    if (identity is not None and (type(identity) is not list or len(identity) != 3
+            or any(type(item) is not int for item in identity[:2])
+            or not identity[1] or identity[2] is not None and type(identity[2]) is not int)
+            or value["kind"] == "retirement" and identity is None
+            or value["owner"]["state"] == "completed"):
+        raise ContractError("Unrecognized staging recovery identity")
+    return path, value, expected
+
+
+def _write_recovery(folder, path, stage, kind, owner, identity):
+    validate(owner, path, stage)
+    receipt = _recovery_path(folder, path)
+    value = {"kind": kind, "owner": owner, "directory": identity}
+    if receipt.exists():
+        _, previous, _ = _read_recovery(receipt, folder, stage)
+        if (previous["owner"] != owner
+                or previous["directory"] not in (None, identity)):
+            raise ContractError("Staging recovery record changed")
+    data = json_bytes(value)
+    if len(data) > MAX_RECORD_BYTES:
+        raise ContractError("Staging recovery record exceeds its write bound")
+    expected = _durable_write(receipt, data)
+    if _recovery_signature(receipt, folder) != expected:
+        raise ContractError("Staging recovery record changed")
+    return receipt, expected
+
+
+def _forget_recovery(receipt, folder, expected):
+    folder = regular(folder)
+    if _recovery_signature(receipt, folder) != expected:
+        raise ContractError("Staging recovery record changed")
+    # Persist the attempt's directory entry before discarding its recovery proof,
+    # including when a previous rmdir succeeded but its directory fsync did not.
+    # First-use registration can precede creation of the stage root itself.
+    _sync_directory(folder if folder.exists() else regular(folder.parent))
+    # Directory fsync may block; recheck the literal path and file after it too.
+    if _recovery_signature(receipt, folder) != expected:
+        raise ContractError("Staging recovery record changed")
+    receipt.unlink()
+    _sync_directory(regular(receipt.parent))
+
+
+def _remove_empty(path, identity):
+    if _directory_identity(path) != identity:
+        raise ContractError("Staging directory changed before retirement")
+    path.rmdir()  # Unexpected contents are always preserved, never recursively removed.
+    _sync_directory(path.parent)
+
+
+def _recover(folder, stage, current, summary):
+    protected = set()
+    receipts = regular(folder.with_name(folder.name + "-records"))
+    if not receipts.exists():
+        return protected
+    with os.scandir(receipts) as entries:
+        for index, entry in enumerate(entries):
+            if index >= MAX_ENTRIES:
+                raise ContractError("Staging recovery inventory exceeds its entry bound")
+            receipt = Path(entry.path)
+            try:
+                path, value, receipt_signature = _read_recovery(receipt, folder, stage)
+                if path == current:
+                    continue
+                if not path.exists():
+                    _forget_recovery(receipt, folder, receipt_signature)
+                    continue
+                if value["directory"] is None or _directory_identity(path) != value["directory"]:
+                    raise ContractError("Staging recovery directory identity does not match")
+                if (path / OWNER).exists():
+                    owner, _ = record(path, stage, folder=folder)
+                    if owner != {**value["owner"], "state": owner["state"]}:
+                        raise ContractError("Staging recovery ownership does not match")
+                    if value["kind"] == "registration" or owner["state"] == "completed":
+                        # A process may have died after the ownership rename,
+                        # before its containing directory was synced.
+                        _sync_directory(path)
+                        _forget_recovery(receipt, folder, receipt_signature)
+                        continue  # Ordinary retention still governs owned attempts.
+                    if owner != value["owner"]:
+                        raise ContractError("Staging ownership changed before retirement")
+                    remove(path, stage, owner, folder=folder, expected_identity=value["directory"])
+                else:
+                    _remove_empty(path, value["directory"])
+                    _forget_recovery(receipt, folder, receipt_signature)
+                summary["removed"].append(path.name)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                protected.add(receipt.stem)
+                summary["retained"].append({"stage": receipt.name, "reason": str(exc)})
+    return protected
 
 
 def unlink(path, expected):
@@ -116,9 +288,14 @@ def unlink(path, expected):
         path.unlink()
 
 
-def remove(path, stage, expected_owner, *, folder):
+def remove(path, stage, expected_owner, *, folder, expected_identity=None):
     """Validate a bounded tree first; retain the ownership marker until last."""
     path = child(folder, path)
+    identity = _directory_identity(path)
+    if expected_identity is not None and identity != expected_identity:
+        raise ContractError("Staging directory changed before retirement")
+    if expected_owner["state"] == "completed":
+        raise ContractError("Completed staging directories cannot be retired")
     pending, files, folders, count = [path], [], [], 0
     while pending:
         directory = pending.pop()
@@ -141,6 +318,11 @@ def remove(path, stage, expected_owner, *, folder):
     files = [(item, info) for item, info in files if item != marker]
     if record(path, stage, folder=folder)[0] != expected_owner:
         raise ContractError("Staging ownership changed before retirement")
+    if _directory_identity(path) != identity:
+        raise ContractError("Staging directory changed before retirement")
+    receipt, receipt_signature = _write_recovery(
+        Path(folder).absolute(), path, stage, "retirement", expected_owner, identity)
+    _checkpoint("retirement-recorded")
     for item, expected in files:
         if signature(regular(marker).lstat()) != signature(marker_info):
             raise ContractError("Staging ownership changed before retirement")
@@ -155,11 +337,19 @@ def remove(path, stage, expected_owner, *, folder):
         directory.rmdir()
     if signature(regular(marker).lstat()) != signature(marker_info):
         raise ContractError("Staging ownership changed before retirement")
-    unlink(marker, marker_info)
+    if _directory_identity(path) != identity:
+        raise ContractError("Staging directory changed before retirement")
+    if record(path, stage, folder=folder)[0] != expected_owner:
+        raise ContractError("Staging ownership changed before retirement")
+    # Any protection change must happen while ownership still proves this tree.
     info = regular(path).lstat()
     if not info.st_mode & stat.S_IWRITE:
         path.chmod(info.st_mode | stat.S_IWRITE)
-    path.rmdir()
+    unlink(marker, marker_info)
+    _checkpoint("owner-removed")
+    _remove_empty(path, identity)
+    _checkpoint("directory-removed")
+    _forget_recovery(receipt, path.parent, receipt_signature)
 
 
 def retire(folder, stage, current=None):
@@ -169,6 +359,8 @@ def retire(folder, stage, current=None):
     attempts = []
     try:
         folder = regular(folder)
+        current = child(folder, current) if current is not None else None
+        protected = _recover(folder, stage, current, summary)
         if not folder.exists():
             return summary
         with os.scandir(folder) as entries:
@@ -181,7 +373,6 @@ def retire(folder, stage, current=None):
                     attempts.append((path, value, created))
                 except (OSError, ValueError, KeyError, TypeError) as exc:
                     summary["retained"].append({"stage": path.name, "reason": str(exc)})
-        current = child(folder, current) if current is not None else None
         # A live current attempt is not stale. A just-abandoned current attempt
         # ranks newest under the writer lock, but is still never deleted here.
         failed = [(path, created) for path, value, created in attempts
@@ -189,7 +380,7 @@ def retire(folder, stage, current=None):
                   and (path != current or value["state"] == "abandoned")]
         newest = max(failed, key=lambda row: (row[0] == current, row[1], row[0].name), default=(None, None))[0]
         for path, value, created in attempts:
-            if value["state"] == "completed" or path == current:
+            if value["state"] == "completed" or path == current or path.name in protected:
                 continue
             try:
                 if path != newest:
@@ -217,10 +408,20 @@ def attempt(folder, stage, *, short=False, deferred=False):
     folder = regular(folder)
     identity = uuid.uuid4().hex[:12] if short else uuid.uuid4().hex
     path = child(folder, folder / identity)
+    if path.exists() or _recovery_path(folder, path).exists():
+        raise ContractError("Staging attempt identity already exists")
+    owner = {"schema_version": 1, "stage": stage, "attempt_id": identity,
+             "created_utc": datetime.now(timezone.utc).isoformat(), "state": "materializing"}
+    _write_recovery(folder, path, stage, "registration", owner, None)
+    _checkpoint("registration-intent")
     path.mkdir(parents=True)
-    write_record(path, stage, {"schema_version": 1, "stage": stage, "attempt_id": identity,
-                               "created_utc": datetime.now(timezone.utc).isoformat(),
-                               "state": "materializing"})
+    _checkpoint("directory-created")
+    receipt, receipt_signature = _write_recovery(
+        folder, path, stage, "registration", owner, _directory_identity(path))
+    _checkpoint("registered")
+    write_record(path, stage, owner)
+    _checkpoint("owned")
+    _forget_recovery(receipt, folder, receipt_signature)
     try:
         yield path
     except Exception:
