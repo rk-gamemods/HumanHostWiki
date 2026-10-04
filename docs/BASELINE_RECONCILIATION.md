@@ -1,3 +1,5 @@
+Historical evidence from 2026-09-27, build 25548639. For current status, see [ACCEPTANCE.md](ACCEPTANCE.md).
+
 # Initial exception reconciliation
 
 Initial delivery requires reconciliation of the entire known backlog. Successful

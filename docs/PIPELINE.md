@@ -12,12 +12,21 @@ dependency invalidation and reusable artifacts. The shared OS-held wiki writer
 lock covers registration through final promotion. The existing capture lock
 protects capture; pinned source identity is rechecked before wiki promotion.
 
-## Current stages
+## Stage sequence
+
+`project.json` declares capture as the external prerequisite, then the fixed
+local sequence below. Installed-input detection and capture reuse belong to the
+parent capture command. Steam availability runs after registration.
+`manifest.stage_order` rejects a missing, extra or reordered stage and requires
+dependencies to enforce each consecutive step. Foundation tests compare the
+fixed order with `pipeline.run`'s stage-entry calls. Final receipt promotion is
+internal bookkeeping after reader retention, not another product stage.
 
 | Stage | Completion evidence |
 | --- | --- |
 | Register | Clean, pinned source and immutable snapshot receipt |
 | Availability | Timestamped Steam branch observation or explicit unavailable status |
+| External articles | Versioned article observations or explicit provider unavailability |
 | Normalize | Selected observations, coverage, dependency hashes and content exceptions |
 | Identity | Durable identity decisions and normalized models |
 | Project | Validated static reader candidate |
@@ -29,9 +38,10 @@ protects capture; pinned source identity is rechecked before wiki promotion.
 The runner ends after [coordinated Git release](RELEASE.md), release retention and
 reader retention. [Pages publication](PUBLICATION.md) is a separate gated operator
 command after a successful rehearsal: `py -3 wiki.py publish --release <id>`.
-Routine updates never construct a live publication host. Complete gameplay coverage,
-gameplay verification and capacity allocation remain required delivery work. A local release
-alone cannot establish public availability or gameplay verification.
+Routine updates never construct a live publication host. Release preparation
+applies [capacity allocation](CAPACITY.md). A local release alone cannot establish
+public availability or gameplay verification. [ACCEPTANCE.md](ACCEPTANCE.md) owns
+delivery status and evidence limits.
 
 [Build availability](AVAILABILITY.md) is checked independently after source
 registration. Remote unavailability is reported separately while supported content

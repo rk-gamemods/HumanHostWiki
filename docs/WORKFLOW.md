@@ -6,23 +6,12 @@ GitHub CLI. Captured enum extraction and optional named C# checks use the pinned
 packages installed once with `py -3 -m pip install -r requirements-source.txt`.
 See [selected extraction](EXTRACTION.md) and [authored checks](CURATED.md).
 
-The public [Unofficial Game Data Wiki for Human Host](https://rk-gamemods.github.io/HumanHost-Wiki/) and
-[hub repository](https://github.com/rk-gamemods/HumanHost-Wiki) are live.
-The [delivery acceptance](ACCEPTANCE.md) lists implemented requirements and
-finite evidence limitations. The
-[normal update workflow](adr/0001-versioned-public-wiki.md#6-refresh-build-and-coordinated-release)
-starts when an operator invokes the decompile command and completes supported work
-through a local release and retention, including capacity management, without intermediate input.
-The entrypoint now runs capture, registration, selected extraction, identity and
-the validated reader and coordinated local Git release. Publication is a separate
-gated operator step after review, merge, CI and rehearsal. The
-[runner contract](PIPELINE.md) defines receipts and recovery. At completion the operator presents
-unresolved wiki exceptions and requests direction; execution failures are separate.
-The manual examples below are foundation diagnostics, not extra maintenance steps.
-
-The normal update also refreshes [external article checks](EXTERNAL_LINKS.md),
-reuses unchanged revisions and reports unresolved article checks at the end.
-The linked acceptance command is an isolated development diagnostic.
+Use the [document index](README.md) to find each contract owner and
+[ACCEPTANCE.md](ACCEPTANCE.md) for current status and evidence limits.
+The [runner contract](PIPELINE.md) defines the local update sequence, receipts
+and final exception report. The manual stage commands below are diagnostics;
+start routine maintenance with the decompile command. Publish a chosen release
+through the separate [production gate](PUBLICATION.md#production-gate).
 
 For Steam build observations, run `pwsh -NoProfile -File tools/Install-SteamMetadataClient.ps1`
 once. The normal update then checks the captured branch using the configured cache
@@ -83,7 +72,7 @@ marker, README and ignore/line-ending settings. It creates no remotes and makes
 no commits. It stages each new checkout under `.local/repository-stage/` before
 moving it into its final path. Repeating the command preserves existing content.
 Review and commit new seed files inside their owning child repository. The
-initial project setup has already performed those baseline local commits.
+setup disposition is recorded in [ACCEPTANCE.md](ACCEPTANCE.md).
 
 Pin reviewed, clean child commits and check them with:
 
@@ -180,10 +169,10 @@ reconstructed from frozen decisions; modified staging is preserved and refused.
 A repeated older request cannot rewind a later decision chain. For reviewed
 corrections and rule ownership, see [identity contracts](IDENTITY.md).
 
-This command currently processes the current source commit. Older captured game
+This command processes the selected source commit. Older captured game
 builds without a catalog require explicit uncaptured status; current asset facts
-cannot establish what those builds contained. Available real catalogs cover one
-Steam build; two-build fixture evidence is recorded in [ACCEPTANCE.md](ACCEPTANCE.md).
+cannot establish what those builds contained. See
+[captured-build evidence](ACCEPTANCE.md#captured-build-evidence) for retained real catalogs.
 No identity run grants gameplay verification.
 
 ## Build and inspect the selected-fact reader
@@ -213,8 +202,8 @@ successful checks and reports unresolved explanations after supported work finis
 
 The browser supports topic search, entry evidence, reverse relationships and a
 captured-version selector. A missing historical entry is explicit; it never
-substitutes current data. The real dataset currently has one normalized game build.
-Two-build navigation and removal behavior have also been exercised with fixtures.
+substitutes current data. [ACCEPTANCE.md](ACCEPTANCE.md#captured-build-evidence)
+records the retained real builds and the scope of fixture proof.
 `tools/check_reader.py` independently compares every selected model with emitted
 facts, provenance, search records and reverse links. It does not import the renderer.
 
@@ -242,16 +231,10 @@ that retained release indexes, packs and runtimes remain reachable. The benchmar
 runs an unchanged `wiki.py update` and checks child commits, output bytes and
 timestamps. It requires an already completed release for the current inputs.
 
-The normal update applies [storage capacity allocation](CAPACITY.md) before
-committing the local release. New physical repositories retain their logical topic
-owner, appear in the release manifest and checkout lock, and publish before their
-dependent entrypoints. Optional byte limits and reserves live in
-`project.json.capacity`; no separate allocation command is needed for maintenance.
-Oversized snapshot pack-reference lists, release capture lists and ownership manifests
-split automatically. Full entrypoints roll into new physical repositories while
-preserving the original topic URLs and historical files. Indivisible control records
-remain unfinished and fail before promotion if their budgets are exceeded. Live
-GitHub overflow acceptance is still pending; forced-threshold tests use a host adapter.
+Configure byte limits and reserves in `project.json.capacity`. The normal update
+applies the [capacity contract](CAPACITY.md) during release preparation; no separate
+allocation command is needed. An indivisible over-budget control record fails
+before promotion. [ACCEPTANCE.md](ACCEPTANCE.md) owns capacity status and proof limits.
 
 ## Publish or abandon a release
 
@@ -264,30 +247,17 @@ py -3 tools/rehearse_publication.py --release <id>
 py -3 wiki.py publish --release <id>
 ```
 
-Publication is enabled in `project.json` for this explicit command. The
-[production gate](PUBLICATION.md#production-gate) checks a clean workspace,
-canonical HumanHostWiki origin, fetched `origin/main`, successful push CI from
-`.github/workflows/ci.yml` on main, a PR merged at this exact commit and a matching
-rehearsal receipt no older than 24 hours with unchanged remote refs. The receipt
-binds the rehearsal runner and publication modules. Refs are enforced again at
-preparation and every push, with explicit leases. There is no override flag.
-Refresh the rehearsal after ref drift or expiry.
-The command provisions configured repositories, audits outgoing history,
-verifies topic deployments and advances the hub last. Completed publication
-receipts live in `publications/`; incomplete work lives in `.local/publication/`.
-Failed publications are scrapped, never resumed. An incomplete journal blocks
-publishing any release before the gate or remote calls. Run:
+Follow every check in the [production gate](PUBLICATION.md#production-gate).
+Refresh rehearsal after ref drift or expiry. If publication fails, run the
+local abandonment command before rehearsing and publishing afresh:
 
 ```powershell
 py -3 wiki.py abandon-publication
 ```
 
-This local-only command moves the journal and a README under
-`.local/publication/abandoned/<timestamp>-<release>/`. Rehearse against the current
-live state, then publish afresh: abandonment archives the attempt's rehearsal
-receipts and any matching publication receipt that `latest.json` did not select.
-The current published receipt is preserved. Hub rollback remains part of a single failing run.
-See [publication](PUBLICATION.md) for the boundary and archived evidence.
+Inspect the archive path printed by the command. Follow
+[publication abandonment](PUBLICATION.md#durable-state-and-abandonment) for
+receipt preservation and recovery. Do not resume or salvage a failed attempt.
 
 ## Build the architecture preview
 
@@ -346,29 +316,13 @@ snapshots require a separate retention decision.
 ## Tests and scope of proof
 
 ```powershell
-py -3 -m unittest discover -s tests -v
+py -3 tools/run_tests.py --changed main
 py -3 wiki.py validate
 py -3 wiki.py map --check
 git diff --check
 ```
 
-The tests cover ambiguous ownership, path escapes, pipeline cycles, missing
-relationship targets, independent repository boundaries, repeat initialization,
-input provenance/schema/dirty-state failures, receipt collisions, internal links,
-no-op builds, writer exclusion and failure before preview promotion. They use
-small synthetic local Git repositories. A real input registration and repeated
-preview build complement those tests during initial setup.
-
-Identity tests cover source-ID changes, renames, reused IDs, split/merge ambiguity,
-reviewed mappings, revision reuse, removals, capture gaps and interrupted writes.
-Publication tests cover independent topic completion, interrupted pushes, hub
-rollback, retained history and rejection of changed remote refs. Live publication
-and browser evidence are recorded in [IMPLEMENTATION.md](IMPLEMENTATION.md).
-These checks prove their declared scope. Real cross-build identity continuity
-requires another complete game catalog; fixtures do not substitute for that
-evidence. The [acceptance checklist](ACCEPTANCE.md) records the disposition.
-
-Git for Windows can mark synthetic test object files read-only. Test cleanup uses
-ordinary removal and reports any protected fixtures retained under
-`.local/test-runs/`; it does not change attributes or force removal. These small
-ignored fixtures are separate from the real game dataset.
+Use [component test isolation](ARCHITECTURE.md#running-tests) for focused runs,
+private fixture roots and cleanup. Tests never write inside the repository.
+[ACCEPTANCE.md](ACCEPTANCE.md) owns the scope of proof and remaining evidence
+limits. [IMPLEMENTATION.md](IMPLEMENTATION.md) retains dated checkpoint results.
