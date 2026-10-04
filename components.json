@@ -234,6 +234,13 @@
       ]
     },
     {
+      "name": "release-content",
+      "description": "Reader content transforms and mutable topic output around located immutable objects.",
+      "paths": ["wikibuild/release_content.py"],
+      "tests": [],
+      "depends_on": ["storage"]
+    },
+    {
       "name": "capacity",
       "description": "Physical allocation, ownership, capacity projection and inventory checks.",
       "paths": [
@@ -243,7 +250,6 @@
         "wikibuild/physical.py",
         "wikibuild/ownership.py",
         "wikibuild/entrypoints.py",
-        "tools/check_capacity.py",
         "tools/check_capacity_projection.py",
         "tools/audit_ownership.py"
       ],
@@ -258,6 +264,7 @@
         "extraction",
         "presentation",
         "external-links",
+        "release-content",
         "test-support"
       ]
     },
@@ -320,8 +327,13 @@
       "name": "release",
       "description": "Coordinated local Git releases, partition content and release verification.",
       "paths": [
-        "wikibuild/release*.py",
+        "wikibuild/release.py",
+        "wikibuild/release_output.py",
+        "wikibuild/release_prepare.py",
+        "wikibuild/release_partitions.py",
+        "wikibuild/release_retention.py",
         "wikibuild/release_bootstrap.js",
+        "tools/check_capacity.py",
         "tools/check_release.py",
         "tools/benchmark_release.py",
         "tools/serve_release.py"
@@ -340,6 +352,7 @@
         "extraction",
         "reader",
         "capacity",
+        "release-content",
         "workspace",
         "external-links",
         "presentation",
@@ -480,11 +493,6 @@
     {
       "source": "tests/test_capacity_projection.py",
       "target": "wikibuild/release.py",
-      "reason": "Projection tests use complete reader/release contracts; separate allocation units from release integration."
-    },
-    {
-      "source": "tests/test_capacity_projection.py",
-      "target": "wikibuild/release_content.py",
       "reason": "Projection tests use complete reader/release contracts; separate allocation units from release integration."
     },
     {
@@ -658,11 +666,6 @@
       "reason": "The reader retention benchmark measures the whole update pipeline; move pipeline measurement to a CLI-owned tool."
     },
     {
-      "source": "tools/check_capacity.py",
-      "target": "wikibuild/manifest.py",
-      "reason": "Capacity checks validate workspace manifests; pass a validated manifest from the workspace owner."
-    },
-    {
       "source": "tools/check_capacity_projection.py",
       "target": "wikibuild/manifest.py",
       "reason": "Projection audits load manifests and build full releases; keep these checks in a release-owned integration tool."
@@ -678,23 +681,8 @@
       "reason": "Projection audits load manifests and build full releases; keep these checks in a release-owned integration tool."
     },
     {
-      "source": "wikibuild/capacity_inventory.py",
-      "target": "wikibuild/publication.py",
-      "reason": "Capacity inventory reaches into release/publication state; pass immutable inventory inputs from those owners."
-    },
-    {
-      "source": "wikibuild/capacity_inventory.py",
-      "target": "wikibuild/release.py",
-      "reason": "Capacity inventory reaches into release/publication state; pass immutable inventory inputs from those owners."
-    },
-    {
       "source": "wikibuild/capacity_projection.py",
       "target": "wikibuild/reader.py",
-      "reason": "Physical projection uses reader/release-content internals; extract a lower-level artifact contract."
-    },
-    {
-      "source": "wikibuild/capacity_projection.py",
-      "target": "wikibuild/release_content.py",
       "reason": "Physical projection uses reader/release-content internals; extract a lower-level artifact contract."
     },
     {

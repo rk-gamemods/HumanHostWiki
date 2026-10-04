@@ -7,7 +7,7 @@ from unittest.mock import patch
 import test_publication
 import test_release
 from tools.check_release import check
-from wikibuild import capacity, capacity_inventory, entrypoints, physical, publication, reader, release, release_partitions, workspace
+from wikibuild import capacity, entrypoints, physical, publication, reader, release, release_partitions, workspace
 from wikibuild.storage import ContractError, git
 
 
@@ -58,7 +58,7 @@ class EntrypointReleaseTests(unittest.TestCase):
     def force_next_fronts(self):
         _, first = self.make("First")
         published, _ = publication.run(self.root, self.project, first, host=self.host)
-        inventory = capacity_inventory.read(self.root, self.project)
+        inventory = release.inventory(self.root, self.project)
         sizes = [part.history_bytes for part in inventory.partitions]
         soft, hard = min(sizes) - 1, max(sizes) + 65536
         self.project["capacity"] = {"file_bytes": 30000, "history_bytes": hard, "history_reserve_bytes": hard - soft}
@@ -128,7 +128,7 @@ class EntrypointReleaseTests(unittest.TestCase):
         self.assertTrue(publication.run(self.root, self.project, third, host=self.host)[1]["reused"])
         # Roll again from a generated front. The hub control identity now lives
         # in a partition repository, while canonical URLs still name ordinal 0.
-        inventory = capacity_inventory.read(self.root, self.project)
+        inventory = release.inventory(self.root, self.project)
         active = set(third["entrypoints"].values())
         soft = min(part.history_bytes for part in inventory.partitions if part.id in active) - 1
         hard = max(part.history_bytes for part in inventory.partitions) + 65536

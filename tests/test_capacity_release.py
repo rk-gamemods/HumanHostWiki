@@ -80,7 +80,7 @@ class CapacityReleaseTests(unittest.TestCase):
         audit = check(self.root)
         self.assertEqual(audit["historical_configs"], len(self.project["repositories"]))
         workspace.checkout_lock(self.root, self.project, check=True)
-        inventory = capacity_inventory.read(self.root, self.project)
+        inventory = release.inventory(self.root, self.project)
         self.assertEqual(len(inventory.partitions), len(result["repositories"]))
         for repo in result["repositories"].values():
             self.assertLessEqual(repo["site_bytes"], self.project["capacity"]["site_bytes"])
@@ -125,7 +125,7 @@ class CapacityReleaseTests(unittest.TestCase):
         runs = [self.fixture.fixture.make_run(str(build), []) for build in reversed(range(1000, 1008))]
         self.candidate = reader.build(self.root, self.project, runs, bases=release.bases(self.project))
         result, _ = self.run_release()
-        inventory = capacity_inventory.read(self.root, self.project)
+        inventory = release.inventory(self.root, self.project)
         catalogs = []
         for item in inventory.stored:
             if item.artifact.path.startswith("site/releases/"):
@@ -157,7 +157,7 @@ class CapacityReleaseTests(unittest.TestCase):
     def test_next_release_preserves_historical_partition_bytes_and_lock_membership(self):
         first, _ = self.run_release()
         publication.run(self.root, self.project, first, host=self.host)
-        stored = capacity_inventory.read(self.root, self.project).stored
+        stored = release.inventory(self.root, self.project).stored
         before = {(item.partition, item.artifact.path): (self.root / first["repositories"][item.partition]["path"] / item.artifact.path).read_bytes()
                   for item in stored}
         self.project["official_links"] = [{"title": "Changed", "url": "https://example.invalid/"}]
@@ -193,7 +193,7 @@ class CapacityReleaseTests(unittest.TestCase):
                 self.assertEqual(publication.site_files(self.root, record), prior_sites[topic])
             self.assertEqual(publication.run(self.root, self.project, second, host=self.host)[0]["status"], "published")
             self.assertTrue(self.run_release()[1]["reused"])
-            capacity_inventory.read(self.root, self.project)
+            release.inventory(self.root, self.project)
 
     def test_final_prepared_size_failure_preserves_all_existing_checkouts(self):
         before = self.fixture.heads()

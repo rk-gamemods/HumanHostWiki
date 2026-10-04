@@ -9,7 +9,7 @@ import time
 import tracemalloc
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from wikibuild import capacity, capacity_inventory, manifest
+from wikibuild import capacity, manifest, release
 from wikibuild.storage import writer_lock
 
 
@@ -17,7 +17,7 @@ def check(root):
     started = time.perf_counter()
     tracemalloc.start()
     with writer_lock(root):
-        inventory = capacity_inventory.read(root, manifest.load(root))
+        inventory = release.inventory(root, manifest.load(root))
     artifacts = [stored.artifact for stored in inventory.stored]
     same = capacity.allocate(inventory.topics, inventory.partitions, inventory.stored, artifacts)
     assert not same.created and set(same.reused) == {artifact.key for artifact in artifacts}

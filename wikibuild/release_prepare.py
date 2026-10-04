@@ -4,15 +4,13 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 
-from . import capacity_projection, entrypoints, git_transaction, ownership, physical, publication_git, release_output, release_partitions
+from . import capacity_inventory, capacity_projection, entrypoints, git_transaction, ownership, physical, publication_git, release_content, release_output, release_partitions
 from . import staging
 from .storage import ContractError, git, within
 
 
 def prepare(root, project, candidate, release_id, inventory, previous, issue_templates):
-    # Import at the coordinator boundary; neither placement nor the writer calls
-    # release orchestration. A failed proposal never acquires a pending journal.
-    from . import capacity_inventory, release
+    # A failed proposal never acquires a pending journal.
     limits = physical.budgets(project)
     original = entrypoints.active(inventory.partitions)
     existing = {part.id for part in inventory.partitions}
@@ -50,7 +48,7 @@ def prepare(root, project, candidate, release_id, inventory, previous, issue_tem
                 identity, topic = repo["id"], repo.get("logical_topic", repo["id"])
                 writer, target = writers[identity], destinations[identity]
                 if identity == fronts[topic]:
-                    release.project_topic(Path(candidate["path"]), repo, writer, projection)
+                    release_content.project_topic(Path(candidate["path"]), repo, writer, projection)
                 elif identity == original[topic] and topic in rolled:
                     config = json.loads(projection.payloads[topic + f"/site/releases/{release_id}.json"].read())
                     entrypoints.retire(writer, project, topic, bases[topic], release_id, candidate["path"],
