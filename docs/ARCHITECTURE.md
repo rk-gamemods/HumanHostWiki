@@ -214,27 +214,34 @@ PR #42 fixes #23/#24. It splits `reader.build` into `validate_bases`,
 `inputs_changed` and `project_fonts`, and centralizes `pipeline.run`'s contract
 construction in `contracts()`. Tests cover base validation, the complete font
 inventory and failure journals that identify the helper's location.
-Split the remaining hotspots when next extended, as tracked in #26.
+PRs #44, #45 and #46 fix #26. `guide_queries.py` keeps its import point and
+moves its query families into six `guide_query_*` modules. The remaining
+functions shrink as follows (lines and cyclomatic complexity, before and after):
+
+| Function | Before | After |
+| --- | --- | --- |
+| `gameplay.graph` | 297 / 199 | 62 / 23 |
+| `check_extraction.check` | 186 / 121 | 23 / 10 |
+| `capacity_projection.build` | 195 / 84 | 61 / 14 |
+| `validate_snapshot` (now in `reader_validation.py`) | 92 / 69 | 24 / 11 |
+
+Characterization tests pin their complete outputs and error messages.
 Keep fact, history, no-op and failure assertions while moving responsibilities.
 
 ### Remaining work
 
-The coordinator reports these items; they are not merged into this checkout:
+No tracked architecture or complexity issue remains open. The remaining work is
+the import repairs below.
 
-- In flight: #34 repairs legacy rehearsal pins.
-- In flight: #22 (W14) separates release/allocation coupling.
-- Open backlog: #26 tracks the remaining complexity hotspots.
-- Open backlog: #40 adds staging tombstones and process-death tests.
-
-The recorded import inventory still has 56 exceptions. Exact pairs and reasons
+The recorded import inventory has 51 exceptions. Exact pairs and reasons
 live in `components.json`. Repair them by cause:
 
 - Shared primitives sit too high: move extraction hashing into storage and generic
   publication Git preparation into the process owner.
 - Lower owners read coordinator state: pass immutable allocation/inventory views
   to workspace and capacity. Remove reverse imports of release, publication and
-  manifests. Let upper orchestration coordinate provisioning. W14/#22 will reduce
-  some of these exceptions after merge and checker verification.
+  manifests. Let upper orchestration coordinate provisioning. PR #47 (#22)
+  removed five of these exceptions.
 - Physical projection reads presentation internals: extract a lower artifact
   contract from reader and release-content details.
 - Stage benchmarks exercise pipelines: separate extraction/history and
