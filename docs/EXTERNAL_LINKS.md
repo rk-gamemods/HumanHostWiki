@@ -4,7 +4,8 @@ The ADR requires useful article backlinks with recorded populated, empty, missin
 or unavailable checks. The normal update records bounded provider observations,
 projects topic and entity matches, and carries them through coordinated releases.
 The development acceptance command below remains isolated from publication and
-does not process the pending game-content exceptions.
+does not process game-content exceptions. [ACCEPTANCE.md](ACCEPTANCE.md) owns
+current delivery status.
 
 ## Owners and data flow
 
