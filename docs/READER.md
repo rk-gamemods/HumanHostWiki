@@ -65,9 +65,9 @@ Tests must cover two snapshots, additions/removals/uncaptured states, unchanged
 revision reuse, cross-topic links retaining the selected snapshot, explicit gaps,
 bounded shard splitting, escaping hostile labels, changed/unknown output and
 failure before promotion. A real browser check must exercise search, version
-selection, entry links and readable selected facts. Public release verification,
-capacity-driven repository allocation and complete gameplay verification remain
-separate completion gates.
+selection, entry links and readable selected facts. [RELEASE.md](RELEASE.md),
+[PUBLICATION.md](PUBLICATION.md) and [CAPACITY.md](CAPACITY.md) own promotion and
+physical allocation. [ACCEPTANCE.md](ACCEPTANCE.md) owns verification dispositions.
 
 External article checks live in separate packs keyed by capture and entity, with
 topic checks in a small control object. They do not change semantic revisions or

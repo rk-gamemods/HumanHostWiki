@@ -29,6 +29,8 @@ usually change one or two owners; shared primitives belong below stage orchestra
 | test-support | None |
 | test-tooling | process-runtime, test-support |
 
+## Process rule
+
 The process runtime in `wikibuild/bounded.py` owns every external child through
 a registered Windows job or POSIX process group, with shutdown fencing and
 bounded tree cleanup. Git and other command launches use `bounded.run` for
@@ -158,30 +160,100 @@ JavaScript checks invoked by Python test
 modules retain their Node dependency and execution path, including the
 `node --test` server contract; its wrapper reports a skip when Node is unavailable.
 
-## Planned boundary repairs
+## Architecture review (2026-10-03)
 
-The initial inventory has 56 concrete import exceptions. Their exact file pairs
-and individual reasons live in `components.json`; these repairs explain the groups:
+This review describes the merged boundaries as inspected in this worktree.
+[ACCEPTANCE.md](ACCEPTANCE.md) owns current status and proof limits.
+[The document index](README.md) names each contract owner.
 
-- Move extraction's `file_hash` primitive into storage so generic Git transactions
-  do not depend on extraction.
-- Pass immutable allocation/inventory inputs into workspace and capacity checks;
-  remove their reverse imports of release, publication and workspace manifests.
-- Extract a lower-level artifact contract for capacity projection instead of using
-  reader and release-content internals.
-- Let the pipeline coordinate publication provisioning around local releases;
-  move generic publication Git primitives into the process owner.
-- Separate full-pipeline benchmark entrypoints from extraction and reader-retention
-  stage measurements. Keep complete projection audits with release integration.
-- Split CLI deadline and SteamCMD cases from generic process tests.
-- Separate Steam availability provider units from pipeline/reader freshness cases.
-- Move capacity-release and entrypoint lifecycle scenarios into release integration
-  modules, preserving their repeat, interruption and publication assertions.
-- Separate external article provider units from pipeline/reader/capacity/release
-  integration, with fixtures owned by their consumer.
-- Move semantic-model assertions in coded-value and prefab tests into identity.
-- Separate curation claim units from reader/page integration; move reader
-  invalidation checks out of guide-query units.
-- Move publication backend cases from Git ownership tests into publication.
+### Growth and boundaries
 
-This unit records those repairs without changing production behavior or assertions.
+The project grew from local capture into a wiki pipeline and thirteen Pages
+sites: one hub and twelve logical topics. Physical partitions can extend storage
+without changing canonical ownership or historical URLs. The parent owns installed
+input detection, capture and source stability. The wiki selects facts in place,
+reconciles identity, builds readers and coordinates local releases.
+
+These boundaries hold:
+
+- `snapshots/` identifies inputs. `releases/` pins coordinated child commits and
+  artifacts. `publications/` records verified deployments. The checkout lock only
+  pins local children.
+- Topic repositories own canonical content. The umbrella owns shared orchestration.
+  Readers consume immutable artifacts rather than neighboring mutable checkouts.
+- Update stops after the local release and both retention stages. Publication
+  verifies topics before advancing the hub. It remains a separate gated command.
+- Content exceptions remain distinct from execution failures. Unknown source and
+  staging ownership cannot authorize overwrite or deletion.
+
+### Findings and responses
+
+PR numbers below come from local merge history. No live deployment was checked.
+
+| Weakness found | Merged response | Owner and proof |
+| --- | --- | --- |
+| Routine updates could change live sites | PR #27 separated publication and added the production gate. Failed attempts require local abandonment before a fresh rehearsal. | [PUBLICATION.md](PUBLICATION.md#production-gate); `test_publish_gate.py`, `test_cli_publication.py` |
+| Rehearsal could alter production refs or objects | PR #36, fixing #4 and #28, runs the engine in an OS-temp workspace with disposable shared clones and isolated Git configuration. It checks original refs, pins, object counts and publication state before removing owned temporary state and issuing a receipt. | `tools/rehearse_publication.py`, `publication_git.py`; `test_rehearsal.py` |
+| A stuck wait could retain the writer lock | PR #33 supervises timeout cleanup, fences launches and reaps registered trees, owner metadata and command temporary files before exit 124. Diagnostics cannot extend the cleanup grace. | [PIPELINE.md](PIPELINE.md#run-timing-schema); `test_bounded.py`, `test_run_timing.py` |
+| Children could outlive the caller | PR #33 registers Windows jobs and POSIX groups. PR #38, fixing #37, waits for whole-group exit instead of treating a sent signal as proof. It reports unresolved cleanup at the deadline. | `bounded.py`; `test_bounded.py` |
+| Git scans or pipe reads could hang or truncate evidence | PR #41, fixing #8, routes launches through bounded capture or streaming I/O. Lineage walks share a deadline. The process lint tracks import provenance and rejects direct launch access within its documented scope. | [Process rule](#process-rule); `test_git_bounds.py`, `test_process_lint.py` |
+| Failed staging attempts accumulated without ownership proof | PR #39, fixing #12, adds bounded attempt records and retirement. Retry retains one owned diagnostic attempt per stage, retires older abandoned attempts and preserves unknown ownership. | [RETENTION.md](RETENTION.md#failed-staging-attempts), `staging.py`; `test_extraction.py`, `test_history.py`, `test_reader.py`, `test_release.py` |
+| Pages could queue a commit without starting jobs | PR #32 observes the exact attempt and permits one journaled same-tree successor within the original deadline and ref lease. | [Stuck Pages builds](PUBLICATION.md#stuck-pages-builds); `test_github_pages.py` |
+| Timing mixed elapsed work with overlapping repository work | PR #31 records wall stages separately from repository sums and keeps timing outside immutable identities. PR #35 corrected timing-test assumptions. | [Timing schema](PIPELINE.md#run-timing-schema); `test_run_timing.py` |
+| Imports and fixtures blurred stage ownership | PR #29 declares components and private fixture roots. The checker rejects new dependency violations and retains concrete exceptions until repaired. | `components.json`, `tools/check_components.py`, `tools/run_tests.py`; `test_architecture.py` |
+| Documents and the registry disagreed with execution | This branch closes #21, #15 and #16 with one contract index, dated evidence and a stage graph checked against the fixed runner. | [Stage sequence](PIPELINE.md#stage-sequence); `test_foundation.py` |
+
+### Complexity
+
+The measured hotspots are `reader.build`, `pipeline.run`, `gameplay.graph`,
+`tools/check_extraction.py::check`, `capacity_projection.build`,
+`reader.validate_snapshot` and `guide_queries.py`.
+Merged PR #39 centralizes staging lifecycle; PR #41 centralizes process and
+streaming boundaries. Those repairs do not establish that these hotspots are gone.
+PR #42 fixes #23/#24. It splits `reader.build` into `validate_bases`,
+`inputs_changed` and `project_fonts`, and centralizes `pipeline.run`'s contract
+construction in `contracts()`. Tests cover base validation, the complete font
+inventory and failure journals that identify the helper's location.
+Split the remaining hotspots when next extended, as tracked in #26.
+Keep fact, history, no-op and failure assertions while moving responsibilities.
+
+### Remaining work
+
+The coordinator reports these items; they are not merged into this checkout:
+
+- In flight: #34 repairs legacy rehearsal pins.
+- In flight: #22 (W14) separates release/allocation coupling.
+- Open backlog: #26 tracks the remaining complexity hotspots.
+- Open backlog: #40 adds staging tombstones and process-death tests.
+
+The recorded import inventory still has 56 exceptions. Exact pairs and reasons
+live in `components.json`. Repair them by cause:
+
+- Shared primitives sit too high: move extraction hashing into storage and generic
+  publication Git preparation into the process owner.
+- Lower owners read coordinator state: pass immutable allocation/inventory views
+  to workspace and capacity. Remove reverse imports of release, publication and
+  manifests. Let upper orchestration coordinate provisioning. W14/#22 will reduce
+  some of these exceptions after merge and checker verification.
+- Physical projection reads presentation internals: extract a lower artifact
+  contract from reader and release-content details.
+- Stage benchmarks exercise pipelines: separate extraction/history and
+  reader-retention/update measurement. Keep projection audits with release integration.
+- Provider and lifecycle tests share consumer fixtures: split SteamCMD/CLI from
+  process units, Steam provider cases from freshness integration, and external
+  article units from consumer scenarios. Move capacity and entrypoint lifecycle
+  scenarios into release integration with consumer-owned fixtures.
+- Assertions cross feature owners: move coded-value/prefab semantics to identity,
+  claim/page integration to reader, reader invalidation out of guide queries and
+  publication backend cases out of Git ownership tests.
+
+Remove an exception only after its forbidden import is gone. Preserve repeat,
+interruption and historical-read assertions during every repair.
+
+### Next growth steps
+
+| Step | What it needs |
+| --- | --- |
+| More topics | Review ownership in `project.json`, add selected extraction and presentation contracts, regenerate navigation, and test relationships and placement. Keep one canonical owner per entity. |
+| More game updates | Capture complete catalogs, reconcile schema and identity changes, preserve older revisions and URLs, and audit source values. Report unsupported content and verification limits. |
+| More unattended updates | Keep operator invocation and the local release boundary. Exercise no-op, retry, process death and capacity behavior. Use isolated rehearsal for the separate publication step; no scheduler or automatic LLM stage is implied. |

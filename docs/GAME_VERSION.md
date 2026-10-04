@@ -45,6 +45,8 @@ The parent's `tools/check_game_version.py` independently checks the recorded fie
 serialized-file mapping, inventory entry and installed source hash without importing
 the version selector or wiki registrar.
 
-The existing captured `globalgamemanagers#1` object contains `0.8.315`. The installed
-executable reports Unity `2022.3.62f3`, so executable metadata is not used as a game
-version fallback. Unknown future layouts remain visible until their owner is adapted.
+At the 2026-09-27 checkpoint, captured `globalgamemanagers#1` contained `0.8.315`.
+At that checkpoint, executable metadata reported Unity `2022.3.62f3`, so it was
+not used as a game-version fallback. See
+[ACCEPTANCE.md](ACCEPTANCE.md#captured-build-evidence) for retained build labels.
+Unknown future layouts remain visible until their owner is adapted.
