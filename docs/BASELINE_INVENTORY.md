@@ -1,3 +1,5 @@
+Historical evidence from 2026-09-27, build 25548639. For current status, see [ACCEPTANCE.md](ACCEPTANCE.md).
+
 # Original exception inventory: reconciliation
 
 This ledger closes the original 193 content groups and five article issues for

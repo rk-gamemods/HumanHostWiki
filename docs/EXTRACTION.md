@@ -125,7 +125,7 @@ every selected gameplay observation, all referenced prefab identities and every
 type summary with pinned source records. The default command samples the first,
 middle and last observation in each gameplay family. Neither mode proves runtime
 behavior. [Baseline reconciliation](BASELINE_RECONCILIATION.md) records the initial
-source reviews and remaining work.
+source reviews as dated evidence. [ACCEPTANCE.md](ACCEPTANCE.md) owns current status.
 
 ## Interpretation and coverage
 
