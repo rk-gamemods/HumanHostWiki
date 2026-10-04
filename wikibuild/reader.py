@@ -29,6 +29,7 @@ def contract():
     folder = Path(__file__).parent
     paths = [folder / name for name in ("reader.py", "reader_validation.py", "availability.py", "extraction.py", "history.py", "model.py", "snapshots.py", "staging.py", "exceptions.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py", "presentation.py", "game_text.py", "gameplay.py", "names.py", "guide_queries.py", "lint.py")]
     paths.append(folder / "guides.py")
+    paths += sorted(folder.glob("guide_query_*.py"))
     paths += sorted(path for path in (folder / "web").rglob("*") if path.is_file())
     return {path.relative_to(folder).as_posix(): digest(path.read_bytes() if path.suffix == ".woff2" else path.read_bytes().replace(b"\r\n", b"\n"))
             for path in paths}
