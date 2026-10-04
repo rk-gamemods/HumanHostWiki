@@ -14,7 +14,7 @@ from tests._support import fixture_dir
 from urllib.parse import unquote, urlparse
 
 from wikibuild import manifest, navigation, snapshots, workspace
-from wikibuild.storage import ContractError, git, json_bytes, writer_lock, write_changed
+from wikibuild.storage import ContractError, digest, git, json_bytes, writer_lock, write_changed
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BASE = json.loads((PROJECT_ROOT / "project.json").read_text())
@@ -93,6 +93,11 @@ class FoundationTests(unittest.TestCase):
         manifest.validate(self.root, self.project)
         manifest.validate(self.root, self.project)  # Validation is read-only and repeatable.
         self.assertEqual([], list(self.root.iterdir()))
+
+    def test_committed_checkout_lock_pins_this_registry(self):
+        # Editing project.json without `wiki.py lock` makes the next update fail at release.
+        lock = json.loads((PROJECT_ROOT / "workspace.lock.json").read_text(encoding="utf-8"))
+        self.assertEqual(lock["project_sha256"], digest(json_bytes(manifest.load(PROJECT_ROOT))))
 
     def test_pipeline_graph_drift_rejected(self):
         for change in ("reorder", "missing", "extra", "rename", "missing-edge"):

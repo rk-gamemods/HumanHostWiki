@@ -294,6 +294,19 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("Reader cache cleanup issue", pipeline.operator_report(self.root, result))
         self.assertIn("protected reader cache", pipeline.operator_report(self.root, result))
 
+    def test_unowned_reader_staging_is_reported_by_name(self):
+        retire = pipeline.reader_retention.staging.retire
+
+        def unowned(folder, stage, current=None):
+            if stage != "reader":
+                return retire(folder, stage, current)
+            return {"removed": [], "retained": [{"stage": "952369e7", "reason": "ownership record missing"}]}
+
+        with patch.object(pipeline.reader_retention.staging, "retire", side_effect=unowned):
+            result = self.run_pipeline()
+        self.assertIn("Reader cache cleanup issue [952369e7]: ownership record missing",
+                      pipeline.operator_report(self.root, result))
+
     def test_failure_preserves_last_success_and_reuses_completed_stages_on_retry(self):
         first = self.run_pipeline()
         before = self.latest().read_bytes()
