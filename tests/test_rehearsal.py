@@ -353,6 +353,218 @@ class RehearsalTests(unittest.TestCase):
         git(self.root, "add", ".")
         git(self.root, "commit", "-m", "Reviewed fixture update")
 
+    def adopted_pages(self, *, committed):
+        self.existing_release()
+        repo = self.project["repositories"][0]
+        topic, name = repo["id"], repo["github_name"]
+        record = self.manifest["repositories"][topic]
+        source = self.root / record["path"]
+        old = publication.published(self.root)["repositories"][topic]["pages"]
+        tree = git(source, "rev-parse", record["pages"] + "^{tree}")
+        self.assertNotEqual(tree, git(source, "rev-parse", old + "^{tree}"))
+        adopted = publication_git.commit(source, tree, old, "Confirmed adopted Pages publication")
+        publication.pin(source, adopted)
+        self.remote.refs[(name, "gh-pages")] = adopted
+        identity = "e" * 64
+        receipt = self.root / f"publications/{identity}.json"
+        publication.save(receipt, {"schema_version": 1, "release_id": identity, "status": "published",
+            "repositories": {topic: {"path": record["path"], "name": name, "pages": adopted, "old_pages": old}}})
+        if committed:
+            ignore = self.root / ".gitignore"
+            ignore.write_text(ignore.read_text().replace("publications/\n", f"publications/*\n!publications/{identity}.json\n"))
+            git(self.root, "-c", "core.autocrlf=false", "add", ".gitignore", receipt.relative_to(self.root).as_posix())
+            git(self.root, "commit", "-m", "Reviewed adopted publication receipt")
+        self.assertEqual(bool(git(self.root, "ls-files", "--", receipt.relative_to(self.root).as_posix())), committed)
+        refs = publication.RehearsedRefs([
+            {"repository": name, "branch": branch, "commit": commit}
+            for (name, branch), commit in sorted(self.remote.refs.items())])
+        return topic, adopted, refs
+
+    def test_committed_receipt_lineage_is_accepted_by_preparation_and_rehearsal(self):
+        topic, adopted, refs = self.adopted_pages(committed=True)
+        prepared = publication.prepare(self.root, self.project, self.manifest, self.remote, refs)
+        self.assertEqual(prepared["repositories"][topic]["old_pages"], adopted)
+        before = self.storage()
+        state = rehearse_publication.state_snapshot(self.root)
+        remote_refs = dict(self.remote.refs)
+        self.assertEqual(self.rehearse(), self.path)
+        self.assertEqual(self.storage(), before)
+        self.assertEqual(self.remote.refs, remote_refs)
+        self.path.unlink()
+        self.path.parent.rmdir()
+        self.assertEqual(rehearse_publication.state_snapshot(self.root), state)
+
+    def test_untracked_receipt_lineage_is_refused_by_preparation_and_rehearsal(self):
+        _, _, refs = self.adopted_pages(committed=False)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch") as production:
+            publication.prepare(self.root, self.project, self.manifest, self.remote, refs)
+        before = self.storage()
+        state = rehearse_publication.state_snapshot(self.root)
+        remote_refs = dict(self.remote.refs)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch") as rehearsal:
+            self.rehearse()
+        self.assertEqual(str(rehearsal.exception), str(production.exception))
+        self.assertEqual(self.storage(), before)
+        self.assertEqual(self.remote.refs, remote_refs)
+        self.assertEqual(rehearse_publication.state_snapshot(self.root), state)
+        self.assertFalse(self.path.exists())
+
+    def test_fresh_release_preserves_symbolic_historical_pin_and_publishes_new_target(self):
+        self.existing_release()
+        topic = self.project["repositories"][0]["id"]
+        record = self.manifest["repositories"][topic]
+        source = self.root / record["path"]
+        old = publication.published(self.root)["repositories"][topic]["pages"]
+        target = record["pages"]
+        self.assertNotEqual(target, old)
+        ref = "refs/wiki-publications/" + old
+        git(source, "update-ref", "--no-deref", "-d", ref)
+        git(source, "update-ref", "refs/heads/historical-pages", old)
+        git(source, "symbolic-ref", ref, "refs/heads/historical-pages")
+        before = self.storage()
+        state = rehearse_publication.state_snapshot(self.root)
+        with patch.object(publication_git, "check_pin", wraps=publication_git.check_pin) as checks:
+            self.assertEqual(self.rehearse(), self.path)
+        checked = {(Path(call.args[0]), call.args[2]) for call in checks.call_args_list
+                   if Path(call.args[0]).is_relative_to(self.root)}
+        self.assertEqual(checked, {(self.root / row["path"], row["pages"])
+                                   for row in self.manifest["repositories"].values()})
+        self.assertEqual(self.storage(), before)
+        self.path.unlink()
+        self.path.parent.rmdir()
+        self.assertEqual(rehearse_publication.state_snapshot(self.root), state)
+        self.rehearse()
+        with self.production_gate():
+            result, _ = self.fixture.run_publish()
+        self.assertEqual(result["repositories"][topic]["pages"], target)
+        self.assertEqual(git(source, "symbolic-ref", ref), "refs/heads/historical-pages")
+        self.assertEqual(git(source, "show-ref", "--verify", "--hash", ref), old)
+
+    def test_fresh_release_target_collisions_fail_rehearsal_with_production_error(self):
+        self.existing_release()
+        topic = self.project["repositories"][0]["id"]
+        record = self.manifest["repositories"][topic]
+        source = self.root / record["path"]
+        old = publication.published(self.root)["repositories"][topic]["pages"]
+        target = record["pages"]
+        self.assertNotEqual(target, old)
+        ref = "refs/wiki-publications/" + target
+        self.rehearse()
+        receipt = self.path.read_bytes()
+        for kind in ("symbolic-same", "symbolic-other", "dangling-symbolic", "direct-other"):
+            with self.subTest(kind=kind):
+                git(source, "update-ref", "--no-deref", "-d", ref)
+                if kind == "direct-other":
+                    git(source, "update-ref", ref, old)
+                else:
+                    git(source, "update-ref", "refs/heads/collision", target if kind == "symbolic-same" else old)
+                    git(source, "symbolic-ref", ref,
+                        "refs/heads/missing" if kind == "dangling-symbolic" else "refs/heads/collision")
+                before = self.storage()
+                self.path.write_bytes(receipt)
+                with self.production_gate():
+                    with self.assertRaisesRegex(ContractError, "Publication pin collision") as production:
+                        self.fixture.run_publish()
+                self.assertEqual(self.storage(), before)
+                self.path.unlink()
+                with self.assertRaisesRegex(ContractError, "Publication pin collision") as rehearsal:
+                    self.rehearse()
+                self.assertEqual(str(rehearsal.exception), str(production.exception))
+                self.assertEqual(self.storage(), before)
+                self.assertFalse(self.path.exists())
+                self.assertFalse((self.root / rehearse_publication.TEMP_RECORD).exists())
+
+    def test_unchanged_publication_creates_no_pins_and_accepts_symbolic_pin(self):
+        published, _ = self.fixture.run_publish()
+        topic = self.project["repositories"][0]["id"]
+        record = published["repositories"][topic]
+        source = self.root / record["path"]
+        ref = "refs/wiki-publications/" + record["pages"]
+        git(source, "update-ref", "--no-deref", "-d", ref)
+        git(source, "update-ref", "refs/heads/historical-pages", record["pages"])
+        git(source, "symbolic-ref", ref, "refs/heads/historical-pages")
+        before = self.storage()
+        with patch.object(publication, "pin", side_effect=AssertionError("Unchanged publication wrote a pin")) as pin, \
+                patch.object(publication_git, "check_pin", wraps=publication_git.check_pin) as checks:
+            self.assertEqual(self.rehearse(), self.path)
+            with self.production_gate():
+                result, metrics = self.fixture.run_publish()
+            pin.assert_not_called()
+            self.assertFalse(any(Path(call.args[0]).is_relative_to(self.root) for call in checks.call_args_list))
+        self.assertEqual(result, published)
+        self.assertTrue(metrics["reused"])
+        self.assertEqual(self.storage(), before)
+        self.assertEqual(git(source, "symbolic-ref", ref), "refs/heads/historical-pages")
+
+    def test_dangling_symbolic_descendant_refuses_rehearsal_with_production_error(self):
+        self.existing_release()
+        record = self.manifest["repositories"][self.project["repositories"][0]["id"]]
+        source = self.root / record["path"]
+        ref = "refs/wiki-publications/" + record["pages"] + "/backup"
+        self.rehearse()
+        receipt = self.path.read_bytes()
+        for kind in ("dangling-symbolic", "symbolic", "loose", "packed", "packed-directory", "packed-and-symbolic"):
+            with self.subTest(kind=kind):
+                sibling = ref.rsplit("/", 1)[0] + "/other"
+                git(source, "update-ref", "--no-deref", "-d", sibling)
+                git(source, "update-ref", "--no-deref", "-d", ref)
+                if kind in {"dangling-symbolic", "symbolic"}:
+                    git(source, "symbolic-ref", ref, "refs/heads/missing" if kind == "dangling-symbolic" else "HEAD")
+                else:
+                    git(source, "update-ref", ref, record["pages"])
+                    if kind.startswith("packed"):
+                        git(source, "pack-refs", "--all")
+                    if kind == "packed-directory":
+                        (source / ".git" / ref.rsplit("/", 1)[0]).mkdir(parents=True, exist_ok=True)
+                    if kind == "packed-and-symbolic":
+                        git(source, "symbolic-ref", sibling, "refs/heads/missing")
+                before = self.storage()
+                remote_refs = dict(self.remote.refs)
+                self.path.write_bytes(receipt)
+                with self.production_gate():
+                    with self.assertRaisesRegex(ContractError, "Cannot create publication pin") as production:
+                        self.fixture.run_publish()
+                self.assertEqual(self.storage(), before)
+                self.path.unlink()
+                state = rehearse_publication.state_snapshot(self.root)
+                with self.assertRaisesRegex(ContractError, "Cannot create publication pin",
+                                           msg=str(production.exception)) as rehearsal:
+                    self.rehearse()
+                # Both name the same repository and pin; Git's wording after it
+                # varies by version, so only production carries it verbatim.
+                target = ": " + ref.rsplit("/", 1)[0] + ": "
+                self.assertIn(target, str(production.exception))
+                self.assertIn(target, str(rehearsal.exception))
+                self.assertEqual(str(rehearsal.exception).split(target)[0],
+                                 str(production.exception).split(target)[0])
+                self.assertEqual(self.storage(), before)
+                self.assertEqual(self.remote.refs, remote_refs)
+                self.assertEqual(rehearse_publication.state_snapshot(self.root), state)
+                self.assertFalse(self.path.exists())
+                self.assertFalse((self.root / rehearse_publication.TEMP_RECORD).exists())
+                if kind == "dangling-symbolic":
+                    self.assertEqual(git(source, "symbolic-ref", ref), "refs/heads/missing")
+
+    def test_rebased_release_checks_actual_target_and_leaves_manifest_pin_alone(self):
+        self.existing_release()
+        repo = self.project["repositories"][0]
+        topic = repo["id"]
+        record = self.manifest["repositories"][topic]
+        source = self.root / record["path"]
+        old = publication.published(self.root)["repositories"][topic]["pages"]
+        restore = publication_git.commit(source, git(source, "rev-parse", old + "^{tree}"), old, "Remote restore")
+        self.remote.refs[(repo["github_name"], "gh-pages")] = restore
+        ref = "refs/wiki-publications/" + record["pages"]
+        git(source, "update-ref", ref, old)
+        before = self.storage()
+        self.rehearse()
+        self.assertEqual(self.storage(), before)
+        with self.production_gate():
+            result, _ = self.fixture.run_publish()
+        self.assertNotEqual(result["repositories"][topic]["pages"], record["pages"])
+        self.assertEqual(result["repositories"][topic]["old_pages"], restore)
+        self.assertEqual(git(source, "show-ref", "--verify", "--hash", ref), old)
+
     def abandoned_temp(self, *, marked=True):
         temporary = Path(tempfile.gettempdir()).resolve() / ("hhwiki-rehearsal-" + uuid4().hex)
         temporary.mkdir()
@@ -486,7 +698,8 @@ class RehearsalTests(unittest.TestCase):
         publication.save(pending, {"phase": "complete"})
         before = pending.read_bytes()
 
-        def simulate(root, project, manifest, host, progress, timing, gate):
+        def simulate(root, project, manifest, host, progress, timing, gate, pin_source_root, provenance):
+            self.assertEqual(pin_source_root, self.root)
             self.assertEqual(len(gate["rehearsal"]["remote_refs"]), 6)
             with timing.lock:
                 timing["repositories"]["hub"] = publication.repository_timing(timing.lock)
@@ -514,7 +727,7 @@ class RehearsalTests(unittest.TestCase):
         self.assertTrue(all(ref["commit"] is None for ref in receipt["remote_refs"]))
         self.assertTrue(receipt["created_utc"].endswith("+00:00"))
 
-    def test_interrupted_receipt_promotion_abandon_rehearse_and_fresh_publish(self):
+    def test_interrupted_receipt_promotion_archive_does_not_qualify_for_fresh_rehearsal(self):
         self.existing_release()
         self.rehearse()
         pointer = self.root / "publications/latest.json"
@@ -542,14 +755,14 @@ class RehearsalTests(unittest.TestCase):
         with self.production_gate():
             with self.assertRaisesRegex(ContractError, "rehearsal receipt is missing"):
                 self.fixture.run_publish()
-        self.rehearse()
-        with self.production_gate():
-            published, _ = self.fixture.run_publish()
-        self.assertEqual(published["status"], "published")
-        self.assertNotEqual(receipt.read_bytes(), orphan)
-        self.assertEqual(publication.load(pointer)["release_id"], self.manifest["release_id"])
-        self.assertEqual(history.read_bytes(), before[1])
-        self.assertEqual(publication.load(self.root / ".local/publication/pending.json")["phase"], "complete")
+        refs = dict(self.fixture.host.refs)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            self.rehearse()
+        self.assertEqual(self.fixture.host.refs, refs)
+        self.assertFalse(receipt.exists())
+        self.assertEqual((pointer.read_bytes(), history.read_bytes()), before)
+        self.assertEqual((self.root / result["archive"] / "publication.json").read_bytes(), orphan)
+        self.assertFalse((self.root / ".local/publication/pending.json").exists())
 
     def test_failed_rehearsal_restores_journal_and_writes_no_receipt(self):
         pending = self.root / ".local/publication/pending.json"
