@@ -43,66 +43,6 @@ def preflight(root, project):
         owned(path)
 
 
-def project_topic(candidate, repo, writer, projection):
-    """Write mutable entrypoints around the already located immutable objects."""
-    logical = repo.get("logical_topic", repo["id"])
-    topic = candidate / logical
-    release_id = projection.release_id
-    config_key = logical + f"/site/releases/{release_id}.json"
-    configuration = projection.payloads[config_key].read()
-    fonts = json.loads(configuration).get("fonts")
-    config_ref = projection.configurations[logical]
-    if config_ref["path"].startswith("https://") or repo["id"] != logical:
-        if not config_ref["path"].startswith("https://"):
-            base = json.loads((topic / "reader.json").read_bytes())["topics"]
-            config_ref = {**config_ref, "path": next(item["base"] for item in base if item["id"] == logical) + config_ref["path"]}
-        configuration = json_bytes({"schema_version": 1, "kind": "wiki-release-reference",
-                                    "release_id": release_id, "target": config_ref})
-        writer.add(f"site/releases/{release_id}.json", configuration)
-    writer.add("site/reader.json", configuration)
-    reference_paths = []
-    for source in sorted(topic.rglob("*")):
-        if not source.is_file():
-            continue
-        name = source.relative_to(topic).as_posix()
-        if name.startswith("reference/") and source.suffix == ".md":
-            data = source.read_bytes().replace(("release=" + projection.candidate_id).encode(),
-                                               ("release=" + release_id).encode())
-            writer.add(name, data)
-            reference_paths.append(name)
-        elif name in {"index.html", "404.html", ".nojekyll"} or re.fullmatch(r"groups/[a-z][a-z0-9-]*/index\.html", name):
-            data = source.read_bytes()
-            # Protect the shared font URL while rewriting a rolled front's
-            # own routes, including when the logical topic is the hub itself.
-            if fonts and source.suffix == ".html":
-                original_fonts = json.loads((topic / "reader.json").read_bytes())["fonts"]
-                from html import escape
-                data = data.replace(escape(original_fonts["base"], quote=True).encode(), b"__WIKI_FONT_BASE__")
-            if repo["id"] != logical and source.suffix == ".html":
-                from urllib.parse import urlsplit
-                config = json.loads((topic / "reader.json").read_bytes())
-                base = next(item["base"] for item in config["topics"] if item["id"] == logical)
-                data = data.replace(urlsplit(base).path.encode(), urlsplit(projection.entrypoints[logical]).path.encode())
-            if fonts and source.suffix == ".html":
-                data = data.replace(b"__WIKI_FONT_BASE__", escape(fonts["base"], quote=True).encode())
-            writer.add("site/" + name, data)
-    writer.add("site/reader.js", (Path(__file__).parent / "release_bootstrap.js").read_bytes().replace(b"\r\n", b"\n"))
-    writer.add("site/reader.css", b"/* The release loader selects the versioned stylesheet. */\n")
-    links = [f"# {repo['title']} reference", "", f"Release: `{release_id}`.", "",
-             "Selected extracted facts. Runtime gameplay verification is unknown unless a scoped check is shown.", ""]
-    links += [f"- [{name.removeprefix('reference/')}]({name.removeprefix('reference/')})" for name in reference_paths]
-    writer.add("reference/index.md", ("\n".join(links) + "\n").encode())
-    if "README.md" in writer.previous:
-        project_name = json.loads((topic / "reader.json").read_bytes()).get("project", "Unofficial game reference")
-        writer.add("README.md", (f"# {project_name}\n\n## {repo['title']}\n\n{repo['coverage']}.\n\n"
-            "An unofficial community project. Not affiliated with or endorsed by Virtual Matrix Studio.\n\n"
-            "Browse the [generated reference](reference/index.md) for selected captured data; "
-            "serialized facts are not runtime-verified gameplay claims.\n\n"
-            f"Current prepared release: `{release_id}`. Publication is tracked separately by the hub.\n\n"
-            "Generated files are recorded in `.wiki-output.json`. Put authored explanations outside "
-            "the generated `site/` and `reference/` directories.\n").encode())
-
-
 def read(root, release_id):
     if not re.fullmatch(r"[0-9a-f]{64}", release_id):
         raise ContractError("Invalid release identity")
@@ -136,6 +76,21 @@ def verify(root, value, *, check_checkout=True, reviewed_project=None):
             if extraction.file_hash(path / OWNER_FILE) != record["ownership_sha256"]:
                 raise ContractError(f"Release ownership receipt differs: {topic}")
             owned(path)
+
+
+def inventory(root, project):
+    """Caller holds the workspace lock; validate records before allocation."""
+    from . import capacity_inventory, publication
+    pointer = root / "releases/latest.json"
+    identity = json.loads(pointer.read_text(encoding="utf-8"))["release_id"] if pointer.exists() else None
+    manifest = read(root, identity) if identity else None
+    if manifest:
+        repositories = physical.repositories(project, manifest.get("physical"))
+        if set(manifest["repositories"]) != {repo["id"] for repo in repositories}:
+            raise ContractError("Release outputs differ from the physical registry")
+        verify(root, manifest, reviewed_project=project)
+    published = publication.published(root)
+    return capacity_inventory.read(root, project, manifest, published)
 
 
 def resume(root, journal):
@@ -190,10 +145,10 @@ def run(root, project, candidate):
         return result, {"reused": True}
     preflight(root, project)
     workspace.checkout_lock(root, project, check=True)
-    from . import capacity_inventory, publication
-    inventory = capacity_inventory.read(root, project)
+    from . import publication
+    committed = inventory(root, project)
     previous = publication.published(root)
-    prepared, outputs = release_prepare.prepare(root, project, candidate, release_id, inventory, previous, templates)
+    prepared, outputs = release_prepare.prepare(root, project, candidate, release_id, committed, previous, templates)
     stage = staging.child(Path(root) / ".local/rs", Path(root) / prepared["stage"])
     try:
         if contract() != inputs["contract"]:

@@ -94,14 +94,14 @@ def audit(candidate, projection, owner):
 
 
 def check(root):
-    from wikibuild import capacity, capacity_inventory, capacity_projection, manifest, reader, release
+    from wikibuild import capacity, capacity_projection, manifest, reader, release
     from wikibuild.storage import writer_lock
 
     started = time.perf_counter()
     tracemalloc.start()
     with writer_lock(root):
         project = manifest.load(root)
-        inventory = capacity_inventory.read(root, project)
+        inventory = release.inventory(root, project)
         current = release.read(root, inventory.release_id)
         candidate = reader.candidate_path(root / ".local", current["reader_candidate"])
         same = capacity_projection.build(candidate, inventory.release_id, project["github_owner"],

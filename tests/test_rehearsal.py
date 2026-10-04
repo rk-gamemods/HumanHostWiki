@@ -17,7 +17,7 @@ from uuid import uuid4
 import test_publication
 from tests._support import fixture_dir, remove_tree
 from tools import rehearse_publication
-from wikibuild import capacity, capacity_inventory, github_pages, publication, publication_git, publish_gate, workspace
+from wikibuild import capacity, github_pages, publication, publication_git, publish_gate, release, workspace
 from wikibuild.storage import ContractError, git
 
 GATE_CHECK = publish_gate.check
@@ -414,7 +414,7 @@ class RehearsalTests(unittest.TestCase):
     def test_mixed_existing_publication_and_one_new_destination_receipt_passes_production_gate(self):
         self.fixture.run_publish()
         previous = publication.published(self.root)
-        inventory = capacity_inventory.read(self.root, self.project)
+        inventory = release.inventory(self.root, self.project)
         extra = {"id": "extra", "title": "Extra", "owns": [], "coverage": "Extra reference",
                  "role": "topic", "path": "repositories/extra", "github_name": "Wiki-extra"}
         self.project["repositories"].append(extra)
@@ -433,7 +433,7 @@ class RehearsalTests(unittest.TestCase):
                             partitions=(*inventory.partitions, capacity.partition(topic, 0)))
         with patch.object(workspace, "repositories", side_effect=lambda root, project, allocated=None:
                           publication.physical.repositories(project, allocated or expanded)), \
-                patch.object(capacity_inventory, "read", return_value=inventory):
+                patch.object(release, "inventory", return_value=inventory):
             self.fixture.make_release()
         self.manifest = self.fixture.manifest
         self.path = publish_gate.receipt_path(self.root, self.manifest["release_id"])

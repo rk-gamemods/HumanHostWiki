@@ -1,9 +1,8 @@
 """Read committed wiki ownership and measure reachable Git objects for allocation."""
 
 from dataclasses import dataclass
-import json
 
-from . import bounded, capacity, ownership, physical, publication, release
+from . import bounded, capacity, ownership, physical
 from .storage import ContractError, git, within
 
 # Reachable-object enumeration can span all retained releases and packed history.
@@ -50,19 +49,16 @@ def history_size(path, refs):
         return {"history_bytes": total, "objects": count, "blobs": blobs, "largest_blob_bytes": largest}
 
 
-def read(root, project):
-    """Caller holds the workspace lock; read committed physical ownership only."""
-    pointer = root / "releases/latest.json"
-    identity = json.loads(pointer.read_text(encoding="utf-8"))["release_id"] if pointer.exists() else None
-    manifest = release.read(root, identity) if identity else None
+def read(root, project, manifest, published):
+    """Measure committed ownership from records validated by the coordinator.
+
+    Caller holds the workspace lock. None records describe an unreleased or
+    unpublished baseline; this layer never loads coordinator state itself.
+    """
+    identity = manifest["release_id"] if manifest else None
     topics = tuple(capacity.Topic(repo["id"], repo["github_name"]) for repo in project["repositories"])
     registry = manifest.get("physical") if manifest else None
     repositories = physical.repositories(project, registry)
-    if manifest:
-        if set(manifest["repositories"]) != {repo["id"] for repo in repositories}:
-            raise ContractError("Release outputs differ from the physical registry")
-        release.verify(root, manifest, reviewed_project=project)
-    published = publication.published(root)
     owners = {topic.id: topic for topic in topics}
     partitions, stored = [], []
     for repo in repositories:
@@ -74,7 +70,7 @@ def read(root, project):
             commit = git(path, "rev-parse", "HEAD")
             owner, _ = ownership.committed(path, commit)
         else:
-            if (path / release.OWNER_FILE).exists():
+            if (path / ownership.OWNER_FILE).exists():
                 raise ContractError("Owned outputs exist without a release baseline")
             commit, owner = git(path, "rev-parse", "HEAD"), {"files": {}}
         refs = [commit]
