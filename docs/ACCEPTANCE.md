@@ -136,10 +136,12 @@ disposable child clones. PR #39 records staging ownership and retires older aban
 attempts while preserving a diagnostic attempt and unknown files.
 
 PR #42 fixes #23/#24 by splitting reader helpers and centralizing pipeline
-contract construction. The coordinator reports #34 (legacy rehearsal pins) and
-#22 (release/allocation coupling) in flight, not merged. Open backlog
-includes #26 (remaining complexity hotspots) and #40 (staging tombstones and
-process-death tests). The [architecture review](ARCHITECTURE.md#architecture-review-2026-10-03)
+contract construction. PRs #44, #45 and #46 fix #26 by splitting the remaining
+complexity hotspots. PR #47 fixes #22: allocation receives committed inventory
+records, and five recorded import exceptions are gone. PR #48 fixes #40 with
+staging registration and retirement records and process-death tests. PR #49
+fixes #34: a publication pin counts as owned lineage only when a receipt
+committed at HEAD names it. The [architecture review](ARCHITECTURE.md#architecture-review-2026-10-03)
 groups the remaining boundaries and names their owners. Test proof does not
 establish live GitHub availability.
 
