@@ -297,26 +297,29 @@ def check_derived_gaps(root, run, expected, contracts, complete):
             raise ValueError(f"{label} gap count differs: {key}; expected {expected[key]}, found {actual[key]}")
 
 
-def check(root, source, complete=False):
-    pointer = json.loads((root / ".local/extraction-latest.json").read_text())
-    run = json.loads((root / f".local/extractions/runs/{pointer['run_id']}.json").read_text())
-    data = (root / run["records"]["path"]).read_bytes()
-    if hashlib.sha256(data).hexdigest() != run["records"]["sha256"]:
-        raise ValueError("Selected facts do not match their recorded hash")
-    rows = [json.loads(line) for line in data.splitlines()]
-    sample, families, components_by_object = [], defaultdict(list), defaultdict(set)
+def _sample_families(families, complete):
+    sample = []
+    for _, candidates in sorted(families.items()):
+        sample.extend(candidates if complete else
+                      (candidates[index] for index in sorted({0, len(candidates) // 2, len(candidates) - 1})))
+    return sample
+
+
+def _build_check_samples(rows, complete):
+    families, components_by_object = defaultdict(list), defaultdict(set)
     summaries = [row for row in rows if row.get("fact_scope") == "catalog-type-summary"]
     prefabs = {row["source_id"]: row for row in rows if row.get("fact_scope") == "referenced-prefab-identity"}
-    prefab_count = len(prefabs)
     for row in rows:
         if "component" in row:
             for identity in row.get("game_objects", []):
                 components_by_object[identity].add(row["source_id"])
         if row.get("fact_scope") not in {"catalog-type-summary", "referenced-prefab-identity", "source-enumeration"}:
             families[(row["kind"], row.get("component", {}).get("class", ""))].append(row)
-    for _, candidates in sorted(families.items()):
-        sample.extend(candidates if complete else
-                      (candidates[index] for index in sorted({0, len(candidates) // 2, len(candidates) - 1})))
+    sample = _sample_families(families, complete)
+    return sample, summaries, prefabs, components_by_object
+
+
+def _build_pinned_evidence(source, run, sample, prefabs):
     requested = {}
     for row in sample:
         identity = row["source_id"].split("/tag/", 1)[0] if row["kind"] == "loot-tag" else row["evidence"][0]["object"]
@@ -337,111 +340,140 @@ def check(root, source, complete=False):
                 hashes[raw["id"]] = sha
     terrain_records = [objects[row["evidence"][0]["object"]] for row in sample if row.get("component") == TERRAIN_COMPONENT]
     mining = mineable_relationships(source, run["source_commit"], terrain_records) if terrain_records else {}
+    return objects, hashes, mining
+
+
+def _check_loot_eligibility(row, objects):
+    manager, tag = row["source_id"].split("/tag/", 1)
+    raw = objects[manager]
+    table = next(t for t in raw["fields"]["_All_Loot_Icons"] if t["_spawnLootTag"] == tag)
+    expected = [ref["m_AssetGUID"] for ref in table["_all_Icons_Ref"]]
+    actual = [link["guid"] for link in row["relationships"]]
+    if expected != actual:
+        raise ValueError(f"Loot eligibility differs: {row['source_id']}")
+    return 1
+
+
+def _check_serialized_facts(row, raw, mining, derived_gaps, derived_contracts):
+    checks = 0
+    if row["kind"] == "loot-table" and "component" not in row:
+        if raw["fields"]["_LootSpawnRates"] != row["facts"]["rates"]:
+            raise ValueError(f"Loot rates differ: {row['source_id']}")
+        checks += 1
+    else:
+        component = row.get("component", {})
+        derived = False
+        if component.get("assembly") == "Language" and component.get("class") in TEXT_CLASSES:
+            expected, fields, gaps = english_text(raw)
+            derived, topic = True, "technical-reference"
+        elif component == {"assembly": "UI", "class": "DynamicToolTipSet"}:
+            expected, links, fields, gaps = tooltip_references(raw)
+            if sorted(links, key=lambda link: link["source_field"]) != sorted(row["relationships"], key=lambda link: link["source_field"]):
+                raise ValueError(f"Tooltip references differ: {row['source_id']}")
+            derived, topic = True, "items-equipment"
+            checks += len(links)
+        elif component == TERRAIN_COMPONENT:
+            links, evidence, gaps = mining[raw["id"]]
+            if sorted(links, key=lambda link: link["source_field"]) != sorted(row["relationships"], key=lambda link: link["source_field"]):
+                raise ValueError(f"Mineable-item relationships differ: {row['source_id']}")
+            canonical = lambda locator: json.dumps(locator, sort_keys=True)
+            if sorted(map(canonical, evidence)) != sorted(map(canonical, row["evidence"][1:])):
+                raise ValueError(f"Mineable-item evidence differs: {row['source_id']}")
+            topic, cls = "biomes-resources", "Terrain_Block_Info"
+            derived_contracts[(topic, cls)] = {"mineable-item-gap"}
+            for code, path in gaps:
+                derived_gaps[(code, topic, cls + re.sub(r"/\d+(?=/|$)", "/*", path))] += 1
+            expected = raw["fields"]
+            checks += len(links) + 1
+        else:
+            expected = at(raw["fields"], row.get("source_field_base", ""))
+        if derived:
+            if expected != row["facts"]:
+                raise ValueError(f"Derived text facts differ: {row['source_id']}")
+            if fields != set(row["evidence"][0]["fields"]):
+                raise ValueError(f"Derived text evidence differs: {row['source_id']}")
+            cls = component["class"]
+            derived_contracts[(topic, cls)] = DERIVED_GAP_CODES
+            for code, path in gaps:
+                pattern = cls + re.sub(r"/\d+(?=/|$)", "/*", path)
+                derived_gaps[(code, topic, pattern)] += 1
+            checks += 2
+        if component == {"assembly": "Build_System", "class": "ScenePropSpawner"}:
+            expected = dict(expected)
+            for field, table in (("ScenePropsInfo", "PropsRefNoRepeat"), ("ScenePropsInfoBig", "PropsRefNoRepeatBig")):
+                if field in row["facts"]:
+                    expected[field] = scene_prop_counts(raw["fields"][field], raw["fields"][table])
+                    if "/" + field not in row["evidence"][0]["fields"]:
+                        raise ValueError("Composition count lacks its source-array evidence")
+        checks += compare_selected(expected, row["facts"], row["source_id"])
+    return checks
+
+
+def _check_row_evidence(row, raw, hashes):
+    checks = 0
+    for evidence in row["evidence"]:
+        if "record_sha256" in evidence:
+            if evidence["record_sha256"] != hashes[evidence["object"]]:
+                raise ValueError(f"Record hash differs: {evidence['object']}")
+            checks += 1
+    if "component" in row:
+        if any(raw["script"][key] != value for key, value in row["component"].items()):
+            raise ValueError(f"Component identity differs: {row['source_id']}")
+        checks += 1
+        component = row.get("component", {})
+        for link in row["relationships"]:
+            if link["predicate"] in {"defined-by", "coded-value"}:
+                continue
+            if component == TERRAIN_COMPONENT and link["predicate"] == "mineable-item":
+                continue  # The complete derived link set was checked above.
+            ref = next((ref for ref in raw.get("references", []) if ref["field"] == link["source_field"]), {})
+            actual_targets = sorted(ref.get("targets", [ref["target"]] if "target" in ref else []))
+            status = ref.get("status", "unknown") if ref else "missing"
+            if link.get("target_source_ids", []) != actual_targets or link.get("status") != status:
+                raise ValueError(f"Reference differs: {row['source_id']} {link['source_field']}")
+            if link.get("guid") != ref.get("guid"):
+                raise ValueError(f"Reference GUID differs: {row['source_id']} {link['source_field']}")
+            checks += 1
+    return checks
+
+
+def _check_row_names(row, objects):
+    checks = 0
+    if row["kind"] == "item" and row["name_status"] == "english":
+        names = {entry["_ItemName"] for evidence in row["evidence"][1:]
+                 if "object" in evidence
+                 for entry in objects[evidence["object"]]["fields"]["_Infos"]
+                 if entry["languageType"] == 2 and entry.get("_ItemName")}
+        if names != {row["name"]}:
+            raise ValueError(f"English name differs: {row['source_id']}")
+        checks += 1
+    elif row.get("name_status") == "english":
+        names = {entry["text"] for evidence in row["evidence"][1:]
+                 if "object" in evidence
+                 for entry in objects[evidence["object"]]["fields"]["_Infos"]
+                 if entry["languageType"] == 2 and entry.get("text")}
+        if names != {row["name"]}:
+            raise ValueError(f"Definition name differs: {row['source_id']}")
+        checks += 1
+    return checks
+
+
+def _build_sample_checks(sample, objects, hashes, mining):
     checks = 0
     derived_gaps, derived_contracts = Counter(), {}
     for row in sample:
         if row["kind"] == "loot-tag":
-            manager, tag = row["source_id"].split("/tag/", 1)
-            raw = objects[manager]
-            table = next(t for t in raw["fields"]["_All_Loot_Icons"] if t["_spawnLootTag"] == tag)
-            expected = [ref["m_AssetGUID"] for ref in table["_all_Icons_Ref"]]
-            actual = [link["guid"] for link in row["relationships"]]
-            if expected != actual:
-                raise ValueError(f"Loot eligibility differs: {row['source_id']}")
-            checks += 1
+            checks += _check_loot_eligibility(row, objects)
             continue
         raw = objects[row["evidence"][0]["object"]]
-        if row["kind"] == "loot-table" and "component" not in row:
-            if raw["fields"]["_LootSpawnRates"] != row["facts"]["rates"]:
-                raise ValueError(f"Loot rates differ: {row['source_id']}")
-            checks += 1
-        else:
-            component = row.get("component", {})
-            derived = False
-            if component.get("assembly") == "Language" and component.get("class") in TEXT_CLASSES:
-                expected, fields, gaps = english_text(raw)
-                derived, topic = True, "technical-reference"
-            elif component == {"assembly": "UI", "class": "DynamicToolTipSet"}:
-                expected, links, fields, gaps = tooltip_references(raw)
-                if sorted(links, key=lambda link: link["source_field"]) != sorted(row["relationships"], key=lambda link: link["source_field"]):
-                    raise ValueError(f"Tooltip references differ: {row['source_id']}")
-                derived, topic = True, "items-equipment"
-                checks += len(links)
-            elif component == TERRAIN_COMPONENT:
-                links, evidence, gaps = mining[raw["id"]]
-                if sorted(links, key=lambda link: link["source_field"]) != sorted(row["relationships"], key=lambda link: link["source_field"]):
-                    raise ValueError(f"Mineable-item relationships differ: {row['source_id']}")
-                canonical = lambda locator: json.dumps(locator, sort_keys=True)
-                if sorted(map(canonical, evidence)) != sorted(map(canonical, row["evidence"][1:])):
-                    raise ValueError(f"Mineable-item evidence differs: {row['source_id']}")
-                topic, cls = "biomes-resources", "Terrain_Block_Info"
-                derived_contracts[(topic, cls)] = {"mineable-item-gap"}
-                for code, path in gaps:
-                    derived_gaps[(code, topic, cls + re.sub(r"/\d+(?=/|$)", "/*", path))] += 1
-                expected = raw["fields"]
-                checks += len(links) + 1
-            else:
-                expected = at(raw["fields"], row.get("source_field_base", ""))
-            if derived:
-                if expected != row["facts"]:
-                    raise ValueError(f"Derived text facts differ: {row['source_id']}")
-                if fields != set(row["evidence"][0]["fields"]):
-                    raise ValueError(f"Derived text evidence differs: {row['source_id']}")
-                cls = component["class"]
-                derived_contracts[(topic, cls)] = DERIVED_GAP_CODES
-                for code, path in gaps:
-                    pattern = cls + re.sub(r"/\d+(?=/|$)", "/*", path)
-                    derived_gaps[(code, topic, pattern)] += 1
-                checks += 2
-            if component == {"assembly": "Build_System", "class": "ScenePropSpawner"}:
-                expected = dict(expected)
-                for field, table in (("ScenePropsInfo", "PropsRefNoRepeat"), ("ScenePropsInfoBig", "PropsRefNoRepeatBig")):
-                    if field in row["facts"]:
-                        expected[field] = scene_prop_counts(raw["fields"][field], raw["fields"][table])
-                        if "/" + field not in row["evidence"][0]["fields"]:
-                            raise ValueError("Composition count lacks its source-array evidence")
-            checks += compare_selected(expected, row["facts"], row["source_id"])
-        for evidence in row["evidence"]:
-            if "record_sha256" in evidence:
-                if evidence["record_sha256"] != hashes[evidence["object"]]:
-                    raise ValueError(f"Record hash differs: {evidence['object']}")
-                checks += 1
-        if "component" in row:
-            if any(raw["script"][key] != value for key, value in row["component"].items()):
-                raise ValueError(f"Component identity differs: {row['source_id']}")
-            checks += 1
-            for link in row["relationships"]:
-                if link["predicate"] in {"defined-by", "coded-value"}:
-                    continue
-                if component == TERRAIN_COMPONENT and link["predicate"] == "mineable-item":
-                    continue  # The complete derived link set was checked above.
-                ref = next((ref for ref in raw.get("references", []) if ref["field"] == link["source_field"]), {})
-                actual_targets = sorted(ref.get("targets", [ref["target"]] if "target" in ref else []))
-                status = ref.get("status", "unknown") if ref else "missing"
-                if link.get("target_source_ids", []) != actual_targets or link.get("status") != status:
-                    raise ValueError(f"Reference differs: {row['source_id']} {link['source_field']}")
-                if link.get("guid") != ref.get("guid"):
-                    raise ValueError(f"Reference GUID differs: {row['source_id']} {link['source_field']}")
-                checks += 1
-        if row["kind"] == "item" and row["name_status"] == "english":
-            names = {entry["_ItemName"] for evidence in row["evidence"][1:]
-                     if "object" in evidence
-                     for entry in objects[evidence["object"]]["fields"]["_Infos"]
-                     if entry["languageType"] == 2 and entry.get("_ItemName")}
-            if names != {row["name"]}:
-                raise ValueError(f"English name differs: {row['source_id']}")
-            checks += 1
-        elif row.get("name_status") == "english":
-            names = {entry["text"] for evidence in row["evidence"][1:]
-                     if "object" in evidence
-                     for entry in objects[evidence["object"]]["fields"]["_Infos"]
-                     if entry["languageType"] == 2 and entry.get("text")}
-            if names != {row["name"]}:
-                raise ValueError(f"Definition name differs: {row['source_id']}")
-            checks += 1
-    if derived_contracts:
-        check_derived_gaps(root, run, derived_gaps, derived_contracts, complete)
-        checks += 1
+        checks += _check_serialized_facts(row, raw, mining, derived_gaps, derived_contracts)
+        checks += _check_row_evidence(row, raw, hashes)
+        checks += _check_row_names(row, objects)
+    return checks, derived_gaps, derived_contracts
+
+
+def _build_index_checks(source, run, prefabs, components_by_object, objects, hashes, summaries):
+    checks = 0
     totals = Counter()
     for record, _ in raw_records(source, run["source_commit"], "Catalog/views/object-index.jsonl"):
         totals[(record["type"], record.get("assembly"), record.get("class"))] += 1
@@ -475,6 +507,24 @@ def check(root, source, complete=False):
         if totals[(facts["engine_type"], facts["assembly"], facts["class"])] != facts["record_count"]:
             raise ValueError(f"Technical type count differs: {row['name']}")
         checks += 1
+    return checks
+
+
+def check(root, source, complete=False):
+    pointer = json.loads((root / ".local/extraction-latest.json").read_text())
+    run = json.loads((root / f".local/extractions/runs/{pointer['run_id']}.json").read_text())
+    data = (root / run["records"]["path"]).read_bytes()
+    if hashlib.sha256(data).hexdigest() != run["records"]["sha256"]:
+        raise ValueError("Selected facts do not match their recorded hash")
+    rows = [json.loads(line) for line in data.splitlines()]
+    sample, summaries, prefabs, components_by_object = _build_check_samples(rows, complete)
+    prefab_count = len(prefabs)
+    objects, hashes, mining = _build_pinned_evidence(source, run, sample, prefabs)
+    checks, derived_gaps, derived_contracts = _build_sample_checks(sample, objects, hashes, mining)
+    if derived_contracts:
+        check_derived_gaps(root, run, derived_gaps, derived_contracts, complete)
+        checks += 1
+    checks += _build_index_checks(source, run, prefabs, components_by_object, objects, hashes, summaries)
     from check_coded_values import check as check_codes
     coded = check_codes(source, run["source_commit"], rows)
     return {"snapshot_id": run["snapshot_id"], "observations_checked": len(sample), "assertions": checks,

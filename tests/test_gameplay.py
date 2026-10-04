@@ -1,11 +1,53 @@
 """Acquisition joins and reachable least fixed points on model-shaped rows."""
 
 import copy
+import hashlib
 import json
 import random
 import unittest
+from pathlib import Path
 
-from wikibuild.gameplay import graph
+from wikibuild.gameplay import _rank_mining_sites, graph
+
+
+class MiningSiteRankingTests(unittest.TestCase):
+    def test_highest_chance_wins_then_earliest_ring_including_zero(self):
+        biomes = {
+            "late": {"ring": 3, "mined": [
+                {"item": "ore", "chance_per_hit": 0.8},
+                {"item": "tie", "chance_per_hit": 0.5}]},
+            "start": {"ring": 0, "mined": [
+                {"item": "ore", "chance_per_hit": 0.2},
+                {"item": "tie", "chance_per_hit": 0.5}]},
+            "middle": {"ring": 2, "mined": [
+                {"item": "ore", "chance_per_hit": 0.8},
+                {"item": "tie", "chance_per_hit": 0.5}]},
+        }
+        before = copy.deepcopy(biomes)
+        expected = ({"ore": (-0.8, 2), "tie": (-0.5, 0)}, {})
+        self.assertEqual(_rank_mining_sites(biomes, None), expected)
+        self.assertEqual(_rank_mining_sites(dict(reversed(list(biomes.items()))), None), expected)
+        self.assertEqual(biomes, before)
+
+    def test_base_uses_maximum_per_item_and_unlocated_sites_do_not_rank(self):
+        biomes = {
+            "base": {"ring": None, "mined": [
+                {"item": "ore", "chance_per_hit": 0.1},
+                {"item": "ore", "chance_per_hit": 0.9},
+                {"item": "ore", "chance_per_hit": 0.4},
+                {"item": "base-only", "chance_per_hit": 0.0}]},
+            "unknown": {"ring": None, "mined": [{"item": "ore", "chance_per_hit": 1.0}]},
+            "ring": {"ring": 1, "mined": [{"item": "ore", "chance_per_hit": 0.2}]},
+        }
+        self.assertEqual(_rank_mining_sites(biomes, "base"),
+                         ({"ore": (-0.2, 1)}, {"ore": 0.9, "base-only": 0}))
+        self.assertEqual(_rank_mining_sites(biomes, None), ({"ore": (-0.2, 1)}, {}))
+
+    def test_empty_biomes_and_empty_mining_lists(self):
+        self.assertEqual(_rank_mining_sites({}, None), ({}, {}))
+        self.assertEqual(_rank_mining_sites({
+            "base": {"ring": None, "mined": []},
+            "ring": {"ring": 0, "mined": []}}, "base"), ({}, {}))
 
 
 def link(predicate, target, field=""):
@@ -110,6 +152,19 @@ def near_spawn_fixture():
 
 
 class GameplayTests(unittest.TestCase):
+    def test_complete_graph_json_characterization(self):
+        cases = [(fixture(), ()), (near_spawn_fixture(), ()),
+                 (fixture(), ("merchant", "mined", "harvested", "looted", "crafted", "dismantled")),
+                 ([], ())]
+        actual = [hashlib.sha256(json.dumps(graph(rows, disabled), ensure_ascii=False,
+                                           allow_nan=False).encode()).hexdigest()
+                  for rows, disabled in cases]
+        self.assertEqual(actual, [
+            "080fffc120e9bf2ffc765a60286a8bccca5404b3b6dffdde0830873ad06ba275",
+            "61715eb222c205ebc4ab83d8b3d59a622a58281e69709377f957ea3dfc0c9a59",
+            "fa97f754c6689e8fe0fd69f8e4cfe0fc01313616324544923fc12a17c2c7e2b4",
+            "51c47c2aa2ac311e8b3a34e921dce1ebc3378c52387cc1279ba0b60f69dad639"])
+
     def test_disabled_merchant_source_does_not_seed_reachability(self):
         rows = fixture()
         active = graph(rows)
