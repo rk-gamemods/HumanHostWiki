@@ -48,13 +48,26 @@ class Projection:
                 yield placement, self.payloads[placement.artifact.key].read()
 
 
-def build(candidate, release_id, github_owner, partitions, stored=(), budgets=None, *, entrypoints=None):
-    """Plan leaves, then indexes, then release configurations. No writes or Git calls.
+def classify_reader_path(topic, relative):
+    if re.fullmatch(r"data/[0-9a-f]{64}\.json", relative):
+        return "leaf"
+    if topic == "hub" and re.fullmatch(r"fonts/[0-9a-f]{64}/[A-Za-z0-9-]+\.(?:woff2|css|txt)", relative):
+        return "leaf"
+    if relative in {"reader.js", "reader.css"}:
+        return "runtime"
+    if re.fullmatch(r"snapshots/build-[0-9]+-[0-9a-f]{12}\.json", relative):
+        return "snapshot"
+    if relative == "reader.json":
+        return "configuration"
+    if (relative in {"index.html", "404.html", ".nojekyll"} or
+            re.fullmatch(r"groups/[a-z][a-z0-9-]*/index\.html", relative) or
+            (topic == "hub" and re.fullmatch(r"reference/guides/[a-z][a-z0-9-]*\.md", relative)) or
+            re.fullmatch(r"reference/[a-z][a-z0-9-]*/[0-9]{4,}\.md", relative)):
+        return "mutable"
+    raise ContractError(f"Unexpected reader output for capacity projection: {topic}/{relative}")
 
-    Caller holds the workspace writer lock and provides a committed inventory.
-    This result is preparation only: it neither provisions partitions nor changes
-    live routes. Stable entrypoint rollover is owned by release coordination.
-    """
+
+def prepare_candidate(candidate, release_id, github_owner, entrypoints):
     if capacity.SHA.fullmatch(release_id) is None or re.fullmatch(r"[A-Za-z0-9-]+", github_owner) is None:
         raise ContractError("Invalid release identity or publication namespace")
     candidate = Path(candidate)
@@ -68,47 +81,27 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
     entrypoints = entrypoints or bases
     if set(entrypoints) != set(bases):
         raise ContractError("Entrypoint coverage differs from logical topics")
-    physical = tuple(partitions)
-    prior = tuple(stored)
-    # Validate the complete supplied inventory, including duplicates, before
-    # building lookup maps that could otherwise conceal conflicting ownership.
-    capacity.allocate(topics, physical, prior, (), budgets)
-    located = {value.artifact.key: value for value in prior}
-    committed = set(located)
-    payloads, configurations, created, reused, phases = {}, {}, [], set(), []
-    wanted = set()
+    return candidate, manifest, topics, owners, bases, entrypoints
 
-    def add(topic, name, *, source=None, data=None, metadata=None):
-        sha, size = (metadata["sha256"], metadata["bytes"]) if metadata else (digest(data), len(data))
-        artifact = capacity.Artifact(topic, name, sha, size)
-        value = Payload(artifact, source, data)
-        if artifact.key in payloads and payloads[artifact.key].artifact != artifact:
-            raise ContractError("Conflicting projected object")
-        payloads[artifact.key] = value
-        return artifact
+def add_payload(payloads, topic, name, *, source=None, data=None, metadata=None):
+    sha, size = (metadata["sha256"], metadata["bytes"]) if metadata else (digest(data), len(data))
+    artifact = capacity.Artifact(topic, name, sha, size)
+    value = Payload(artifact, source, data)
+    if artifact.key in payloads and payloads[artifact.key].artifact != artifact:
+        raise ContractError("Conflicting projected object")
+    payloads[artifact.key] = value
+    return artifact
 
-    def allocate(objects):
-        nonlocal physical
-        plan = capacity.allocate(topics, physical, located.values(), objects, budgets)
-        physical = plan.partitions
-        phases.append(plan.inputs_sha256)
-        created.extend(plan.created)
-        # A later level may request a directory already planned by this run.
-        # It still needs one write unless it existed in the committed inventory.
-        reused.update(key for key in plan.reused if key in committed)
-        for placement in plan.placements:
-            located[placement.artifact.key] = placement
-            wanted.add(placement.artifact.key)
+def located_reference(located, by_partition, github_owner, topic, name, sha, size):
+    placement = located.get(topic + "/site/" + name)
+    if placement is None or (placement.artifact.sha256, placement.artifact.bytes) != (sha, size):
+        raise ContractError(f"Snapshot dependency differs from allocated object: {topic}/{name}")
+    if placement.partition == topic:
+        return name
+    part = by_partition[placement.partition]
+    return f"https://{github_owner}.github.io/{part.github_name}/{name}"
 
-    def reference(topic, name, sha, size):
-        placement = located.get(topic + "/site/" + name)
-        if placement is None or (placement.artifact.sha256, placement.artifact.bytes) != (sha, size):
-            raise ContractError(f"Snapshot dependency differs from allocated object: {topic}/{name}")
-        if placement.partition == topic:
-            return name
-        part = by_partition[placement.partition]
-        return f"https://{github_owner}.github.io/{part.github_name}/{name}"
-
+def project_leaves(candidate, manifest, owners, add):
     # Read leaf sizes/hashes from the verified candidate. Keep their paths, not
     # their bytes, while placing dependencies and regenerating parent hashes.
     leaves, snapshots, configs, runtimes = [], [], {}, {topic: {} for topic in owners}
@@ -117,37 +110,30 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
         if topic not in owners:
             raise ContractError("Reader file belongs to an unconfigured topic")
         source = within(candidate, name)
-        if re.fullmatch(r"data/[0-9a-f]{64}\.json", relative):
+        kind = classify_reader_path(topic, relative)
+        if kind == "leaf":
             leaves.append(add(topic, "site/" + relative, source=source, metadata=metadata))
-        elif topic == "hub" and re.fullmatch(r"fonts/[0-9a-f]{64}/[A-Za-z0-9-]+\.(?:woff2|css|txt)", relative):
-            leaves.append(add(topic, "site/" + relative, source=source, metadata=metadata))
-        elif relative in {"reader.js", "reader.css"}:
+        elif kind == "runtime":
             target = f"runtime/{metadata['sha256']}/{relative}"
             leaves.append(add(topic, "site/" + target, source=source, metadata=metadata))
             runtimes[topic][source.suffix[1:]] = (target, metadata)
-        elif re.fullmatch(r"snapshots/build-[0-9]+-[0-9a-f]{12}\.json", relative):
+        elif kind == "snapshot":
             snapshots.append((topic, source, metadata))
-        elif relative == "reader.json":
+        elif kind == "configuration":
             configs[topic] = (source, metadata)
-        elif (relative in {"index.html", "404.html", ".nojekyll"} or
-              re.fullmatch(r"groups/[a-z][a-z0-9-]*/index\.html", relative) or
-              (topic == "hub" and re.fullmatch(r"reference/guides/[a-z][a-z0-9-]*\.md", relative)) or
-              re.fullmatch(r"reference/[a-z][a-z0-9-]*/[0-9]{4,}\.md", relative)):
-            pass  # Mutable shells/reference are owned by the release writer.
-        else:
-            raise ContractError(f"Unexpected reader output for capacity projection: {name}")
+        # Mutable shells/reference are owned by the release writer.
     if set(configs) != set(owners):
         raise ContractError("Reader configuration coverage differs from logical topics")
-    allocate(leaves)
-    by_partition = {part.id: part for part in physical}
+    return leaves, snapshots, configs, runtimes
 
-    def verified(source, metadata):
-        data = source.read_bytes()
-        if (digest(data), len(data)) != (metadata["sha256"], metadata["bytes"]):
-            raise ContractError("Reader metadata changed during capacity projection")
-        return data
+def verified_metadata(source, metadata):
+    data = source.read_bytes()
+    if (digest(data), len(data)) != (metadata["sha256"], metadata["bytes"]):
+        raise ContractError("Reader metadata changed during capacity projection")
+    return data
 
-    fonts = json.loads(verified(*configs["hub"])).get("fonts")
+def project_fonts(manifest, configs, bases, located, by_partition, github_owner):
+    fonts = json.loads(verified_metadata(*configs["hub"])).get("fonts")
     projected_fonts = None
     font_leaves = {name.removeprefix("hub/"): meta for name, meta in manifest["files"].items()
                    if name.startswith("hub/fonts/")}
@@ -165,39 +151,42 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
     elif font_leaves:
         raise ContractError("Font files have no configuration")
     for source, metadata in configs.values():
-        if json.loads(verified(source, metadata)).get("fonts") != fonts:
+        if json.loads(verified_metadata(source, metadata)).get("fonts") != fonts:
             raise ContractError("Topics disagree on the shared font set")
 
+    return projected_fonts
+
+def project_snapshots(snapshots, reference):
     snapshot_data = {}
     for topic, source, metadata in snapshots:
-        snapshot_data[(topic, source.stem)] = release_content.snapshot(verified(source, metadata),
+        snapshot_data[(topic, source.stem)] = release_content.snapshot(verified_metadata(source, metadata),
                                             lambda name, sha, size: reference(topic, name, sha, size))
 
-    def metadata_objects(batch):
-        nonlocal by_partition
-        artifacts = [add(topic, "site/objects/" + digest(data) + ".json", data=data) for topic, data in batch]
-        allocate(artifacts)
-        by_partition = {part.id: part for part in physical}
-        return [{"path": reference(item.topic, item.path.removeprefix("site/"), item.sha256, item.bytes),
-                 "sha256": item.sha256, "bytes": item.bytes} for item in artifacts]
+    return snapshot_data
 
-    def directories(batch):
-        for topic in {topic for topic, _ in batch}:
-            source, metadata = configs[topic]
-            if "shard-directories-v1" not in json.loads(verified(source, metadata)).get("features", []):
-                raise ContractError("Reader runtime does not support shard directories; regenerate the candidate")
-        return metadata_objects(batch)
+def project_metadata_objects(batch, add, allocate, reference):
+    artifacts = [add(topic, "site/objects/" + digest(data) + ".json", data=data) for topic, data in batch]
+    allocate(artifacts)
+    return [{"path": reference(item.topic, item.path.removeprefix("site/"), item.sha256, item.bytes),
+             "sha256": item.sha256, "bytes": item.bytes} for item in artifacts]
 
-    snapshot_data = shard_index.compact(snapshot_data, (budgets or capacity.Budgets()).file_bytes, directories)
+def project_directories(configs, batch, emit):
+    for topic in {topic for topic, _ in batch}:
+        source, metadata = configs[topic]
+        if "shard-directories-v1" not in json.loads(verified_metadata(source, metadata)).get("features", []):
+            raise ContractError("Reader runtime does not support shard directories; regenerate the candidate")
+    return emit(batch)
+
+def project_articles(configs, reference):
     article_data = {}
     for topic, (source, metadata) in configs.items():
-        view = json.loads(verified(source, metadata)).get("external_articles")
+        view = json.loads(verified_metadata(source, metadata)).get("external_articles")
         if view:
             article_data[(topic, "external")] = release_content.indexed(json_bytes(view),
                 lambda name, sha, size, topic=topic: reference(topic, name, sha, size), ("entries",))
-    if article_data:
-        article_data = shard_index.compact(article_data, (budgets or capacity.Budgets()).file_bytes,
-                                          directories, fields=("entries",))
+    return article_data
+
+def project_indexes(snapshot_data, article_data, owners, add):
     indexes, snapshot_objects = [], {topic: {} for topic in owners}
     article_objects = {}
     for (topic, _), data in article_data.items():
@@ -208,9 +197,9 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
         name = "objects/" + digest(data) + ".json"
         indexes.append(add(topic, "site/" + name, data=data))
         snapshot_objects[topic][snapshot] = (name, digest(data), len(data))
-    allocate(indexes)
-    by_partition = {part.id: part for part in physical}
+    return indexes, snapshot_objects, article_objects
 
+def project_configurations(configs, snapshot_objects, article_objects, runtimes, reference, release_id, projected_fonts, entrypoints, bases):
     release_data = {}
     for topic, (source, metadata) in sorted(configs.items()):
         resolved = {snapshot: {"path": reference(topic, name, sha, size), "sha256": sha, "bytes": size}
@@ -221,7 +210,7 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
         if topic in article_objects:
             name, sha, size = article_objects[topic]
             external = {"path": reference(topic, name, sha, size), "sha256": sha, "bytes": size}
-        release_data[topic] = release_content.configuration(verified(source, metadata), release_id, resolved, runtime, external)
+        release_data[topic] = release_content.configuration(verified_metadata(source, metadata), release_id, resolved, runtime, external)
         if projected_fonts:
             value = json.loads(release_data[topic])
             value["fonts"] = projected_fonts
@@ -232,14 +221,75 @@ def build(candidate, release_id, github_owner, partitions, stored=(), budgets=No
                 raise ContractError("Reader runtime does not support entrypoint rollover; regenerate the candidate")
             value["entrypoints"] = entrypoints
             release_data[topic] = json_bytes(value)
-    release_data = capture_catalog.compact(release_data, (budgets or capacity.Budgets()).file_bytes, metadata_objects)
-    releases = [add(topic, f"site/releases/{release_id}.json", data=data) for topic, data in sorted(release_data.items())]
-    allocate(releases)
-    by_partition = {part.id: part for part in physical}
+    return release_data
+
+def release_references(releases, reference):
+    configurations = {}
     for artifact in releases:
         configurations[artifact.topic] = {"path": reference(artifact.topic, artifact.path.removeprefix("site/"),
                                                             artifact.sha256, artifact.bytes),
                                           "sha256": artifact.sha256, "bytes": artifact.bytes}
+    return configurations
+
+
+def build(candidate, release_id, github_owner, partitions, stored=(), budgets=None, *, entrypoints=None):
+    """Plan leaves, then indexes, then release configurations. No writes or Git calls.
+
+    Caller holds the workspace writer lock and provides a committed inventory.
+    This result is preparation only: it neither provisions partitions nor changes
+    live routes. Stable entrypoint rollover is owned by release coordination.
+    """
+    candidate, manifest, topics, owners, bases, entrypoints = prepare_candidate(candidate, release_id, github_owner, entrypoints)
+    physical, prior = tuple(partitions), tuple(stored)
+    # Validate duplicates before lookup maps can conceal conflicting ownership.
+    capacity.allocate(topics, physical, prior, (), budgets)
+    located = {value.artifact.key: value for value in prior}
+    committed, wanted = set(located), set()
+    payloads, created, reused, phases, by_partition = {}, [], set(), [], {}
+
+    def add(topic, name, *, source=None, data=None, metadata=None):
+        return add_payload(payloads, topic, name, source=source, data=data, metadata=metadata)
+
+    def allocate(objects):
+        nonlocal physical, by_partition
+        plan = capacity.allocate(topics, physical, located.values(), objects, budgets)
+        physical = plan.partitions
+        phases.append(plan.inputs_sha256)
+        created.extend(plan.created)
+        # A later level may request a directory already planned by this run.
+        # It still needs one write unless it existed in the committed inventory.
+        reused.update(key for key in plan.reused if key in committed)
+        for placement in plan.placements:
+            located[placement.artifact.key] = placement
+            wanted.add(placement.artifact.key)
+        by_partition = {part.id: part for part in physical}
+
+    def reference(topic, name, sha, size):
+        return located_reference(located, by_partition, github_owner, topic, name, sha, size)
+
+    leaves, snapshots, configs, runtimes = project_leaves(candidate, manifest, owners, add)
+    allocate(leaves)
+    fonts = project_fonts(manifest, configs, bases, located, by_partition, github_owner)
+
+    def metadata_objects(batch):
+        return project_metadata_objects(batch, add, allocate, reference)
+
+    def directories(batch):
+        return project_directories(configs, batch, metadata_objects)
+
+    snapshot_data = project_snapshots(snapshots, reference)
+    snapshot_data = shard_index.compact(snapshot_data, (budgets or capacity.Budgets()).file_bytes, directories)
+    article_data = project_articles(configs, reference)
+    if article_data:
+        article_data = shard_index.compact(article_data, (budgets or capacity.Budgets()).file_bytes, directories, fields=("entries",))
+    indexes, snapshot_objects, article_objects = project_indexes(snapshot_data, article_data, owners, add)
+    allocate(indexes)
+    release_data = project_configurations(configs, snapshot_objects, article_objects, runtimes, reference,
+                                          release_id, fonts, entrypoints, bases)
+    release_data = capture_catalog.compact(release_data, (budgets or capacity.Budgets()).file_bytes, metadata_objects)
+    releases = [add(topic, f"site/releases/{release_id}.json", data=data) for topic, data in sorted(release_data.items())]
+    allocate(releases)
+    configurations = release_references(releases, reference)
     return Projection(manifest["candidate_id"], release_id, physical, tuple(created),
                       tuple(located[key] for key in sorted(wanted)), tuple(sorted(reused)),
                       tuple(phases), payloads, configurations, entrypoints)
