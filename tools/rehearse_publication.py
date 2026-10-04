@@ -272,6 +272,9 @@ def rehearse(root, project, manifest, progress=print):
         # Snapshot every destination of the fresh publication.
         destinations = publish_gate.destinations(root, project, manifest)
         release.verify(root, manifest)
+        # The engine has copied receipts but no wiki Git history. Use the same
+        # committed source evidence production reads, including an empty index.
+        provenance, _ = publication_git.publication_provenance(root)
         with isolated_workspace(root, manifest, progress) as engine, isolated_git_environment():
             paths = {repo["github_name"]: within(engine, manifest["repositories"][repo["id"]]["path"])
                      for repo in physical.repositories(project, manifest.get("physical"))}
@@ -286,7 +289,8 @@ def rehearse(root, project, manifest, progress=print):
                     for (name, branch), sha in sorted(host.observed.items())]
             observations = list(host.destination_observations.values())
             result, _ = publication._run(engine, project, manifest, host, progress, timing,
-                                        {"rehearsal": {"remote_refs": refs, "destination_observations": observations}})
+                                        {"rehearsal": {"remote_refs": refs, "destination_observations": observations}},
+                                        root, provenance)
         if (publish_gate.git(root, "status", "--porcelain=v1", "--untracked-files=all") != before
                 or publish_gate.git(root, "rev-parse", "HEAD") != commit):
             raise ContractError("Rehearsal changed workspace files or commit")

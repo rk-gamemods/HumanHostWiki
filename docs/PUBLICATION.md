@@ -191,9 +191,30 @@ Because their attempt cannot be identified, all rehearsal receipts are invalidat
 completed publication history is preserved. The next publication starts fresh after a new rehearsal
 against current refs; preparation may adopt this workspace's previously published
 lineage, but only when it matches the rehearsed refs. Before the first completed
-publication, Pages lineage must start at a locally pinned publication root; main
-must be an ancestor of the selected release. If the Pages parent changed,
-its exact history is checked again.
+publication, Pages lineage must start at a locally pinned publication root with
+durable publication provenance; main must be an ancestor of the selected release.
+If the Pages parent changed, its exact history is checked again.
+
+Run `py -3 wiki.py publication-pins` for a read-only list of unprovenanced pins
+(destination, ref, commit and exact `retire_command`), including dangling symbolic
+refs with a null commit and their symbolic target. Ownership requires a hash-valid
+completed publication receipt in `publications/*.json` whose bytes match the blob
+at `HEAD:publications/<id>.json`, naming that destination and commit, including
+adopted `old_pages` and recovery; saved or abandoned journals never qualify.
+Committed receipts are trusted as reviewed history; the residual risk of someone
+committing a simulated receipt is accepted and must be caught in review.
+After reviewing and confirming a pin is
+disposable, run its reported `git -C '<destination-path>' update-ref --no-deref -d '<ref>' <commit>`
+from the workspace root; symbolic refs use the same command without `<commit>`.
+The expected commit protects changed direct refs, and `--no-deref` removes a
+symbolic pin itself while preserving its target. Preserve
+ambiguous work. Pin creation reuses identical direct pins and refuses existing
+symbolic or different-target refs under Git's ref lock; code never automatically
+deletes or retargets pins. At each prepared pin write, rehearsal applies the same
+collision check read-only to that exact target in the source repository, including
+dangling symbols. Historical pins remain lineage input; an unchanged publication
+never enters preparation, so rehearsal checks no source pins.
+
 The hub remains at its
 previous release until every topic verifies. Direct topic landing pages consult
 the hub's selection, so preparing a newer topic does not advertise an incomplete

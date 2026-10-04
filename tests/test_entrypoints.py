@@ -102,18 +102,25 @@ class EntrypointReleaseTests(unittest.TestCase):
         workspace.checkout_lock(self.root, self.project, check=True)
 
         replacement = second["entrypoints"]["items"]
+        confirmed_refs = dict(self.host.refs)
         self.host.fail_name = second["repositories"][replacement]["github_name"]
         with self.assertRaisesRegex(ContractError, "Topic publication failed"):
             publication.run(self.root, self.project, second, host=self.host)
         self.assertEqual(self.host.ref("Wiki-hub", "gh-pages"), published["repositories"]["hub"]["pages"])
         self.assertEqual(self.host.ref("Wiki-items", "gh-pages"), published["repositories"]["items"]["pages"])
         publication.abandon(self.root)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            publication.run(self.root, self.project, second, host=self.host)
+        # Later failure scenarios start from the confirmed fake remote state.
+        # Abandonment itself never restores or adopts unconfirmed history.
+        self.host.refs = dict(confirmed_refs)
         self.host.fail_name = "Wiki-hub"
         with self.assertRaisesRegex(ContractError, "Injected public"):
             publication.run(self.root, self.project, second, host=self.host)
         pending = publication.load(self.root / ".local/publication/pending.json")
         self.assertEqual(pending["phase"], "rolled-back")
         publication.abandon(self.root)
+        self.host.refs = dict(confirmed_refs)
         public, _ = publication.run(self.root, self.project, second, host=self.host)
         self.assertEqual(public["entrypoints"], second["entrypoints"])
         new_hub = second["repositories"][second["entrypoints"]["hub"]]["github_name"]
@@ -139,12 +146,14 @@ class EntrypointReleaseTests(unittest.TestCase):
         self.assertEqual(frozen, {topic: fourth["repositories"][topic]["commit"] for topic in frozen})
         self.assertEqual(check(self.root)["historical_configs"], 12)
         old_hub = third["entrypoints"]["hub"]
+        confirmed_refs = dict(self.host.refs)
         self.host.fail_name = fourth["repositories"][old_hub]["github_name"]
         with self.assertRaisesRegex(ContractError, "Injected public"):
             publication.run(self.root, self.project, fourth, host=self.host)
         pending = publication.load(self.root / ".local/publication/pending.json")
         self.assertEqual((pending["hub_control"], pending["phase"]), (old_hub, "rolled-back"))
         publication.abandon(self.root)
+        self.host.refs = dict(confirmed_refs)
         self.assertEqual(publication.run(self.root, self.project, fourth, host=self.host)[0]["status"], "published")
 
 

@@ -161,6 +161,8 @@ def _run(root, args, timing=None):
                 "checkout_states": {state["id"]: state["state"] for state in states}}
     if args.command == "status":
         return {"repositories": [workspace.inspect(root, repo) for repo in workspace.repositories(root, project)]}
+    if args.command == "publication-pins":
+        return publication.pin_report(root, workspace.repositories(root, project))
     if args.command == "plan":
         return {"stages": project["pipeline"], "note": "The decompile command runs capture, selected extraction, identity history, rendering, capacity allocation and a coordinated local release, followed by release and reader retention. Publication is a separate operator step: rehearse the explicit release against live state, then run py -3 wiki.py publish --release <id> from clean, merged, CI-green main. See docs/PUBLICATION.md for the gate and docs/ACCEPTANCE.md for delivery evidence."}
     if args.command == "check-lock":
@@ -220,6 +222,7 @@ def main():
         sub.add_parser(command)
     sub.add_parser("publish", help="Publish a rehearsed release from clean, CI-green main").add_argument("--release", required=True)
     sub.add_parser("abandon-publication", help="Scrap an incomplete publication journal locally; no remote calls")
+    sub.add_parser("publication-pins", help="Report unprovenanced publication pins and manual retirement commands; read-only")
     sub.add_parser("timing", help="Show saved run timings without changing state").add_argument("--last", type=int, default=1)
     sub.add_parser("map").add_argument("--check", action="store_true")
     refresh = sub.add_parser("refresh", help="Register the current local catalog input; does not re-extract game data")

@@ -2,6 +2,7 @@
 
 from contextlib import closing
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -13,7 +14,7 @@ import time
 
 from . import bounded
 from .git_transaction import command
-from .storage import ContractError, git, git_records
+from .storage import ContractError, digest, git, git_records, json_bytes, within
 
 # Individual local lineage lookups retain their existing plumbing allowance.
 GIT_TIMEOUT = 120
@@ -65,6 +66,79 @@ def storage_snapshot(path):
             "objects": disposable_git(path, "count-objects", "-v")}
 
 
+def check_pin(path, ref, commit, *, env=None, hooks=None, timeout=GIT_TIMEOUT, descendants=False):
+    """Read-only collision check shared by production and simulated pin writes."""
+    if (not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit)
+            or not re.fullmatch(r"refs/wiki-publications/[^\x00-\x20\x7f]+", ref)):
+        raise ContractError("Invalid publication pin ref or commit")
+    argv = ["git", "-C", str(path)]
+    if hooks is not None:
+        argv += ["-c", f"core.hooksPath={hooks}"]
+
+    def inspect(*arguments, absent):
+        result = bounded.run([*argv, *arguments], timeout=timeout, env=env)
+        if result.returncode not in {0, absent}:
+            raise ContractError(f"Cannot inspect publication pin: {path}: {ref}: "
+                                + result.stderr.decode(errors="replace").strip())
+        return result
+
+    symbolic = inspect("symbolic-ref", "--quiet", ref, absent=1)
+    if symbolic.returncode == 0:
+        raise ContractError(f"Publication pin collision: {path}: {ref} is symbolic; existing ref preserved")
+    # --quiet distinguishes absence from inspection failure; the hash lookup
+    # below must then succeed and identify this exact direct ref.
+    if inspect("show-ref", "--verify", "--quiet", ref, absent=1).returncode == 1:
+        if descendants:
+            common = Path(inspect("rev-parse", "--path-format=absolute", "--git-common-dir", absent=0)
+                          .stdout.decode().strip())
+            children = sorted(child for child in _pin_refs(common) if child.startswith(ref + "/"))
+            if children:
+                # Git's ref transaction refuses this namespace, even when
+                # for-each-ref omitted a dangling symbol from the clone. Git's
+                # own wording varies by version, so only the prefix matches it.
+                raise ContractError(f"Cannot create publication pin: {path}: {ref}: "
+                                    f"'{children[0]}' exists below it")
+        return False
+    current = inspect("show-ref", "--verify", "--hash", ref, absent=0)
+    if current.stdout.decode().strip() != commit:
+        raise ContractError(f"Publication pin collision: {path}: {ref} has another target; existing ref preserved")
+    return True
+
+
+def create_pin(path, ref, commit, *, env=None, hooks=None):
+    """Create under Git's ref lock; never replace even a dangling symbolic pin."""
+    if check_pin(path, ref, commit, env=env, hooks=hooks):
+        return
+    argv = ["git", "-C", str(path)]
+    if hooks is not None:
+        argv += ["-c", f"core.hooksPath={hooks}"]
+    with bounded.stream([*argv, "update-ref", "--no-deref", "--stdin"],
+                        timeout=GIT_TIMEOUT, stdin=subprocess.PIPE, env=env) as child:
+        try:
+            child.stdin.write(f"start\ncreate {ref} {commit}\nprepare\n".encode())
+            child.stdin.flush()
+            if (child.stdout.readline() != b"start: ok\n"
+                    or child.stdout.readline() != b"prepare: ok\n"):
+                child.stdin.close()
+                child.wait()
+                if check_pin(path, ref, commit, env=env, hooks=hooks, timeout=child.remaining()):
+                    return  # An identical direct pin is already durable.
+                raise ContractError(f"Cannot create publication pin: {path}: {ref}: "
+                                    + child.stderr.decode(errors="replace").strip())
+            # A zero old OID alone also accepts a dangling symbolic ref. Check
+            # after prepare, while Git holds the ref lock, before any promotion.
+            check_pin(path, ref, commit, env=env, hooks=hooks, timeout=child.remaining())
+            child.stdin.write(b"commit\n")
+            child.stdin.flush()
+            if child.stdout.readline() != b"commit: ok\n":
+                raise ContractError(f"Cannot create publication pin: {path}: {ref}")
+        finally:
+            # EOF aborts any explicitly started, uncommitted transaction and
+            # releases its ref lock, including on a failed inspection.
+            child.stdin.close()
+            child.wait()
+
+
 def disposable_clone(source, destination, revision):
     """Borrow existing objects read-only; all new objects and refs belong to the clone."""
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -74,10 +148,16 @@ def disposable_clone(source, destination, revision):
                    "-c", f"core.hooksPath={hooks}", "--", str(source), str(destination), hooks=hooks)
     # Normal clone omits publication pins and other private refs. They are input
     # evidence, but any pins the engine adds here must never become production input.
+    # Flattening historical symbolic pins preserves their lineage read value;
+    # preparation checks the source ref only when it would write that exact pin.
     refs = disposable_git(source, "for-each-ref", "--format=%(objectname) %(refname)")
+    rows = [row.split() for row in refs.splitlines()]
     disposable_git(destination, "update-ref", "--no-deref", "--stdin", hooks=hooks,
             data=b"".join(b"update " + name + b" " + oid + b"\n"
-                          for oid, name in (row.split() for row in refs.splitlines())))
+                          for oid, name in rows if not name.startswith(b"refs/wiki-publications/")))
+    for oid, name in rows:
+        if name.startswith(b"refs/wiki-publications/"):
+            create_pin(destination, name.decode(), oid.decode(), env=disposable_environment(), hooks=hooks)
     identity = disposable_git(source, "var", "GIT_COMMITTER_IDENT", identity=True).decode().strip()
     match = re.fullmatch(r"(.*) <(.*)> \d+ [+-]\d{4}", identity)
     if not match:
@@ -137,12 +217,97 @@ def commit(path, tree, parent, message):
     return command(path, *args, data=(message + "\n").encode()).decode().strip()
 
 
-def owned_lineage(path, base, head):
+def publication_provenance(root):
+    """Index destination commits from hash-valid receipts matching committed history."""
+    commits, errors = {}, []
+    records = [path for path in sorted((root / "publications").glob("*.json"))
+               if path.name != "latest.json"]
+    for path in records:
+        try:
+            path = within(root, path.relative_to(root))
+            data = path.read_bytes()
+            envelope = json.loads(data.decode("utf-8"))
+            payload = envelope["payload"]
+            if envelope.get("sha256") != digest(json_bytes(payload)):
+                raise ValueError("content hash differs")
+            if (payload.get("schema_version") != 1
+                    or not re.fullmatch(r"[0-9a-f]{64}", payload.get("release_id", ""))
+                    or payload.get("status") != "published"):
+                raise ValueError("not a completed publication receipt")
+            # Legacy rehearsals could write valid receipts and retain real gates.
+            # Only reviewed, committed bytes establish publication provenance.
+            committed = bounded.run(["git", "-C", str(root), "cat-file", "blob",
+                                     "HEAD:" + path.relative_to(root).as_posix()], timeout=GIT_TIMEOUT)
+            if committed.returncode or committed.stdout != data:
+                continue
+            record_commits = {}
+            for destination, row in payload["repositories"].items():
+                key = (destination, row["path"], row["name"])
+                if not all(isinstance(value, str) and value for value in key):
+                    raise ValueError("invalid destination identity")
+                # old_pages preserves adopted history, including 0.8.318's
+                # adoption of the abandoned 4f077e3e publication.
+                values = [row.get(field) for field in ("main", "old_main", "pages", "old_pages")]
+                recovery = row.get("recovery") or {}
+                values += [recovery.get("stuck"), recovery.get("successor")]
+                qualified = {value for value in values if isinstance(value, str)
+                             and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value)}
+                record_commits.setdefault(key, set()).update(qualified)
+            for key, qualified in record_commits.items():
+                commits.setdefault(key, set()).update(qualified)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.TimeoutExpired) as exc:
+            errors.append({"path": path.relative_to(root).as_posix(), "error": str(exc)})
+    return commits, errors
+
+
+def _pin_refs(common):
+    """Read raw loose and packed pin refs, including dangling symbolic refs."""
+    pins = {}
+    packed = common / "packed-refs"
+    if packed.exists():
+        for line in packed.read_text(encoding="utf-8").splitlines():
+            fields = line.split()
+            if len(fields) == 2 and fields[1].startswith("refs/wiki-publications/"):
+                commit, ref = fields
+                pins[ref] = commit
+    # Loose refs override packed refs. Git's iterator skips dangling symbols,
+    # so read their names and targets directly without following or editing them.
+    for file in sorted((common / "refs/wiki-publications").rglob("*")):
+        if file.name.endswith(".lock"):
+            continue
+        ref = file.relative_to(common).as_posix()
+        if file.is_symlink():
+            # core.preferSymlinkRefs writes symbolic refs as filesystem links.
+            pins[ref] = "ref: " + Path(os.readlink(file)).as_posix()
+        elif file.is_file():
+            pins[ref] = file.read_text(encoding="utf-8").strip()
+    return pins
+
+
+def unprovenanced_pins(path, provenance):
+    """Read every pin, retaining ambiguous refs unchanged for operator review."""
+    common = Path(bounded_git(path, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    pins = {}
+    for ref, value in sorted(_pin_refs(common).items()):
+        if value.startswith("ref: "):
+            resolved = bounded.run(["git", "-C", str(path), "rev-parse", "--verify", "--quiet", ref],
+                                   timeout=GIT_TIMEOUT)
+            if resolved.returncode not in {0, 1}:
+                raise ContractError(f"Cannot resolve publication pin: {path}: {ref}")
+            pins[ref] = {"ref": ref, "commit": resolved.stdout.decode().strip() if resolved.returncode == 0 else None,
+                         "symbolic_target": value[5:]}
+        else:
+            pins[ref] = {"ref": ref, "commit": value}
+    return [pins[ref] for ref in sorted(pins) if pins[ref]["commit"] not in provenance]
+
+
+def owned_lineage(path, base, head, *, provenance=()):
     """True when `head` fast-forwards `base` only through commits this workspace published.
 
     An abandoned publication leaves its pushed commits on the remote branch. Each commit
-    after `base` must be pinned under refs/wiki-publications/ (pushed from here) or carry a
-    tree already on that line (a byte-identical restore). Anything else stays refused."""
+    after `base` must have both an exact pin and durable publication provenance for
+    this destination, or carry a tree already on that line (a byte-identical restore).
+    Anything else stays refused."""
     if not head:
         return False
     deadline = time.monotonic() + GIT_LINEAGE_TIMEOUT
@@ -161,9 +326,20 @@ def owned_lineage(path, base, head):
         except subprocess.TimeoutExpired:
             return False
 
+    def pinned(revision):
+        if revision not in provenance:
+            return False
+        try:
+            result = bounded.run(["git", "-C", str(path), "show-ref", "--verify", "--hash",
+                                  "refs/wiki-publications/" + revision],
+                                 timeout=min(GIT_TIMEOUT, remaining()))
+            return result.returncode == 0 and result.stdout.decode().strip() == revision
+        except subprocess.TimeoutExpired:
+            return False
+
     if not succeeds("cat-file", "-e", head + "^{commit}") or (base and not succeeds("merge-base", "--is-ancestor", base, head)):
         return False
-    # Without a completed baseline, the lineage must start at a pinned root.
+    # Without a completed baseline, the lineage must start at a provenanced pin.
     trees = {bounded_git(path, "rev-parse", base + "^{tree}",
                          timeout=min(GIT_TIMEOUT, remaining()))} if base else set()
     with closing(git_records(path, "rev-list", "--reverse", head, *(["^" + base] if base else []),
@@ -172,7 +348,7 @@ def owned_lineage(path, base, head):
             revision = raw_revision.decode()
             tree = bounded_git(path, "rev-parse", revision + "^{tree}",
                                timeout=min(GIT_TIMEOUT, remaining()))
-            if tree not in trees and not succeeds("show-ref", "--verify", "--quiet", "refs/wiki-publications/" + revision):
+            if tree not in trees and not pinned(revision):
                 return False
             trees.add(tree)
     return True
