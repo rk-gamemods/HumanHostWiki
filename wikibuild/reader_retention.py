@@ -129,7 +129,8 @@ def run(root):
                "released_file_bytes": 0, "verified_files": 0, "verified_bytes": 0, "retained": []}
     candidates = {}
     retired = staging.retire(root / ".local/reader-stage", "reader")
-    summary["retained"].extend(retired["retained"])
+    # Staging names its entries by stage; reader retention reports candidates.
+    summary["retained"].extend({"candidate": row["stage"], "reason": row["reason"]} for row in retired["retained"])
     if retired["removed"]:
         summary["reused"] = False
     try:
