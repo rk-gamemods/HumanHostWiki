@@ -298,6 +298,7 @@
       "description": "Static reader generation, pages, retention and local reader serving.",
       "paths": [
         "wikibuild/reader.py",
+        "wikibuild/reader_validation.py",
         "wikibuild/pages.py",
         "wikibuild/reader_retention.py",
         "tools/check_reader.py",
