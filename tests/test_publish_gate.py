@@ -478,6 +478,7 @@ class PublishGateTests(unittest.TestCase):
             self.assertEqual(kwargs["timeout"], 120)
             args = argv[3:]
             output = (head + "\n" + root if args[0] == "rev-list" else
+                      args[-1].rsplit("/", 1)[-1] if args[0] == "show-ref" else
                       "root-tree" if args[0] == "rev-parse" and args[1].startswith(root) else "head-tree")
             return subprocess.CompletedProcess(argv, 0, output.encode(), b"")
         def records(path, *args, **kwargs):
@@ -489,7 +490,7 @@ class PublishGateTests(unittest.TestCase):
             yield from (root.encode(), head.encode())
         with patch.object(publication_git.bounded, "run", side_effect=command), \
                 patch.object(publication_git, "git_records", side_effect=records):
-            self.assertTrue(publication_git.owned_lineage(self.root, None, head))
+            self.assertTrue(publication_git.owned_lineage(self.root, None, head, provenance={root, head}))
 
         def foreign_root(argv, **kwargs):
             if argv[3] == "show-ref" and argv[-1].endswith(root):
@@ -497,7 +498,7 @@ class PublishGateTests(unittest.TestCase):
             return command(argv, **kwargs)
         with patch.object(publication_git.bounded, "run", side_effect=foreign_root), \
                 patch.object(publication_git, "git_records", side_effect=records):
-            self.assertFalse(publication_git.owned_lineage(self.root, None, head))
+            self.assertFalse(publication_git.owned_lineage(self.root, None, head, provenance={root, head}))
 
     def test_push_adapter_uses_explicit_lease_and_ancestry_check(self):
         self.client.stop()

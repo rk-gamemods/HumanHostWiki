@@ -252,15 +252,47 @@ def site_files(root, record):
 
 
 def pin(path, commit):
-    git(path, "update-ref", f"refs/wiki-publications/{commit}", commit)
+    publication_git.create_pin(path, f"refs/wiki-publications/{commit}", commit)
 
 
-def prepare(root, project, manifest, host, refs, validation=None):
+def pin_report(root, repositories):
+    """Read-only reconciliation; retirement requires the operator's review."""
+    provenance, errors = publication_git.publication_provenance(root)
+    rows = []
+
+    def quote(value):
+        return "'" + value.replace("'", "''") + "'"
+
+    for repo in repositories:
+        path = within(root, repo["path"])
+        if not path.exists():
+            continue
+        if (not (path / ".git").is_dir() or
+                publication_git.bounded_git(path, "rev-parse", "--show-toplevel").replace("\\", "/").casefold()
+                != path.as_posix().casefold()):
+            raise ContractError(f"Not an independent repository: {path}")
+        commits = provenance.get((repo["id"], repo["path"], repo["github_name"]), set())
+        for pin in publication_git.unprovenanced_pins(path, commits):
+            # Guard direct refs with their observed OID; a dangling symbol has
+            # no OID. --no-deref always retires the pin itself.
+            expected = " " + pin["commit"] if "symbolic_target" not in pin else ""
+            rows.append({"destination": repo["id"], "repository": repo["github_name"],
+                         "path": repo["path"], **pin,
+                         "retire_command": f"git -C {quote(repo['path'])} update-ref --no-deref -d "
+                                           f"{quote(pin['ref'])}{expected}"})
+    return {"unprovenanced_pins": rows, "provenance_errors": errors,
+            "manual_step": "Review each pin's history and publication evidence; only after confirming it is disposable, "
+                           "run its retire_command from the workspace root. Preserve ambiguous work."}
+
+
+def prepare(root, project, manifest, host, refs, validation=None, pin_source_root=None, provenance=None):
     # Never adopt history that changed after the gate, even if it is our lineage.
     refs.check(host, publish_gate.destinations(root, project, manifest))
     if digest(json_bytes(project)) != manifest["inputs"]["project_sha256"]:
         raise ContractError("Publication project differs from the pinned Git release")
     previous = published(root)
+    if provenance is None:
+        provenance, _ = publication_git.publication_provenance(root)
     # Audit all outgoing history before creating any remote or pushing any bytes.
     for topic, record in manifest["repositories"].items():
         baseline = previous["repositories"][topic]["main"] if previous and topic in previous["repositories"] else None
@@ -284,7 +316,8 @@ def prepare(root, project, manifest, host, refs, validation=None):
         if old_main not in {None, record["commit"], prior["main"] if prior else None} and not abandoned_main:
             raise ContractError(f"Unexpected remote main: {name}")
         if old_pages != (prior["pages"] if prior else None) and not (
-                publication_git.owned_lineage(path, prior["pages"] if prior else None, old_pages)):
+                publication_git.owned_lineage(path, prior["pages"] if prior else None, old_pages,
+                    provenance=provenance.get((topic, record["path"], name), set()))):
             raise ContractError(f"Unexpected remote Pages branch: {name}")
         tree = git(path, "rev-parse", record["commit"] + ":site")
         if "pages" in record:
@@ -301,6 +334,12 @@ def prepare(root, project, manifest, host, refs, validation=None):
                 raise ContractError("Prepared Pages tree differs")
         else:
             target = publication_git.commit(path, tree, old_pages, f"Publish wiki release {manifest['release_id']}")
+        # Rehearsal clones flatten symbolic pins. Check only this actual write
+        # against the original store, after any rebase has selected its target.
+        if pin_source_root is not None:
+            publication_git.check_pin(within(pin_source_root, record["path"]),
+                                      f"refs/wiki-publications/{target}", target,
+                                      env=publication_git.disposable_environment(), descendants=True)
         pin(path, target)
         files = site_files(root, record)
         checks = {key: value for key, value in files.items() if not prior or prior["files"].get(key) != value
@@ -549,7 +588,7 @@ def run(root, project, manifest, *, host=None, progress=None, timing_sink=None):
         raise
 
 
-def _run(root, project, manifest, host, progress, timing, gate):
+def _run(root, project, manifest, host, progress, timing, gate, pin_source_root=None, provenance=None):
     refuse_pending(root)
     if not project.get("publication", {}).get("enabled", False):
         return {"status": "disabled"}, {"reused": True}
@@ -585,7 +624,7 @@ def _run(root, project, manifest, host, progress, timing, gate):
             list(pool.map(check_current, current["repositories"], current["repositories"].values()))
         return current, {"reused": True}
     with measure(timing, "prepare"):
-        state = prepare(root, project, manifest, host, refs, validation)
+        state = prepare(root, project, manifest, host, refs, validation, pin_source_root, provenance)
     state["gate"] = gate
     save(path, state)
     with measure(timing, "resume"):

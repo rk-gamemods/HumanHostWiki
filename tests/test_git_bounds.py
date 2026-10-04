@@ -34,7 +34,7 @@ class GitBoundsTests(unittest.TestCase):
                 output = args[1].encode()
             elif args[0] == "show-ref":
                 pins.append(args[-1].rsplit("/", 1)[-1])
-                output = b""
+                output = pins[-1].encode()
             else:
                 self.assertEqual(args[0], "cat-file")
                 output = b""
@@ -54,7 +54,7 @@ class GitBoundsTests(unittest.TestCase):
                 patch.object(bounded, "time", clock), patch.object(bounded, "run", side_effect=command), \
                 patch.object(bounded, "start", side_effect=launch):
             with self.assertRaises(subprocess.TimeoutExpired):
-                publication_git.owned_lineage(self.root, None, revisions[-1])
+                publication_git.owned_lineage(self.root, None, revisions[-1], provenance=set(revisions))
         self.assertEqual(lookups, revisions[:2])
         self.assertEqual(pins, revisions[:1])
         self.assertEqual(timeouts, [5, 5, 2, 2])
@@ -80,7 +80,7 @@ class GitBoundsTests(unittest.TestCase):
                 output = args[1].encode()
             else:
                 self.assertIn(args[0], {"cat-file", "show-ref"})
-                output = b""
+                output = args[-1].rsplit("/", 1)[-1].encode() if args[0] == "show-ref" else b""
             return subprocess.CompletedProcess(argv, 0, output, b"")
 
         def launch(argv, **options):
@@ -93,7 +93,7 @@ class GitBoundsTests(unittest.TestCase):
         with patch.object(bounded, "run", side_effect=command), \
                 patch.object(bounded, "start", side_effect=launch), patch.object(bounded, "time", clock), \
                 patch.object(publication_git, "time", clock):
-            self.assertTrue(publication_git.owned_lineage(self.root, None, revisions[-1]))
+            self.assertTrue(publication_git.owned_lineage(self.root, None, revisions[-1], provenance=set(revisions)))
         self.assertEqual(checked, revisions)
         self.assertGreater(elapsed, publication_git.GIT_TIMEOUT)
         self.assertFalse(storage.process_running(self.children[0].pid))

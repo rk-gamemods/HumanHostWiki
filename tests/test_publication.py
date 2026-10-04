@@ -46,7 +46,10 @@ class Host:
         return self.refs.get((name, branch))
 
     def gate(self, root, project, manifest):
-        return {"rehearsal": {"fixture": True, "remote_refs": [
+        stamp = "2026-10-03T00:00:00+00:00"
+        return {"workspace_commit": "e" * 40, "ci_run_id": 1, "checked_utc": stamp,
+            "rehearsal": {"fixture": True, "schema_version": 1, "release_id": manifest["release_id"],
+            "workspace_commit": "e" * 40, "created_utc": stamp, "contract": publication.contract(), "remote_refs": [
             {"repository": name, "branch": branch, "commit": self.ref(name, branch)}
             for name, branch in sorted(publication.publish_gate.destinations(root, project, manifest))],
             "destination_observations": [github_pages.observe_configuration(self, self.owner, name)
@@ -185,10 +188,10 @@ class PublicationTests(unittest.TestCase):
             template._build_fixture()
             _PUBLICATION_TEMPLATE = template
         template = _PUBLICATION_TEMPLATE
-        baselines = {"test_next_release_adopts_an_abandoned_publication",
+        baselines = {"test_next_release_refuses_journal_only_abandoned_history",
                      "test_remote_main_is_adopted_only_on_this_workspaces_release_history",
                      "test_foreign_commit_on_a_published_branch_is_still_refused",
-                     "test_topic_failure_preserves_hub_then_fresh_run_adopts_abandoned_lineage",
+                     "test_topic_failure_preserves_hub_then_refuses_journal_only_lineage",
                      "test_failed_hub_restores_previous_tree_without_rewriting_history",
                      "test_unavailable_hub_build_observation_requires_abandonment_before_fresh_run",
                      "test_unchanged_immutable_packs_do_not_download_again"}
@@ -439,7 +442,7 @@ class PublicationTests(unittest.TestCase):
         publication.abandon(self.root)
         return first
 
-    def test_next_release_adopts_an_abandoned_publication(self):
+    def test_next_release_refuses_journal_only_abandoned_history(self):
         first = self.abandon_partial_publication()
         self.assertNotEqual(self.host.ref("Wiki-loot", "gh-pages"), first["repositories"]["loot"]["pages"])
         self.assertNotEqual(self.host.ref("Wiki-loot", "main"), first["repositories"]["loot"]["main"])
@@ -450,12 +453,11 @@ class PublicationTests(unittest.TestCase):
                                          moved, "Restore the served build")
         self.host.refs[("Wiki-items", "gh-pages")] = restore
         self.next_release()
-        result, _ = self.run_publish()
-        self.assertEqual(result["status"], "published")
-        self.assertEqual(result["release_id"], self.manifest["release_id"])
-        for topic in ("loot", "items"):
-            plan = result["repositories"][topic]
-            self.assertEqual(self.host.ref(plan["name"], "gh-pages"), plan["pages"])
+        before = dict(self.host.refs), list(self.host.events)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            self.run_publish()
+        self.assertEqual((self.host.refs, self.host.events), before)
+        self.assertEqual(publication.published(self.root), first)
 
     def test_remote_main_is_adopted_only_on_this_workspaces_release_history(self):
         first, _ = self.run_publish()
@@ -478,7 +480,7 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch: Wiki-loot"):
             self.run_publish()
 
-    def test_topic_failure_preserves_hub_then_fresh_run_adopts_abandoned_lineage(self):
+    def test_topic_failure_preserves_hub_then_refuses_journal_only_lineage(self):
         first, _ = self.run_publish()
         before = (self.root / "publications/latest.json").read_bytes()
         self.next_release()
@@ -489,12 +491,14 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(before, (self.root / "publications/latest.json").read_bytes())
         state = publication.load(self.root / ".local/publication/pending.json")
         self.assertTrue(state["repositories"]["loot"]["verified"])
-        target = state["repositories"]["items"]["pages"]
         with self.assertRaisesRegex(ContractError, "abandon-publication"):
             self.run_publish()
         publication.abandon(self.root)
-        result, _ = self.run_publish()
-        self.assertEqual(git(self.root / "repositories/items", "rev-parse", result["repositories"]["items"]["pages"] + "^"), target)
+        refs = dict(self.host.refs)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            self.run_publish()
+        self.assertEqual(self.host.refs, refs)
+        self.assertEqual(before, (self.root / "publications/latest.json").read_bytes())
 
     def test_failed_hub_restores_previous_tree_without_rewriting_history(self):
         first, _ = self.run_publish()
@@ -514,9 +518,9 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(git(path, "rev-parse", rollback + "^{tree}"), first["repositories"]["hub"]["tree"])
         self.assertEqual(publication.load(self.root / ".local/publication/pending.json")["phase"], "rolled-back")
         publication.abandon(self.root)
-        result, _ = self.run_publish()
-        self.assertEqual(result["release_id"], self.manifest["release_id"])
-        self.assertEqual(git(path, "rev-parse", result["repositories"]["hub"]["pages"] + "^"), rollback)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            self.run_publish()
+        self.assertEqual(self.host.ref("Wiki-hub", "gh-pages"), rollback)
 
     def test_initial_hub_failure_restores_explicit_unavailable_page(self):
         self.host.fail_name = "Wiki-hub"
@@ -526,7 +530,9 @@ class PublicationTests(unittest.TestCase):
         head = self.host.ref("Wiki-hub", "gh-pages")
         self.assertIn("No validated public release", git(self.root / "repositories/hub", "show", head + ":index.html"))
         publication.abandon(self.root)
-        self.assertEqual(self.run_publish()[0]["status"], "published")
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            self.run_publish()
+        self.assertEqual(self.host.ref("Wiki-hub", "gh-pages"), head)
 
     def test_unavailable_hub_build_observation_requires_abandonment_before_fresh_run(self):
         first, _ = self.run_publish()
@@ -547,21 +553,23 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(pending["repositories"]["hub"]["verified"])
         self.assertEqual(publication.published(self.root), first)
         publication.abandon(self.root)
-        result, _ = self.run_publish()
-        self.assertEqual(git(self.root / "repositories/hub", "rev-parse", result["repositories"]["hub"]["pages"] + "^"), hub_commit)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            self.run_publish()
+        self.assertEqual(self.host.ref("Wiki-hub", "gh-pages"), hub_commit)
         self.assertEqual(sum(e[:3] == ("push", "Wiki-hub", "gh-pages") and e[3] == hub_commit
                              for e in self.host.events), 1)
 
-    def test_interrupted_push_requires_abandonment_and_prepares_fresh_history(self):
+    def test_interrupted_push_requires_abandonment_and_keeps_unconfirmed_history_refused(self):
         self.host.interrupt_name = "Wiki-items"
         with self.assertRaises(KeyboardInterrupt):
             self.run_publish()
         target = self.host.ref("Wiki-items", "gh-pages")
         self.assertIsNone(publication.published(self.root))
         publication.abandon(self.root)
-        result, _ = self.run_publish()
-        self.assertEqual(git(self.root / "repositories/items", "rev-parse", result["repositories"]["items"]["pages"] + "^"), target)
-        self.assertEqual(sum(e[:3] == ("push", "Wiki-items", "gh-pages") for e in self.host.events), 2)
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            self.run_publish()
+        self.assertEqual(self.host.ref("Wiki-items", "gh-pages"), target)
+        self.assertEqual(sum(e[:3] == ("push", "Wiki-items", "gh-pages") for e in self.host.events), 1)
 
     def test_modified_journal_and_unexpected_remote_are_refused(self):
         self.host.fail_name = "Wiki-items"
@@ -597,13 +605,10 @@ class PublicationTests(unittest.TestCase):
             self.run_publish()
         old_refs = dict(self.host.refs)
         publication.abandon(self.root)
-        result, _ = self.run_publish()
-        self.assertEqual(result["release_id"], self.manifest["release_id"])
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            self.run_publish()
+        self.assertEqual(self.host.refs, old_refs)
         self.assertFalse((self.root / "publications" / (first["release_id"] + ".json")).exists())
-        for identity, plan in result["repositories"].items():
-            if (plan["name"], "gh-pages") in old_refs:
-                self.assertEqual(git(self.root / plan["path"], "rev-parse", plan["pages"] + "^"),
-                                 old_refs[(plan["name"], "gh-pages")])
 
     def test_unchanged_immutable_packs_do_not_download_again(self):
         first, _ = self.run_publish()
