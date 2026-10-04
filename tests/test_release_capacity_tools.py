@@ -34,7 +34,7 @@ class CapacityToolTests(unittest.TestCase):
                             source={"steam_app_id": "2393970", "catalog_schema": 1},
                             publication={"visibility": "public", "monetized": False,
                                          "advertising": False, "host": "github-pages"},
-                            relationships=[], pipeline=[])
+                            relationships=[], pipeline=self.declared_pipeline())
         self.project["repositories"][0]["owns"] = ["navigation"]
         self.project["repositories"].append({"id": "technical-reference", "title": "Technical",
                                              "owns": ["unclassified"], "coverage": "Unclassified assets"})
@@ -47,6 +47,12 @@ class CapacityToolTests(unittest.TestCase):
         candidate = reader.build(self.root, self.project, runs, bases=release.bases(self.project),
                                  max_pack_bytes=100000)
         self.manifest = release.run(self.root, self.project, candidate)[0]
+
+    @staticmethod
+    def declared_pipeline():
+        # Manifest validation requires the declared stage graph to match pipeline.run.
+        project = json.loads((Path(__file__).resolve().parents[1] / "project.json").read_text(encoding="utf-8"))
+        return project["pipeline"]
 
     def run_tool(self, name, *, small_budget=False):
         repository = Path(__file__).resolve().parents[1]
