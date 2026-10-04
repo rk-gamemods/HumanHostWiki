@@ -154,6 +154,7 @@
         "wikibuild/gameplay.py",
         "wikibuild/names.py",
         "wikibuild/guide_queries.py",
+        "wikibuild/guide_query_*.py",
         "wikibuild/guides.py",
         "tools/inspect_gameplay.py",
         "tools/inspect_names.py",

@@ -28,6 +28,34 @@ def encoded(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
 
+class FamilySamplingTests(unittest.TestCase):
+    def test_sorted_families_preserve_candidate_order_and_even_middle(self):
+        candidates = [{"source_id": str(index)} for index in (4, 3, 2, 1)]
+        other = {"source_id": "other"}
+        families = {("item", "Z"): [other], ("item", "A"): candidates}
+        before = copy.deepcopy(families)
+        self.assertEqual(check_extraction._sample_families(families, False),
+                         [candidates[0], candidates[2], candidates[3], other])
+        complete = check_extraction._sample_families(families, True)
+        self.assertEqual(complete, [*candidates, other])
+        self.assertIs(complete[0], candidates[0])
+        self.assertEqual(families, before)
+
+    def test_short_families_do_not_repeat_first_middle_or_last(self):
+        first, second, third = [{"source_id": str(index)} for index in range(3)]
+        families = {("item", "C"): [first, second, third],
+                    ("item", "B"): [first, second], ("item", "A"): [first]}
+        self.assertEqual(check_extraction._sample_families(families, False),
+                         [first, first, second, first, second, third])
+
+    def test_empty_input_and_empty_family_keep_current_behavior(self):
+        for complete in (False, True):
+            self.assertEqual(check_extraction._sample_families({}, complete), [])
+        self.assertEqual(check_extraction._sample_families({("item", ""): []}, True), [])
+        with self.assertRaisesRegex(IndexError, "list index out of range"):
+            check_extraction._sample_families({("item", ""): []}, False)
+
+
 class CheckExtractionTests(unittest.TestCase):
     def setUp(self):
         self.work = fixture_dir(self, "check")
@@ -119,6 +147,123 @@ class CheckExtractionTests(unittest.TestCase):
         self.put(self.source, OBJECT_PATH, b"not even a JSON record\n")
         self.assertEqual(first, self.check())
         self.assertEqual("passed", self.check(complete=False)["status"])
+
+    def audit_fixture(self):
+        self.raw += [
+            {"id": "fixture#6", "script": {"assembly": "UI", "class": "Loot_Mgr"},
+             "fields": {"_LootSpawnRates": [{"_spawnLootTag": "Tools", "_spawnRateRange": 0.5}],
+                        "_All_Loot_Icons": [{"_spawnLootTag": "Tools", "_all_Icons_Ref": [{"m_AssetGUID": "tool"}]}]}},
+            {"id": "fixture#7", "script": {"assembly": "Build_System", "class": "ScenePropSpawner"},
+             "fields": {"ScenePropsInfo": [{"protoRefIndex": 0}, {"protoRefIndex": 0}, {"protoRefIndex": True}],
+                        "PropsRefNoRepeat": ["prop"]},
+             "references": [{"field": "/m_GameObject", "status": "resolved", "target": "fixture#10"}]},
+            {"id": "fixture#8", "script": {}, "fields": {"amount": 2}},
+            {"id": "fixture#9", "script": {}, "fields": {"amount": 3}}]
+        for identity, kind, facts, name, text in [
+                ("fixture#6", "loot-table", {"rates": self.raw[5]["fields"]["_LootSpawnRates"]}, "", None),
+                ("fixture#7", "resource-distribution", {"ScenePropsInfo": {
+                    "counts": [{"protoRefIndex": 0, "count": 2}], "total_count": 3, "unresolved_count": 1}}, "", None),
+                ("fixture#8", "item", {"amount": 2}, "Beans", "fixture#3"),
+                ("fixture#9", "definition", {"amount": 3}, "Execute: ", "fixture#2")]:
+            raw = next(raw for raw in self.raw if raw["id"] == identity)
+            evidence = [{"path": OBJECT_PATH, "object": identity, "fields": ["/ScenePropsInfo"],
+                         "record_sha256": hashlib.sha256(encoded(raw) + b"\n").hexdigest()}]
+            if text:
+                evidence.append({"path": OBJECT_PATH, "object": text, "fields": ["/_Infos"]})
+            self.rows.append({"source_id": identity, "kind": kind, "facts": facts, "name": name,
+                              "name_status": "english" if text else "internal", "evidence": evidence,
+                              "relationships": []})
+        scene = self.rows[6]
+        scene.update(component=self.raw[6]["script"], game_objects=["fixture#10"])
+        scene["relationships"] = [{"predicate": "owner", "source_field": "/m_GameObject",
+                                    "status": "resolved", "target_source_ids": ["fixture#10"]},
+                                   {"predicate": "defined-by"}, {"predicate": "coded-value"}]
+        self.rows += [
+            {"source_id": "fixture#6/tag/Tools", "kind": "loot-tag", "facts": {},
+             "evidence": [{"path": OBJECT_PATH, "object": "fixture#6"}], "relationships": [{"guid": "tool"}]},
+            {"source_id": "fixture#10", "kind": "asset", "fact_scope": "referenced-prefab-identity",
+             "facts": {"engine_type": "GameObject"}, "name": "Prefab", "asset_paths": ["prefab.asset"],
+             "relationships": [{"target_source_id": "fixture#7"}],
+             "evidence": [{"path": OBJECT_PATH, "object": "fixture#10"}, copy.deepcopy(scene["evidence"][0])]},
+            {"source_id": "summary", "kind": "asset", "fact_scope": "catalog-type-summary", "name": "Language_Text",
+             "facts": {"engine_type": "MonoBehaviour", "assembly": "Language", "class": "Language_Text", "record_count": 3}}]
+        self.index += [{"id": raw["id"], "type": "MonoBehaviour", **raw["script"]} for raw in self.raw[5:]]
+        self.index.append({"id": "fixture#10", "type": "GameObject", "name": "Prefab", "paths": ["prefab.asset"]})
+
+    def audit_check(self, complete=True, write=True):
+        def records(source, commit, path):
+            self.assertEqual((source, commit), (self.source, self.commit))
+            self.assertIn(path, (OBJECT_PATH, "Catalog/views/object-index.jsonl"))
+            for raw in self.index if path.endswith("object-index.jsonl") else self.raw:
+                yield raw, hashlib.sha256(encoded(raw) + b"\n").hexdigest()
+        with patch.object(check_extraction, "raw_records", records), patch.object(
+                check_coded_values, "check", return_value={"status": "fixture"}):
+            return self.check(complete=complete, write=write)
+
+    def test_complete_audit_report_characterization(self):
+        self.audit_fixture()
+        expected = {"snapshot_id": "fixture-snapshot", "observations_checked": 10, "assertions": 91,
+                    "coded_values": {"status": "fixture"}, "sampling": "all", "prefab_identities_checked": 1,
+                    "kinds": ["configuration", "definition", "equipment", "item", "loot-table", "loot-tag",
+                              "resource-distribution"], "status": "passed", "type_summaries_checked": 1,
+                    "scope": "Selected serialized facts, English text and names, tooltip references, mineable items and loot eligibility; not runtime verification"}
+        self.assertEqual(self.audit_check(), expected)
+        self.assertEqual(list(self.audit_check()), list(expected))
+        self.assertEqual(self.audit_check(complete=False), {**expected, "sampling": "first-middle-last-per-family"})
+
+    def test_audit_error_messages_and_check_order(self):
+        self.audit_fixture()
+        original = copy.deepcopy(self.rows)
+        changes = [(5, "facts", {"rates": []}, "Loot rates differ: fixture#6"),
+                   (9, "relationships", [{"guid": "wrong"}], "Loot eligibility differs: fixture#6/tag/Tools"),
+                   (7, "name", "Wrong", "English name differs: fixture#8"),
+                   (8, "name", "Wrong", "Definition name differs: fixture#9"),
+                   (6, "component", {"assembly": "Wrong", "class": "ScenePropSpawner"}, "Object shape differs: fixture#7/ScenePropsInfo"),
+                   (10, "name", "Wrong", "Referenced prefab differs from its index identity: fixture#10"),
+                   (10, "relationships", [], "Prefab component links differ: fixture#10"),
+                   (10, "evidence", original[10]["evidence"][:1], "Prefab component evidence differs: fixture#10"),
+                   (11, "facts", {**original[11]["facts"], "record_count": 4}, "Technical type count differs: Language_Text")]
+        for index, field, value, message in changes:
+            with self.subTest(message=message):
+                self.rows = copy.deepcopy(original)
+                self.rows[index][field] = value
+                with self.assertRaises(ValueError) as error:
+                    self.audit_check()
+                self.assertEqual(str(error.exception), message)
+
+    def test_audit_evidence_reference_and_index_failures(self):
+        self.audit_fixture()
+        original = copy.deepcopy(self.rows)
+        for fault, message in [
+                ("composition", "Composition count lacks its source-array evidence"),
+                ("record-hash", "Record hash differs: fixture#7"),
+                ("reference", "Reference differs: fixture#7 /m_GameObject"),
+                ("guid", "Reference GUID differs: fixture#7 /m_GameObject"),
+                ("prefab-hash", "Prefab component evidence hash differs: fixture#7"),
+                ("missing-prefab", "Referenced prefab identities are absent from the index")]:
+            with self.subTest(fault=fault):
+                self.rows = copy.deepcopy(original)
+                if fault == "composition":
+                    self.rows[6]["evidence"][0]["fields"] = []
+                elif fault == "record-hash":
+                    self.rows[6]["evidence"][0]["record_sha256"] = "wrong"
+                elif fault == "reference":
+                    self.rows[6]["relationships"][0]["target_source_ids"] = []
+                elif fault == "guid":
+                    self.rows[6]["relationships"][0]["guid"] = "wrong"
+                elif fault == "prefab-hash":
+                    self.rows[10]["evidence"][1]["record_sha256"] = "wrong"
+                else:
+                    self.rows[10]["source_id"] = "fixture#99"
+                with self.assertRaises(ValueError) as error:
+                    self.audit_check()
+                self.assertEqual(str(error.exception), message)
+        self.rows = original
+        self.outputs()
+        self.run["coverage"]["objects"] += 1
+        self.put(self.wiki, ".local/extractions/runs/fixture.json", encoded(self.run))
+        with self.assertRaisesRegex(ValueError, "^Object coverage total differs$"):
+            self.audit_check(write=False)
 
     def test_builder_outputs_pass_the_independent_checker(self):
         from test_components import CatalogFixture

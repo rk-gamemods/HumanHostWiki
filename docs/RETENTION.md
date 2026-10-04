@@ -3,8 +3,8 @@
 ## Committed release staging
 
 `wikibuild/release_retention.py` owns removal of duplicate release payloads under
-`.local/rs/`. The normal `wiki.py update` calls it after supported publication
-work, while holding the existing writer lock. It makes no network calls and
+`.local/rs/`. The normal `wiki.py update` calls it after the local release,
+while holding the existing writer lock. It makes no network calls and
 does not alter child checkouts, Git history, source captures or public snapshots.
 
 Before removing a payload, the cleaner requires a saved coordinated release
@@ -31,7 +31,10 @@ or generate new public commits. The operator report lists any cleanup issues
 after the wiki content report. `.local/releases/retention/report.json` retains
 their current reasons separately from content exceptions.
 
-Release, reader, extraction and history staging attempts carry `attempt.json`
+## Failed staging attempts
+
+`wikibuild/staging.py` owns attempt records and retirement. Release, reader,
+extraction and history staging attempts carry `attempt.json`
 with their stage, attempt ID, creation time in UTC and state. Under the writer
 lock, retry marks stale `materializing` attempts `abandoned`; cleanup keeps only
 the most recent owned failed attempt of each stage for diagnosis and retires
@@ -77,9 +80,16 @@ power loss and stale or unrecognized state. Concurrent replacement of files or
 directories inside staging by another process is outside this model; callers
 must hold the workspace lock.
 
+`tests/test_extraction.py`, `tests/test_history.py`, `tests/test_reader.py` and
+`tests/test_release.py` cover repeat failure, ownership validation and retirement
+at each stage. [ACCEPTANCE.md](ACCEPTANCE.md#current-engineering-limits) owns
+the remaining engineering work.
+
+## Retention scope and checks
+
 Extraction caches, identity model caches, test fixtures and old diagnostic indexes
-are outside this cleaner's scope. Their retention policies remain unfinished;
-removing them requires their own recovery and ownership proof.
+are outside this cleaner's scope. Removing them requires their own recovery and
+ownership proof. Tests own their cleanup under [ARCHITECTURE.md](ARCHITECTURE.md#running-tests).
 
 Focused checks:
 
@@ -90,13 +100,13 @@ py -3 -m unittest discover -s tests -p test_pipeline.py -v
 
 The retention suite uses a real Git repository to verify conservation, no-op
 repeats, independently detected changed bytes, pending transactions, path escape
-and interrupted deletion. The full pipeline fixture verifies cleanup after
-publication while content exceptions remain available for user direction.
+and interrupted deletion. The full pipeline fixture verifies cleanup after the
+local release while content exceptions remain available for user direction.
 
 ## Immutable reader files
 
 `wikibuild/reader_retention.py` shares identical files across completed candidates
-under `.local/readers/`. The normal update invokes it after publication and staging
+under `.local/readers/`. The normal update invokes it after the local release and staging
 cleanup, under the same OS-held writer lock. Every candidate path remains available
 for historical previews, audits and release recovery. No Git tree, accepted fact,
 source snapshot or public file is changed. This reduces duplicate storage without

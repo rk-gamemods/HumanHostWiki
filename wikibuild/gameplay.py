@@ -218,45 +218,22 @@ def _bench_construction(data, items, recipes, benches, hand):
             bench["gap_reason"] = "no-construction-recipe"
 
 
-def graph(rows, disabled_source_types=()):
-    """Return sorted JSON data without I/O or mutation of the input iterable.
+def _rank_mining_sites(biomes, base):
+    best_mining = {}
+    base_chances = {}
+    for biome, value in biomes.items():
+        for entry in value["mined"]:
+            item, chance = entry["item"], entry["chance_per_hit"]
+            if biome == base:
+                base_chances[item] = max(base_chances.get(item, 0), chance)
+            if value["ring"] is not None:
+                candidate = (-chance, value["ring"])
+                if item not in best_mining or candidate < best_mining[item]:
+                    best_mining[item] = candidate
+    return best_mining, base_chances
 
-    Unknown means no proven reachable ring, not ring zero. Relaxation starts
-    with direct geographic sources and only lowers finite ring values. Thus a
-    closed cycle stays null and a seeded cycle reaches its least reachable ring.
-    Dismantled sources use the donor item as ``via`` and inherit its ring.
-    ``items_without_source`` means no recorded acquisition edge, even unknown
-    geography counts as an edge. ``blocked_by`` lists direct ingredient items
-    with no reachable ring; missing bench joins live in ``unresolved_benches``.
-    Recipe bench null means hand crafting or missing owner; missing owners are
-    retained but never treated as hand crafting. Mining entries are conditional
-    on the selected block definition, not averaged across terrain textures.
-    Item ``biomes`` lists direct geographic acquisition; ``loot_biomes`` lists
-    only container loot, for loot exclusivity guides. Neither list proves global
-    exclusivity if ``has_unmapped_loot`` is true. Crafting and dismantling do not
-    manufacture geographic placements from their earliest-ring estimates.
 
-    ``main_ring`` chooses the highest per-hit mining chance among ring biomes
-    (ties choose the earliest ring), then takes the earliest alternative from
-    other acquisition types. Crafting takes the maximum ingredient and bench
-    main ring; dismantling inherits the donor's main ring. Both dimensions use
-    independent fixed points. Base and unknown-biome sources seed neither.
-    Item ``near_spawn`` marks direct Base acquisition, without crafting closure;
-    ``near_spawn_chance_per_hit`` is its best Base mining chance, or null when
-    no Base mining is recorded. Top-level ``near_spawn.biome`` is null when
-    the loader's base-terrain-prefab relationship has no resolved biome.
-    """
-    data = _Snapshot(rows)
-    disabled_source_types = set(disabled_source_types)
-    disabled_sources = defaultdict(set)
-    items = {key: {"sources": [], "earliest_ring": None, "main_ring": None, "used_in": []}
-             for key, value in data.sem.items() if value["kind"] == "item"}
-    biomes = {key: {"name": value["name"], "ring": None, "mined": [],
-                    "container_loot": [], "merchant": [], "harvest": []}
-              for key, value in data.sem.items() if value["kind"] == "biome"}
-    benches = {key: {"built_by_recipe": None, "earliest_ring": None, "main_ring": None}
-               for key, value in data.sem.items() if value["kind"] == "workbench"}
-    rings, base = _geography(data, biomes)
+def _build_biome_lookups(biomes, base):
     names = defaultdict(set)
     for key, value in biomes.items():
         names[value["name"].casefold()].add(key)
@@ -273,15 +250,10 @@ def graph(rows, disabled_source_types=()):
             return set()
         token = sorted(matches, key=lambda token: (-len(token), token))[0]
         return {biome for name in BUNDLE_BIOMES[token] for biome in named_biomes(name)}
+    return named_biomes, bundle_biomes
 
-    def source(item, kind, via, biome=None, bench=None, evidence="extracted"):
-        if item in items:
-            if kind in disabled_source_types:
-                disabled_sources[kind].add((item, via))
-                return
-            items[item]["sources"].append({"type": kind, "via": via, "biome": biome,
-                                           "bench": bench, "evidence": evidence})
 
+def _build_resource_membership(data, biomes):
     # Terrain_Top owns the biome and its resource references. Support direct
     # biome references too, without crossing through unrelated material links.
     membership = defaultdict(set)
@@ -295,6 +267,10 @@ def graph(rows, disabled_source_types=()):
                 membership[target].update(owners)
     fibers = {target for key in data.sem for link in data.links(key, "gathered-item")
               if link.get("field") == "/_PlantFiberIconRef" for target in link.get("targets", [])}
+    return membership, fibers
+
+
+def _build_terrain_sources(data, items, biomes, membership, bundle_biomes, source):
     for key, semantic in data.sem.items():
         places = sorted(membership[key]) or [None]
         for item, chance in _mining(data, key):
@@ -336,6 +312,9 @@ def graph(rows, disabled_source_types=()):
                 source(item, "harvested", key, biome, evidence=harvest_evidence)
                 if biome:
                     biomes[biome]["harvest"].append({"item": item, "source": key})
+
+
+def _build_grass_sources(data, items, biomes, membership, fibers, source):
     # Grass is identified only among referenced vegetation prefabs, not material
     # names or the generic _treeGrassRefs field (which also contains rocks).
     vegetation = {target for key in data.sem for target in data.targets(key, "vegetation")}
@@ -355,6 +334,8 @@ def graph(rows, disabled_source_types=()):
                 for item in sorted(set(rel.get("targets", [])) & fibers):
                     source(item, "harvested", key, evidence=GRASS_CODE_EVIDENCE)
 
+
+def _build_loot_and_merchant_sources(data, items, biomes, named_biomes, bundle_biomes, source, disabled_source_types):
     tags = defaultdict(set)
     for key, semantic in data.sem.items():
         if semantic["kind"] == "loot-tag":
@@ -385,11 +366,17 @@ def graph(rows, disabled_source_types=()):
                     source(item, "merchant", key, biome)
                     if biome and "merchant" not in disabled_source_types:
                         biomes[biome]["merchant"].append({"item": item})
+    return unmapped
+
+
+def _build_dismantled_sources(data, items, source):
     for donor in items:
         for rule in data.targets(donor, "disassembly"):
             for item in data.targets(rule, "yields-item-asset"):
                 source(item, "dismantled", donor)
 
+
+def _build_recipes(data, items, benches, source):
     recipes, incomplete, hand = {}, set(), set()
     for key in benches:
         if data.facts(key).get("_workbenchType") == 0:
@@ -430,30 +417,10 @@ def graph(rows, disabled_source_types=()):
             items[item]["used_in"].append(key)
         if output is not None:
             source(output, "crafted", key, bench=bench)
+    return recipes, incomplete, hand
 
-    _bench_construction(data, items, recipes, benches, hand)
 
-    def lower(record, field, candidate):
-        if candidate is None:
-            return False
-        current = record[field]
-        if current is None or candidate < current:
-            record[field] = candidate
-            return True
-        return False
-
-    best_mining = {}
-    base_chances = {}
-    for biome, value in biomes.items():
-        for entry in value["mined"]:
-            item, chance = entry["item"], entry["chance_per_hit"]
-            if biome == base:
-                base_chances[item] = max(base_chances.get(item, 0), chance)
-            if value["ring"] is not None:
-                candidate = (-chance, value["ring"])
-                if item not in best_mining or candidate < best_mining[item]:
-                    best_mining[item] = candidate
-
+def _build_item_details(items, base, base_chances):
     for key, value in items.items():
         value["sources"] = _unique(value["sources"])
         value["used_in"] = sorted(set(value["used_in"]))
@@ -464,6 +431,18 @@ def graph(rows, disabled_source_types=()):
                                          for entry in value["sources"])
         value["near_spawn"] = base is not None and base in value["biomes"]
         value["near_spawn_chance_per_hit"] = base_chances.get(key)
+
+
+def _build_reachable_rings(items, biomes, recipes, benches, hand, incomplete, best_mining):
+    def lower(record, field, candidate):
+        if candidate is None:
+            return False
+        current = record[field]
+        if current is None or candidate < current:
+            record[field] = candidate
+            return True
+        return False
+
     for field in ("earliest_ring", "main_ring"):
         changed = True
         while changed:
@@ -490,6 +469,9 @@ def graph(rows, disabled_source_types=()):
                     else:
                         candidate = biomes[entry["biome"]]["ring"] if entry["biome"] else None
                     changed |= lower(value, field, candidate)
+
+
+def _build_recipe_and_bench_gaps(items, recipes, benches, hand):
     for key in benches.keys() - hand:
         bench = benches[key]
         builders = [recipe for recipe, value in recipes.items()
@@ -502,6 +484,9 @@ def graph(rows, disabled_source_types=()):
     for key, value in recipes.items():
         value["blocked_by"] = sorted({entry["item"] for entry in value["ingredients"]
                                       if items.get(entry["item"], {}).get("earliest_ring") is None})
+
+
+def _build_graph_result(items, biomes, recipes, benches, rings, base, unmapped, disabled_source_types, disabled_sources):
     for value in biomes.values():
         for field in ("mined", "container_loot", "merchant", "harvest"):
             value[field] = _unique(value[field])
@@ -515,3 +500,67 @@ def graph(rows, disabled_source_types=()):
             "gaps": {"items_without_source": sorted(key for key, value in items.items() if not value["sources"]),
                      "unresolved_benches": sorted(key for key, bench in benches.items() if bench["gap_reason"]),
                      "unmapped_container_bundles": sorted(unmapped)}}
+
+
+def graph(rows, disabled_source_types=()):
+    """Return sorted JSON data without I/O or mutation of the input iterable.
+
+    Unknown means no proven reachable ring, not ring zero. Relaxation starts
+    with direct geographic sources and only lowers finite ring values. Thus a
+    closed cycle stays null and a seeded cycle reaches its least reachable ring.
+    Dismantled sources use the donor item as ``via`` and inherit its ring.
+    ``items_without_source`` means no recorded acquisition edge, even unknown
+    geography counts as an edge. ``blocked_by`` lists direct ingredient items
+    with no reachable ring; missing bench joins live in ``unresolved_benches``.
+    Recipe bench null means hand crafting or missing owner; missing owners are
+    retained but never treated as hand crafting. Mining entries are conditional
+    on the selected block definition, not averaged across terrain textures.
+    Item ``biomes`` lists direct geographic acquisition; ``loot_biomes`` lists
+    only container loot, for loot exclusivity guides. Neither list proves global
+    exclusivity if ``has_unmapped_loot`` is true. Crafting and dismantling do not
+    manufacture geographic placements from their earliest-ring estimates.
+
+    ``main_ring`` chooses the highest per-hit mining chance among ring biomes
+    (ties choose the earliest ring), then takes the earliest alternative from
+    other acquisition types. Crafting takes the maximum ingredient and bench
+    main ring; dismantling inherits the donor's main ring. Both dimensions use
+    independent fixed points. Base and unknown-biome sources seed neither.
+    Item ``near_spawn`` marks direct Base acquisition, without crafting closure;
+    ``near_spawn_chance_per_hit`` is its best Base mining chance, or null when
+    no Base mining is recorded. Top-level ``near_spawn.biome`` is null when
+    the loader's base-terrain-prefab relationship has no resolved biome.
+    """
+    data = _Snapshot(rows)
+    disabled_source_types = set(disabled_source_types)
+    disabled_sources = defaultdict(set)
+    items = {key: {"sources": [], "earliest_ring": None, "main_ring": None, "used_in": []}
+             for key, value in data.sem.items() if value["kind"] == "item"}
+    biomes = {key: {"name": value["name"], "ring": None, "mined": [],
+                    "container_loot": [], "merchant": [], "harvest": []}
+              for key, value in data.sem.items() if value["kind"] == "biome"}
+    benches = {key: {"built_by_recipe": None, "earliest_ring": None, "main_ring": None}
+               for key, value in data.sem.items() if value["kind"] == "workbench"}
+    rings, base = _geography(data, biomes)
+    named_biomes, bundle_biomes = _build_biome_lookups(biomes, base)
+
+    def source(item, kind, via, biome=None, bench=None, evidence="extracted"):
+        if item in items:
+            if kind in disabled_source_types:
+                disabled_sources[kind].add((item, via))
+                return
+            items[item]["sources"].append({"type": kind, "via": via, "biome": biome,
+                                           "bench": bench, "evidence": evidence})
+
+    membership, fibers = _build_resource_membership(data, biomes)
+    _build_terrain_sources(data, items, biomes, membership, bundle_biomes, source)
+    _build_grass_sources(data, items, biomes, membership, fibers, source)
+    unmapped = _build_loot_and_merchant_sources(data, items, biomes, named_biomes, bundle_biomes, source, disabled_source_types)
+    _build_dismantled_sources(data, items, source)
+    recipes, incomplete, hand = _build_recipes(data, items, benches, source)
+    _bench_construction(data, items, recipes, benches, hand)
+    best_mining, base_chances = _rank_mining_sites(biomes, base)
+    _build_item_details(items, base, base_chances)
+    _build_reachable_rings(items, biomes, recipes, benches, hand, incomplete, best_mining)
+    _build_recipe_and_bench_gaps(items, recipes, benches, hand)
+    return _build_graph_result(items, biomes, recipes, benches, rings, base, unmapped,
+                               disabled_source_types, disabled_sources)

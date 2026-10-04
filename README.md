@@ -6,9 +6,9 @@ Local umbrella for a public, English, free, ad-free player and modding reference
 It defines one navigation hub and twelve topic repositories, with versioned
 factual catalogs and unattended updates.
 
-Start with the [accepted ADR](docs/adr/0001-versioned-public-wiki.md). It records
-the complete decisions, provenance model, historical browsing, ownership,
-refresh/release pipeline, failure recovery and delivery sequence.
+Start with the [document and contract index](docs/README.md). It identifies the
+owner of each rule, procedure and evidence record. The
+[accepted ADR](docs/adr/0001-versioned-public-wiki.md) records product decisions.
 
 - [Repository and relationship map](docs/REPOSITORIES.md), generated from
   [project.json](project.json).
@@ -16,21 +16,13 @@ refresh/release pipeline, failure recovery and delivery sequence.
 - [Input snapshot receipts](snapshots/README.md).
 - [Coordinated release contract](releases/README.md).
 
-## Current implementation
+## Status and setup
 
-The [public reader](https://rk-gamemods.github.io/HumanHost-Wiki/) serves selected
-facts in every topic with source evidence, search, relationships and capture
-selection. The existing decompile command invokes an integrated update that
-reuses unchanged work and commits a coordinated local release, then runs retention.
-Publication is a separate gated operator step after review, merge, CI and rehearsal.
-It publishes topic sites before advancing the hub. Unresolved content is reported
-after supported work finishes. See [publication and recovery](docs/PUBLICATION.md).
-
-The [delivery acceptance inventory](docs/ACCEPTANCE.md) records implemented
-requirements, finite checks and evidence limitations. The original 193 content
-groups and five article issues are reconciled for the current capture. Runtime
-verification remains explicitly scoped, and two distinct real catalog builds
-are not yet available. Optional gameplay prose is not a completion gate.
+Open the [public reader](https://rk-gamemods.github.io/HumanHost-Wiki/).
+The [delivery acceptance inventory](docs/ACCEPTANCE.md) owns current status,
+captured-build evidence and verification limits. Follow
+[commands and recovery](docs/WORKFLOW.md) to update locally, then the separate
+[publication gate](docs/PUBLICATION.md#production-gate) to publish a chosen release.
 
 Requires Python 3.11+ and Git, plus authenticated GitHub CLI for publication.
 Captured C# enum extraction also requires the pinned packages in
@@ -45,7 +37,7 @@ py -3 wiki.py check-lock
 py -3 wiki.py build
 py -3 wiki.py extract
 py -3 wiki.py update --operator-report
-py -3 -m unittest discover -s tests -v
+py -3 tools/run_tests.py --changed main
 ```
 
 The build command prints the absolute preview entry path. The ADR is the owning

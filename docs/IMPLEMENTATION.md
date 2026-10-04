@@ -1,3 +1,5 @@
+Historical evidence through 2026-09-27. For current status, see [ACCEPTANCE.md](ACCEPTANCE.md).
+
 # Implementation evidence
 
 The [ADR](adr/0001-versioned-public-wiki.md) owns requirements. This file tracks

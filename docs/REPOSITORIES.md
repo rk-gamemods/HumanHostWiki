@@ -76,15 +76,15 @@ They are not build dependencies. Semantic cycles and backlinks are expected.
 
 ```mermaid
 flowchart LR
-  detect["detect: implemented"]
   capture["capture: external-existing"]
-  detect --> capture
   register["register: implemented"]
   capture --> register
+  availability["availability: implemented"]
+  register --> availability
   external-articles["external-articles: implemented"]
-  register --> external-articles
+  availability --> external-articles
   normalize["normalize: implemented"]
-  register --> normalize
+  external-articles --> normalize
   identity["identity: implemented"]
   normalize --> identity
   project["project: implemented"]
@@ -102,9 +102,9 @@ flowchart LR
 
 | Stage | Owner | Implementation |
 | --- | --- | --- |
-| detect | decompile capture reuse and wikibuild/availability.py; Steam branch observations are independent of gameplay verification | implemented |
-| capture | HumanHostMods/tools/Decompile-GameCode.ps1 | external-existing |
+| capture | HumanHostMods/tools/Decompile-GameCode.ps1; installed-input detection and capture reuse | external-existing |
 | register | wikibuild/snapshots.py | implemented |
+| availability | wikibuild/availability.py; Steam branch observations are independent of gameplay verification | implemented |
 | external-articles | wikibuild/external_links.py and mediawiki.py; bounded versioned article checks | implemented |
 | normalize | wikibuild/extraction.py and topic adapters | implemented |
 | identity | wikibuild/identity.py, model.py and history.py | implemented |

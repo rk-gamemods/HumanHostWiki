@@ -1,10 +1,12 @@
 """Contract failures and repeatability at real local Git/filesystem boundaries."""
 
+import ast
 import copy
 import json
+import ntpath
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import unittest
 from unittest.mock import patch
 
@@ -16,6 +18,13 @@ from wikibuild.storage import ContractError, git, json_bytes, writer_lock, write
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BASE = json.loads((PROJECT_ROOT / "project.json").read_text())
+
+# Parent procedure links use the deployment layout, not this worktree's siblings.
+# Check only their supplied path text. Never stat or read the external runbook.
+PARENT_RUNBOOK_LINKS = {
+    "AGENTS.md": "../docs/RUNBOOK-game-update.md",
+    "docs/README.md": "../../docs/RUNBOOK-game-update.md",
+}
 
 
 class FoundationTests(unittest.TestCase):
@@ -68,6 +77,45 @@ class FoundationTests(unittest.TestCase):
         stages = manifest.stage_order(self.project)
         self.assertEqual(stages[-3:], ["release", "retention", "reader-retention"])
         self.assertNotIn("publish", stages)
+
+    def test_declared_graph_matches_fixed_runner_sequence(self):
+        # Inspect the actual runner without invoking capture, providers or stages.
+        tree = ast.parse((PROJECT_ROOT / "wikibuild/pipeline.py").read_text(encoding="utf-8"))
+        run = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "run")
+        calls = sorted((node for node in ast.walk(run) if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name) and node.func.id == "enter"),
+                       key=lambda node: node.lineno)
+        self.assertTrue(all(len(node.args) == 1 and isinstance(node.args[0], ast.Constant)
+                            and isinstance(node.args[0].value, str) for node in calls))
+        executed = [node.args[0].value for node in calls]
+        self.assertEqual([*manifest.UPDATE_STAGE_ORDER, "promote"], executed)
+        self.assertEqual(["capture", *executed[:-1]], manifest.stage_order(self.project))
+        manifest.validate(self.root, self.project)
+        manifest.validate(self.root, self.project)  # Validation is read-only and repeatable.
+        self.assertEqual([], list(self.root.iterdir()))
+
+    def test_pipeline_graph_drift_rejected(self):
+        for change in ("reorder", "missing", "extra", "rename", "missing-edge"):
+            with self.subTest(change=change):
+                project = copy.deepcopy(self.project)
+                stages = {stage["id"]: stage for stage in project["pipeline"]}
+                if change == "reorder":
+                    stages["availability"]["depends_on"] = ["external-articles"]
+                    stages["external-articles"]["depends_on"] = ["register"]
+                    stages["normalize"]["depends_on"] = ["availability"]
+                elif change == "missing":
+                    project["pipeline"].remove(stages["availability"])
+                    stages["external-articles"]["depends_on"] = ["register"]
+                elif change == "extra":
+                    project["pipeline"].append({"id": "publish", "depends_on": ["reader-retention"],
+                                                "owner": "fixture", "status": "implemented"})
+                elif change == "rename":
+                    stages["availability"]["id"] = "detect"
+                    stages["external-articles"]["depends_on"] = ["detect"]
+                else:
+                    stages["normalize"]["depends_on"] = ["register"]
+                with self.assertRaisesRegex(ContractError, "pipeline.run"):
+                    manifest.validate(self.root, project)
 
     def test_checkout_path_escape_rejected(self):
         self.project["repositories"][0]["path"] = "../other"
@@ -295,6 +343,53 @@ class FoundationTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "differs"):
             workspace.checkout_lock(self.root, self.project, check=True)
 
+    def test_document_index_covers_each_document_once(self):
+        index = PROJECT_ROOT / "docs/README.md"
+        text = index.read_text(encoding="utf-8")
+        links = re.findall(r"^\| \[[^\]]+\]\(([^)]+)\) \|", text, flags=re.MULTILINE)
+        parent_link = PARENT_RUNBOOK_LINKS["docs/README.md"]
+        self.assertEqual(links.count(parent_link), 1)
+        targets = [(index.parent / href).resolve() for href in links if href != parent_link]
+        expected = {PROJECT_ROOT / "README.md", PROJECT_ROOT / "AGENTS.md",
+                    *sorted((PROJECT_ROOT / "docs").rglob("*.md")),
+                    *sorted((PROJECT_ROOT / "docs").rglob("*.json"))}
+        self.assertEqual(expected, set(targets))
+        self.assertEqual(len(targets), len(set(targets)))
+        for name in ("IMPLEMENTATION.md", "BASELINE_INVENTORY.md", "BASELINE_RECONCILIATION.md"):
+            first_line = (index.parent / name).read_text(encoding="utf-8").splitlines()[0]
+            self.assertTrue(first_line.startswith("Historical evidence"), name)
+
+    def test_parent_runbook_links_match_supplied_deployment_path_text(self):
+        umbrella = PureWindowsPath("C:/Users/Admin/Documents/GIT/GameMods/HumanHostMods/HumanHostWiki")
+        supplied = PureWindowsPath("C:/Users/Admin/Documents/GIT/GameMods/HumanHostMods/docs/RUNBOOK-game-update.md")
+        for document, href in PARENT_RUNBOOK_LINKS.items():
+            with self.subTest(document=document):
+                text = (PROJECT_ROOT / document).read_text(encoding="utf-8")
+                self.assertIn(f"]({href})", text)
+                target = PureWindowsPath(ntpath.normpath(str((umbrella / document).parent / href)))
+                self.assertEqual(target, supplied)
+
+    def test_document_index_code_and_test_pointers_exist(self):
+        text = (PROJECT_ROOT / "docs/README.md").read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if not line.startswith("| ["):
+                continue
+            cells = line.split("|")[1:-1]
+            self.assertEqual(len(cells), 5, line)
+            for position in (3, 4):
+                for reference in re.findall(r"`([^`]+)`", cells[position]):
+                    pointer = reference.split("::", 1)[0].split()[0]
+                    if pointer.startswith(("tools/", "tests/")) or pointer == "wiki.py" or pointer.endswith(".json"):
+                        base = PROJECT_ROOT
+                    elif position == 4:
+                        base = PROJECT_ROOT / "tests"
+                    else:
+                        base = PROJECT_ROOT / "wikibuild"
+                    if "*" in pointer:
+                        self.assertTrue(list(base.glob(pointer)), f"Unmatched index pointer: {reference}")
+                    else:
+                        self.assertTrue((base / pointer).exists(), f"Missing index pointer: {reference}")
+
     def test_documentation_local_links_and_plain_punctuation(self):
         documents = [PROJECT_ROOT / "README.md", PROJECT_ROOT / "AGENTS.md",
                      PROJECT_ROOT / "snapshots/README.md", PROJECT_ROOT / "releases/README.md",
@@ -306,6 +401,8 @@ class FoundationTests(unittest.TestCase):
                 parsed = urlparse(href)
                 if parsed.scheme:
                     continue
+                if href == PARENT_RUNBOOK_LINKS.get(document.relative_to(PROJECT_ROOT).as_posix()):
+                    continue  # Path text is checked separately; external reads are out of scope.
                 target = (document.parent / unquote(parsed.path)).resolve() if parsed.path else document
                 self.assertTrue(target.is_file(), f"Broken document link: {document.name}: {href}")
                 if parsed.fragment:
