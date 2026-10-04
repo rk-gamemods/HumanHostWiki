@@ -2,12 +2,9 @@
 
 The [ADR](adr/0001-versioned-public-wiki.md#5-storage-and-presentation) requires
 automatic file, site and history budgets while preserving logical topic ownership
-and historical URLs. Allocation, committed-input measurement and immutable reference
-projection are implemented and connected to the normal release and publication
-stages. The update creates storage partitions as immutable objects fill existing
-repositories and splits oversized snapshot reference lists. Rollover of logical
-entrypoints and splitting of other control metadata remain unfinished, so automatic
-capacity handling does not yet cover every ADR case.
+and historical URLs. This contract defines allocation, committed-input measurement,
+immutable reference projection, control-metadata splitting and logical entrypoint
+rollover. [ACCEPTANCE.md](ACCEPTANCE.md) owns implementation status and evidence limits.
 
 ## Owners and inputs
 
@@ -149,15 +146,15 @@ retain the logical base, while direct visits to a replacement front use its own
 path for route parsing. Candidates declare `entrypoint-rollover-v1`.
 
 Oversized fixed control metadata still fails before promotion, including indivisible
-snapshot metadata, capture records and ownership records. These cases and live
-overflow validation keep complete automatic capacity acceptance open.
+snapshot metadata, capture records and ownership records. This is an explicit
+budget boundary. [ACCEPTANCE.md](ACCEPTANCE.md#current-engineering-limits) owns
+capacity dispositions and live-overflow evidence limits.
 
 Forced-threshold integration tests cover new local repositories, installation
 interruption, publication dependency order/failure, retained historical URLs and
-no-op replay. They use real Git objects and a deterministic host adapter. Real
-GitHub overflow provisioning remains an acceptance gap.
+no-op replay. They use real Git objects and a deterministic host adapter.
 
-## Current validation
+## Validation
 
 Run from the umbrella directory:
 

@@ -90,11 +90,12 @@ The manifest's `entrypoints` map selects active physical fronts, while `routes`
 continues to name the original topic URLs.
 
 Operational staging lives under `.local/rs/` for recovery and inspection. After
-supported publication work completes, the normal update removes staged payloads
+the local release completes, the normal update removes staged payloads
 that have independently verified committed copies. Journals and small Git
 preparation files remain local. [RETENTION.md](RETENTION.md) owns these checks,
-retry behavior and the remaining cache-retention work. Historical public records
-are retained. Indivisible control metadata still needs implementation.
+retry behavior and retention scope. Historical public records are retained.
+Indivisible over-budget control records fail before promotion under
+[CAPACITY.md](CAPACITY.md). [ACCEPTANCE.md](ACCEPTANCE.md) owns delivery status.
 
 ## Validation and preview
 
