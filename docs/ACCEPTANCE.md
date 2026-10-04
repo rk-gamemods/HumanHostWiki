@@ -1,16 +1,18 @@
-# Delivery acceptance
+# Delivery acceptance and current status
 
 This is the closed acceptance inventory for ADR-0001, REPOSITORIES.md and
 WORKFLOW.md. It preserves the ADR requirements and distinguishes implementation,
 fixture proof, real-source proof and unavailable external evidence. Later notes,
 optional mechanics research and stale status labels do not add completion gates.
 
-Delivery inventory: application **0.8.315**, Steam build **25548639**, source
+Baseline delivery inventory (2026-09-27): application **0.8.315**, Steam build **25548639**, source
 capture **1080b929da89375e2c09b6a80abc28f343e9d9a5**. Coverage means the
 414,343 enumerated catalog objects and the selected contracts for this capture.
 It does not mean that every runtime mechanic has an authored explanation.
+This file alone owns current implementation status and evidence dispositions.
+[The document index](README.md) identifies behavior and procedure owners.
 
-Public product: **Unofficial Game Data Wiki for Human Host**, available as the
+Public product: **Unofficial Game Data Wiki for Human Host**, with recorded destinations for the
 [wiki](https://rk-gamemods.github.io/HumanHost-Wiki/) and
 [hub repository](https://github.com/rk-gamemods/HumanHost-Wiki). The generated
 [repository map](REPOSITORIES.md) lists the twelve topic repositories. The normal
@@ -25,11 +27,13 @@ pwsh -NoProfile -File tools/Decompile-GameCode.ps1
 Evidence under `.local/` is retained local diagnostic material. Durable release,
 publication, snapshot and identity receipts are committed in this umbrella.
 Historical implementation checkpoints describe their own dates, not new work.
+The rows retain their dated baseline evidence. A10 and A22 include the later
+receipt and stage-graph reconciliation below.
 
 | ID / requirement | Implementing code | Finite verification and existing evidence | Disposition / actual defect |
 | --- | --- | --- | --- |
 | A01 ADR 1: public English community reference, studio credit, free and ad-free | `navigation.py`, `pages.py`, `release.py`, `project.json` | Thirteen public repositories/sites; approved public name and explicit non-affiliation statement in headers, repository READMEs and descriptions | Implemented. In-game viewer remains explicitly deferred. |
-| A02 ADR 1, 8: fixed current-capture coverage and original backlog | `adapters/components.py`, explicit topic contracts, `adapters/schema.py` | [191-row inventory](BASELINE_INVENTORY.md), two relationship groups, five article issues; 27,011 original component instances; zero baseline exceptions | Passed. 72 domain/configuration class contracts and 119 reviewed technical-summary contracts. |
+| A02 ADR 1, 8: fixed baseline-capture coverage and original backlog | `adapters/components.py`, explicit topic contracts, `adapters/schema.py` | [191-row inventory](BASELINE_INVENTORY.md), two relationship groups, five article issues; 27,011 original component instances; zero baseline exceptions | Passed. 72 domain/configuration class contracts and 119 reviewed technical-summary contracts. |
 | A03 ADR 1, 8: account for every object without exporting raw inputs | `adapters/catalog_policy.py`, `components.py`, parent catalog generator | Complete source audit: 414,343 objects accounted, 527 type summaries, 365,969 assertions; `.local/baseline-selective-source-audit.json` | Passed. 45,518 payload objects omitted by scope; three editor-only decode gaps explicitly retained. No unknown group hidden. |
 | A04 ADR 2: canonical topic ownership, independent repositories, acyclic build graph | `manifest.py`, `workspace.py`, `project.json` | Registry/map/lock checks, `test_foundation.py`; real 13-repository release audit | Passed. Map stage labels describe implemented scope, not research completeness. |
 | A05 ADR 3: input receipts, checkout lock and immutable releases are distinct | `snapshots.py`, `workspace.py`, `release.py` | Receipt validation, tampering and repeat tests; committed `snapshots/`, `workspace.lock.json`, `releases/` | Passed. None grants gameplay verification. |
@@ -37,7 +41,7 @@ Historical implementation checkpoints describe their own dates, not new work.
 | A07 ADR 4: stable wiki identity, scoped game IDs, renames/removals/reuse/ambiguity | `identity.py`, `model.py`, `history.py` | `test_identity.py`, `test_history.py`; real audit of 25,472 observations / 449,827 assertions, preserved in the final delivery evidence | Implemented and fixture-proven for change cases. Real current-capture mappings audited. |
 | A08 ADR 4: selected typed facts, exact references, fields, conditions and evidence | Topic adapters, `schema.py`, `prefabs.py`, `coded_values.py`, `model.py`, reader | The `_AmmoType: 5` defect produced a shared correction for 31 selected enum fields, 24,203 occurrences, 109 used values and 42 ammunition item links. Source-text and reader checks pass; Ammo Type is now a linked 7.62x54mm entry. | Corrected and published. Unknown codes remain exceptions, raw values remain provenance. Unknown units/conditions are not invented. |
 | A09 ADR 4: last changed differs from last verified; freshness remains honest | `availability.py`, `curation.py`, `pages.py`, `web/reader.js` | Availability, curation and reader tests; live Steam observation; browser capture selection | Passed. Extraction success cannot set runtime gameplay verification. Unknown status is an allowed result. |
-| A10 ADR 4, 5, 8: versioned history and navigation across at least two captured builds | `history.py`, `reader.py`, `release_content.py`, browser loaders | Two-build fixtures cover additions/removals, ID changes, unchanged content and ambiguity. Real same-build capture revisions and historical URLs verified. See evidence disposition below. | Fixture-proven; **two distinct real catalog builds unavailable**. This is an evidence limitation, not a missing parser or permission for more gameplay research. |
+| A10 ADR 4, 5, 8: versioned history and navigation across at least two captured builds | `history.py`, `reader.py`, `release_content.py`, browser loaders | Two-build fixtures cover additions/removals, ID changes, unchanged content and ambiguity. Retained release versions now include four distinct real builds with identity runs. See captured-build evidence below. | Multi-build capture and normalization are recorded. Fixtures prove the listed change cases; receipts alone do not prove that each case occurred in real gameplay. |
 | A11 ADR 5: deterministic Git text, semantic revisions, grouped Markdown and browser-readable history | `model.py`, `packs.py`, `release_content.py`, `release_output.py` | Final reader audit: 67,127 retained observations / 604,151 assertions; release audit: 5,990 owned files and 299 historical configs | Passed. Unchanged semantic revisions are reused. Historical configs are not counted as game builds. |
 | A12 ADR 1, 5: hub discovery, search, filters, version selection and cross-topic routes | `navigation.py`, `reader.py`, `web/reader.js`, release loader | Production-loader tests; live Crude Axe search, Items-to-Crafting and older capture navigation; source-preserving route checks | Passed. Authored guides are optional under ADR 7; no requirement to research every mechanic. |
 | A13 ADR 5, 8: automatic splits, capacity allocation/provisioning and preserved history | `capacity*.py`, `physical.py`, `shard_index.py`, `capture_catalog.py`, `entrypoints.py`, release coordinator | Real-Git forced-threshold fixtures with deterministic host: overflow, provisioning, paged control indexes, retired fronts, replay and historical URLs; `test_capacity_release.py`, `test_capacity_projection.py`, `test_entrypoints.py` | Implemented and fixture-proven. Real inventory fits default budgets; live GitHub overflow was not forced. Existing live provisioning of 13 sites validates the host path. |
@@ -49,9 +53,9 @@ Historical implementation checkpoints describe their own dates, not new work.
 | A19 ADR 7: optional checked authored claims and isolated failed checks | `curated_rules.py`, `curation.py` | Curation fixtures verify typed values, code dependency changes, failed claims, last-success history and repeated-input reuse | Passed. Optional named C# checker work was restored and retained; it is not required to resolve the baseline or author prose. |
 | A20 ADR 7: populated official backlinks, cached observations and independent outage behavior | `external_links.py`, `mediawiki.py` | Five original revisions now populated; 22 configured checks populated; article/provider and projection audits | Passed. Bodies discarded; article availability does not assert gameplay accuracy. |
 | A21 ADR 6: future lightweight classifiers only recorded as experiments | `BASELINE_RECONCILIATION.md`, `IMPLEMENTATION.md` | Concrete candidate labels and test criteria documented | Passed. No classifier or model-spending service implemented. |
-| A22 map/workflow: accurate implemented stages and actionable run status | `project.json`, generated `REPOSITORIES.md`, `pipeline.py`, `wiki.py`, `WORKFLOW.md` | Focused pipeline tests prove empty remaining-work list on success and content issues when detected | Corrected. Hard-coded gameplay/capacity todo labels removed. |
+| A22 map/workflow: accurate implemented stages and actionable run status | `project.json`, generated `REPOSITORIES.md`, `manifest.py`, `pipeline.py`, `wiki.py` | Foundation tests compare the declared graph with the fixed runner sequence and reject order/edge drift. Pipeline tests cover content issues and the separate publish next step. | Corrected. A successful update ends locally and reports `publish` as the next operator step, plus detected content/article issues. |
 
-## Final delivery evidence
+## Baseline delivery evidence (2026-09-27)
 
 The normal command completed successfully and published the approved name and
 non-affiliation statement on 2026-09-27. The 193 original content groups and five
@@ -79,22 +83,65 @@ local log hashes are preserved in [delivery-evidence.json](delivery-evidence.jso
   destination links to the factory bullet and five material variants. Entry
   document titles also use the approved public name.
 
-Current-capture implementation and delivery are complete. There is no detected
-execution failure or unresolved baseline content issue. The evidence limitations
+That delivery reconciled the original backlog for build 25548639. It does not
+establish exception-free coverage for every later capture. The evidence limits
 below remain explicit; they do not trigger autonomous follow-on work.
 
-## Historical-build evidence disposition
+## Captured-build evidence
 
-The four registered real catalog captures all identify Steam build 25548639.
-Earlier local source commits `7550530` (25448142) and `3c01f7f` (25407931) have
-decompiled code but no `Catalog` tree. Current assets cannot establish their
-historical values. They are not represented as captured wiki builds.
+Local receipts inspected on 2026-10-03 record nine snapshots across four distinct
+Steam builds. Six snapshots belong to build 25548639; each later build has one.
+These are captured inputs, not nine game versions.
 
-Two-build fixtures prove the finite behavior required by A10. The distinct-real-build
-portion remains explicitly unproven until another complete catalog is available.
-No claim of two-real-build acceptance is made, no historical data is fabricated,
-and no unbounded collection/research task runs after delivery. The next normal
-decompile after a game update can supply that evidence through the same workflow.
+| Steam build | Application label | Representative input receipt |
+| --- | --- | --- |
+| 25548639 | 0.8.315 on the baseline capture; earlier labels remain unknown | [build-25548639-1080b929da89](../snapshots/build-25548639-1080b929da89.json) |
+| 25587699 | 0.8.316 | [build-25587699-a399133f7ca4](../snapshots/build-25587699-a399133f7ca4.json) |
+| 25606549 | 0.8.316 | [build-25606549-f1e8b4a4a8b8](../snapshots/build-25606549-f1e8b4a4a8b8.json) |
+| 25675256 | 0.8.318 | [build-25675256-8764ea7be0f8](../snapshots/build-25675256-8764ea7be0f8.json) |
+
+[releases/latest.json](../releases/latest.json) selects release
+`cd0a533da3419bc83656c4e016f2733ab49757fe7952e88568d516425e5adb07`.
+Its [manifest](../releases/cd0a533da3419bc83656c4e016f2733ab49757fe7952e88568d516425e5adb07.json)
+records all four builds in `versions`, with snapshot IDs, observation counts and
+identity-run IDs. Distinct real builds have therefore been normalized and retained.
+[publications/latest.json](../publications/latest.json) selects the same release.
+Its [publication receipt](../publications/cd0a533da3419bc83656c4e016f2733ab49757fe7952e88568d516425e5adb07.json)
+records `status: published` and verified outputs for all thirteen logical sites.
+This is saved publication evidence, not a fresh live-availability check.
+
+The release records `reader_artifacts: passed`, `coverage: partial` and
+`gameplay_verification: not-performed`. Multi-build receipts do not establish
+runtime verification or demonstrate every identity change case in real captures.
+Fixtures remain the finite proof for changes that those captures do not exercise.
+The 2026-09-27 history review found no catalogs for earlier local source commits
+`7550530` (25448142) and `3c01f7f` (25407931). This task did not reinspect those
+source checkouts. Current assets cannot reconstruct their historical values.
+
+## Current engineering limits
+
+Capacity allocation, paged snapshot/capture/ownership metadata and entrypoint
+rollover have real-Git fixture proof. The retained release fits configured budgets;
+it records no new physical repositories or rolled topics. Live overflow was not
+forced. An indivisible over-budget control record is a deliberate pre-promotion
+failure, not an unfinished splitter.
+
+The production gate, local publication abandonment, stuck-Pages recovery and run
+timing have deterministic tests. Merged PR #33 added supervised timeout cleanup;
+PR #38 confirms whole POSIX process-group exit. Production children use registered
+Windows jobs or POSIX groups, with launch fencing and bounded cleanup.
+PR #41 bounds Git calls and streaming I/O; its process lint tracks import provenance
+within its documented scope. PR #36 runs rehearsal in an OS-temp workspace with
+disposable child clones. PR #39 records staging ownership and retires older abandoned
+attempts while preserving a diagnostic attempt and unknown files.
+
+PR #42 fixes #23/#24 by splitting reader helpers and centralizing pipeline
+contract construction. The coordinator reports #34 (legacy rehearsal pins) and
+#22 (release/allocation coupling) in flight, not merged. Open backlog
+includes #26 (remaining complexity hotspots) and #40 (staging tombstones and
+process-death tests). The [architecture review](ARCHITECTURE.md#architecture-review-2026-10-03)
+groups the remaining boundaries and names their owners. Test proof does not
+establish live GitHub availability.
 
 ## Closure rule
 

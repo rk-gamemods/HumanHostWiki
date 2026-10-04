@@ -72,13 +72,10 @@ Keep three records distinct:
 - `releases/`: immutable manifests for verified, coordinated wiki releases.
 
 Registration or a navigation preview cannot establish gameplay verification.
-The implemented pipeline provides selected facts across all topics, durable
-identity decisions, grouped/searchable historical readers, capacity allocation,
-coordinated Git/Pages publication and interrupted-run recovery. All thirteen
-logical sites are public. [ACCEPTANCE.md](../ACCEPTANCE.md) records finite proof
-for each requirement and distinguishes fixture proof from real-source evidence.
-In particular, distinct-real-build history evidence is unavailable; current
-captures and extractor corrections must not be described as different game builds.
+[ACCEPTANCE.md](../ACCEPTANCE.md) owns implementation status and finite proof
+for each requirement. It distinguishes fixture proof from retained real-source
+evidence. Captures and extractor corrections must not be described as different
+game builds unless their Steam build identities differ.
 Unknown gameplay verification remains an honest evidence state, not a run failure.
 Development commands are diagnostic entrypoints; the normal decompile command
 is the maintenance workflow. Historical checkpoints are in
@@ -188,15 +185,11 @@ release with `wiki.py publish --release <id>`, after successful rehearsal agains
 live state. This supersedes the integrated-publication sequence described in the
 original decision below and its unattended-publication acceptance wording.
 
-GitHub branch protection is unavailable for this private repository on GitHub Free,
-so code enforces the boundary before any provisioning or pending resume: clean
-workspace, HEAD equal to fetched origin/main, exact-commit `CI` success, then a
-rehearsal receipt binding release, workspace commit, publication contract and every
-observed destination branch ref. Receipts expire after 24 hours; changed refs,
-commit or contract require another rehearsal. There is no override flag; bypass
-requires a reviewed PR. Local updates remain unattended. Deployment, rollback and
-resume retain their existing behavior after the gate. [PUBLICATION.md](../PUBLICATION.md)
-owns the implementation contract.
+The [production gate](../PUBLICATION.md#production-gate) owns exact commit, CI,
+merged-PR, rehearsal and live-ref requirements before provisioning. There is no
+override flag. Local updates remain unattended. Failed publication attempts must
+be abandoned locally before a fresh rehearsal and publication. Rollback belongs
+to the failing invocation. This also supersedes earlier resume wording.
 
 The operator-invoked decompile command owns this sequence. It checks for stable
 installed build/catalog changes, skips unchanged work and invokes wiki generation
@@ -318,7 +311,7 @@ Required proof before full publication:
 - Unknown content enters technical reference with an actionable exception while
   supported changes proceed; repeat invocations resume without duplicate work.
 
-Delivery order: **foundation (implemented) -> integrated pipeline with item/loot slice
+Delivery order: **foundation -> integrated pipeline with item/loot slice
 -> all registered topics -> historical reader -> coordinated Pages publication**.
 The first slice does not reduce final coverage. Selected data uses streaming and
 bounded in-memory joins. The reader uses standard-library Python generation and

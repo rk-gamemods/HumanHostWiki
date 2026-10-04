@@ -10,6 +10,14 @@ from . import external_links
 
 SLUG = re.compile(r"^[a-z][a-z0-9-]*$")
 
+# Fixed local sequence in pipeline.run. Foundation tests compare this contract
+# with the runner's enter() calls without importing or executing its stages.
+# Capture is the external handoff; promote is internal receipt bookkeeping.
+UPDATE_STAGE_ORDER = (
+    "register", "availability", "external-articles", "normalize", "identity",
+    "project", "verify", "release", "retention", "reader-retention",
+)
+
 
 def require(condition, message):
     if not condition:
@@ -107,6 +115,16 @@ def stage_order(manifest):
 
     for stage in stages:
         visit(stage["id"])
+    expected = ["capture", *UPDATE_STAGE_ORDER]
+    require(ordered == expected, "Declared pipeline order differs from pipeline.run")
+    ancestors = {}
+    for identity in ordered:
+        ancestors[identity] = set(by_id[identity]["depends_on"])
+        for parent in by_id[identity]["depends_on"]:
+            ancestors[identity].update(ancestors[parent])
+    for previous, identity in zip(ordered, ordered[1:]):
+        require(previous in ancestors[identity],
+                f"Pipeline graph must order {previous} before {identity}, as pipeline.run does")
     return ordered
 
 

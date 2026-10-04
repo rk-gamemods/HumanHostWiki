@@ -97,7 +97,7 @@ Steam console version was `1788292693`. A success requires the latter condition.
 The Web API `ISteamApps/UpToDateCheck` returned `success: false` for this app and
 was not adopted. The selected metadata does not provide a reliable in-game display
 version. The captured [application version](GAME_VERSION.md) comes from the local
-source snapshot. Gameplay verification remains open work.
+source snapshot. [ACCEPTANCE.md](ACCEPTANCE.md) owns gameplay-verification limits.
 
 Focused checks:
 
