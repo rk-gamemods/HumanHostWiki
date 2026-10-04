@@ -235,6 +235,7 @@ class ReaderTests(unittest.TestCase):
         fonts = config["fonts"]
         self.assertEqual(fonts["base"], "/hub/fonts/" + digest(json_bytes(fonts["files"])) + "/")
         sources = Path(reader.__file__).parent / "web/fonts"
+        self.assertEqual(set(fonts["files"]), {path.name for path in sources.iterdir() if path.is_file()})
         for name, meta in fonts["files"].items():
             data = (site / (fonts["base"] + name).lstrip("/")).read_bytes()
             original = (sources / name).read_bytes()
@@ -587,6 +588,29 @@ class ReaderTests(unittest.TestCase):
         for base in ("javascript:alert(1)/", "//unconfigured.test/", "/items/../private/", "https://user:secret@example.com/"):
             with self.subTest(base=base), self.assertRaisesRegex(ContractError, "HTTPS"):
                 self.build(bases={"hub": "/hub/", "items": base, "loot": "/loot/"})
+
+    def test_site_base_credentials_and_traversal_keep_exact_error(self):
+        for base in ("https://user@example.com/", "https://:secret@example.com/",
+                     "https://user:secret@example.com/", "/../items/",
+                     "/items/../private/", "https://example.com/items/../private/"):
+            with self.subTest(base=base), self.assertRaises(ContractError) as raised:
+                self.build(bases={"hub": "/hub/", "items": base, "loot": "/loot/"})
+            self.assertEqual(str(raised.exception), "Reader base must be an HTTPS site or absolute local URL path")
+            self.assertFalse((self.root / ".local/reader-latest.json").exists())
+            self.assertFalse((self.root / ".local/readers").exists())
+            self.assertFalse((self.root / ".local/reader-stage").exists())
+
+    def test_site_bases_require_complete_topic_coverage_before_url_validation(self):
+        for bases in ({"hub": "/hub/", "items": "/items/"},
+                      {"hub": "/hub/", "items": "https://user@example.com/"},
+                      {"hub": "/hub/", "items": "/items/", "loot": "/loot/", "extra": "/extra/"},
+                      {"hub": "/hub/", "items": "/items", "loot": "/loot/"}):
+            with self.subTest(bases=bases), self.assertRaises(ContractError) as raised:
+                self.build(bases=bases)
+            self.assertEqual(str(raised.exception), "Reader bases must name every topic with a trailing slash")
+            self.assertFalse((self.root / ".local/reader-latest.json").exists())
+            self.assertFalse((self.root / ".local/readers").exists())
+            self.assertFalse((self.root / ".local/reader-stage").exists())
 
     def test_dense_reverse_links_split_without_oversized_entry(self):
         observations = [self.observation(self.a, "Material")]
