@@ -22,6 +22,13 @@ def validate_redirects(redirects, states):
             raise ContractError("Conflicting or invalid identity redirect")
 
 
+def validate_reviewed_keys(corrections, redirects):
+    for correction in corrections:
+        for key in [correction.get("entity_key"), *correction.get("supersedes", [])]:
+            if key in redirects:
+                raise ContractError(f"Reviewed identity mapping references redirected key: {key}")
+
+
 def read(root):
     path = within(root, "identity/migration.json")
     if not path.exists():
@@ -43,6 +50,11 @@ def previous_state(root, previous, migration):
 
 def repaired_semantic(semantic, rekeys):
     """Project relationship assignments without changing frozen model data."""
+    for relation in semantic["relationships"]:
+        for gap in relation.get("gaps", []):
+            for key in [*gap.get("candidates", []), gap.get("technical_summary")]:
+                if rekeys.get(key, key) != key:
+                    raise ContractError(f"Relationship gap references rekeyed entity: {key}")
     return {**semantic, "relationships": [
         {**relation, **{field: sorted({rekeys.get(target, target) for target in relation[field]})
                        for field in ("targets", "technical_targets") if field in relation}}
@@ -106,6 +118,7 @@ def observations(root, run):
 
 def repair_capture(run, rows, metadata, previous, redirects, corrections=()):
     """Pure chronological step; seed first appearances with their recorded keys."""
+    validate_reviewed_keys(corrections, redirects)
     capture = identity.CaptureIndex(metadata, previous)
     current, frozen, parents, missing_parents = {}, {}, set(), {}
     for stored, row in rows:
@@ -138,7 +151,7 @@ def repair_capture(run, rows, metadata, previous, redirects, corrections=()):
             if target == "e-" + identity.fingerprint([run["snapshot_id"], key, "reviewed-new"])[:32]:
                 target = "new"
             else:
-                target = redirects.get(target, {}).get("entity_key", target)
+                validate_reviewed_keys([{"entity_key": target}], redirects)
             reviewed[key] = {"snapshot_id": run["snapshot_id"], "observation_key": key, "entity_key": target,
                              "reviewer": decision.get("reviewer"), "reason": decision.get("reason")}
     seen_corrections = set()
@@ -157,8 +170,9 @@ def repair_capture(run, rows, metadata, previous, redirects, corrections=()):
         same_capture=bool(previous and all(state["last_seen"] == run["snapshot_id"]
                                          for state in previous.values() if state["status"] == "present")),
         corrections=reviewed, reserved=redirects, allocations=allocations)
-    supersessions = identity.reviewed_supersessions(current, previous, assignments, run["snapshot_id"], reviewed)
     rekeys = {stored["entity_key"]: assignments[key] for key, stored in frozen.items()}
+    validate_reviewed_keys(corrections, {old for old, target in rekeys.items() if old != target and old not in previous})
+    supersessions = identity.reviewed_supersessions(current, previous, assignments, run["snapshot_id"], reviewed)
     states = {}
     for key, entity in assignments.items():
         prior = previous.get(entity)
@@ -225,6 +239,7 @@ def plan(root, source, progress=None):
         validate_redirects(redirects, states)
         if progress:
             progress({"run": ordinal + 1, "total": len(runs), "redirects": len(redirects), "repairs": len(repairs)})
+    validate_reviewed_keys(corrections["mappings"], redirects)
     return {"schema_version": 1, "base_run": runs[-1]["run_id"], "contract_sha256": contract_hash,
             "corrections_sha256": corrections_hash,
             "runs": [run["run_id"] for run in runs], "redirects": redirects, "repairs": repairs}, states

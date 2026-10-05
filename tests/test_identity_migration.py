@@ -20,7 +20,7 @@ class MigrationTests(unittest.TestCase):
         self.parent = None
         self.keys = ["e-" + letter * 32 for letter in "abcd"]
 
-    def capture(self, number, records, *, targets=None, reviewed=None):
+    def capture(self, number, records, *, targets=None, reviewed=None, gaps=None):
         rows, allocation, metadata = [], {}, {}
         snapshot = "build-" + str(number) + "-" + "a" * 12
         for source, name, key in records:
@@ -37,6 +37,9 @@ class MigrationTests(unittest.TestCase):
             key = allocation[row["observation_key"]]
             frozen = model.project(row, key, indexes, metadata,
                 {"Catalog/views/items.jsonl": {"git_blob": "a" * 40}}, Exceptions())
+            if gaps and row["source_id"] in gaps:
+                frozen["semantic"]["relationships"] = [{"predicate": "references", "field": "/target", "targets": [], "gaps": gaps[row["source_id"]]}]
+                frozen["revision_id"] = identity.fingerprint(frozen["semantic"])
             frozen["snapshot_id"] = snapshot
             if reviewed:
                 frozen["identity_decision"] = reviewed
@@ -75,6 +78,50 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(a, live["A"])
         self.assertNotEqual(provisional, live["B"])
         self.assertEqual(record, self.plan()[0])
+
+    def test_reviewed_redirect_key_is_refused_before_writing(self):
+        a, provisional, _, _ = self.keys
+        self.capture(1, [("bundle#1", "A", a)])
+        second = self.capture(2, [("bundle#2", "A", provisional)])
+        third = self.capture(3, [("bundle#3", "A", a)])
+        with writer_lock(self.root):
+            pass
+        for run, source, field in ((second, "bundle#2", "entity_key"), (third, "bundle#3", "entity_key"),
+                                   (second, "bundle#2", "supersedes"), (third, "bundle#3", "supersedes")):
+            with self.subTest(snapshot=run["snapshot_id"], field=field):
+                correction = {"snapshot_id": run["snapshot_id"], "observation_key": observation(source=source)["observation_key"],
+                              "entity_key": a, "reviewer": "Coordinator", "reason": "Reviewed correction."}
+                correction[field] = [provisional] if field == "supersedes" else provisional
+                (self.root / "identity/corrections.json").write_bytes(json_bytes({"schema_version": 1, "mappings": [correction]}))
+                before = {path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
+                with patch.object(migration, "require_clean"), patch.object(history, "immutable") as install, \
+                        patch.object(history, "relevant_metadata", side_effect=lambda source, revision, *args: (self.metadata[revision], 0)):
+                    with self.assertRaisesRegex(ContractError, provisional):
+                        migration.run(self.root, self.source, {})
+                    install.assert_not_called()
+                self.assertEqual(before, {path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()})
+
+    def test_rekeyed_relationship_gap_is_refused_before_writing(self):
+        a, b, provisional, _ = self.keys
+        for field in ("candidates", "technical_summary"):
+            with self.subTest(field=field):
+                self.root = fixture_dir(self, "gap")
+                self.source, self.parent, self.metadata = self.root / "source", None, {}
+                self.capture(1, [("bundle#1", "A", a), ("bundle#2", "B", b)])
+                gap = {"status": "ambiguous-target" if field == "candidates" else "domain-target-not-cataloged",
+                       field: [provisional] if field == "candidates" else provisional}
+                semantic = {"relationships": [{"targets": [], "gaps": [gap]}]}
+                self.assertEqual(semantic, migration.repaired_semantic(semantic, {provisional: provisional}))
+                self.capture(2, [("bundle#1", "A", a), ("bundle#20", "B", provisional)], gaps={"bundle#1": [gap]})
+                with writer_lock(self.root):
+                    pass
+                before = {path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
+                with patch.object(migration, "require_clean"), patch.object(history, "immutable") as install, \
+                        patch.object(history, "relevant_metadata", side_effect=lambda source, revision, *args: (self.metadata[revision], 0)):
+                    with self.assertRaisesRegex(ContractError, provisional):
+                        migration.run(self.root, self.source, {})
+                    install.assert_not_called()
+                self.assertEqual(before, {path: path.read_bytes() for path in self.root.rglob("*") if path.is_file()})
 
     def test_reviewed_rename_overrides_provisional_lineage(self):
         a, provisional, _, _ = self.keys
