@@ -1,6 +1,7 @@
 """Filesystem transaction tests; real-source rehearsal complements the mock catalog."""
 
 import json
+from contextlib import contextmanager
 import os
 import subprocess
 from pathlib import Path
@@ -9,12 +10,31 @@ from unittest.mock import patch
 
 from tests._support import fixture_dir
 
-from test_identity import observation
+from test_identity import observation, skill_capture
 from wikibuild import extraction, history, identity, model
+from wikibuild.source import Source
 from wikibuild.storage import ContractError, json_bytes, writer_lock
 
 
 class HistoryTests(unittest.TestCase):
+    def test_normal_run_never_reads_ancestor_runs_or_retained_models(self):
+        first, _ = self.run_history()
+        self.set_input([observation(name="Different", value=9)], build="200")
+        second, _ = self.run_history()
+        (self.root / second["models"]["path"]).unlink()
+        reader = history.read
+        def without_ancestry(root, run_id, **kwargs):
+            self.assertNotEqual(first["run_id"], run_id)
+            return reader(root, run_id, **kwargs)
+        with patch.object(history, "read", side_effect=without_ancestry), patch.object(history, "contract", return_value="next-contract"):
+            third, _ = self.run_history()
+        self.assertEqual(second["run_id"], third["parent_run"])
+        self.assertNotIn("continuity_aliases", third)
+        before, after = history.load_state(self.root, second), history.load_state(self.root, third)
+        self.assertEqual({key for key, state in before.items() if state["status"] == "present"},
+                         {key for key, state in after.items() if state["status"] == "present"})
+
+
     def test_native_nested_extra_ownership_is_unrecognized_and_kept(self):
         from wikibuild import staging
         unknown = self.root / ".local/history/staging" / ("f" * 32)
@@ -182,6 +202,51 @@ class HistoryTests(unittest.TestCase):
         self.assertIsNone(after["last_verified"])
         self.assertEqual("game-input-change", second["change_origin"])
 
+    def test_uneven_renumbering_keeps_keys_revisions_and_raw_relationship_provenance(self):
+        def capture(ids):
+            self.metadata = {source: {"type": "MonoBehaviour", "class": "Icon_Info", "assembly": "Item_Info", "name": name}
+                             for source, name in zip(ids, ("Tool", "Rock", "Metal"))}
+            rows = [{**observation(source=source, name=name), "component": {"assembly": "Item_Info", "class": "Icon_Info"}}
+                    for source, name in zip(ids, ("Tool", "Rock", "Metal"))]
+            rows[0]["relationships"] = [{"predicate": "produces-item", "source_field": f"/materials/{i}",
+                                         "target_source_id": target, "status": "resolved"}
+                                        for i, target in enumerate(ids[1:])]
+            return rows
+
+        self.set_input(capture(("bundle#10", "bundle#20", "bundle#30")))
+        first, _ = self.run_history()
+        before = {state["descriptor"]["name"]: state for state in history.load_state(self.root, first).values()}
+        self.set_input(capture(("bundle#8", "bundle#16", "bundle#31")), build="200")
+        original = history.write_changed
+        def fail_pointer(path, data):
+            if path == self.root / "identity/latest.json":
+                raise OSError("renumbered pointer interrupted")
+            return original(path, data)
+        with patch.object(history, "write_changed", side_effect=fail_pointer):
+            with self.assertRaisesRegex(OSError, "renumbered pointer interrupted"):
+                self.run_history()
+        self.assertEqual(first["run_id"], history.latest(self.root)["run_id"])
+        second, recovered = self.run_history()
+        self.assertTrue(recovered["reused"])
+        self.assertEqual({"unchanged": 3}, second["counts"])
+        after = {state["descriptor"]["name"]: state for state in history.load_state(self.root, second).values()}
+        for name in before:
+            for field in ("entity_key", "revision_id", "first_seen", "last_changed"):
+                self.assertEqual(before[name][field], after[name][field])
+            self.assertEqual(before[name]["descriptor"]["facts_hash"], after[name]["descriptor"]["facts_hash"])
+            self.assertEqual("unique-typed-anchor", after[name]["decision"]["rule"])
+        tool = next(row for row in model.rows(extraction.artifact(self.root, second["models"])) if row["semantic"]["name"] == "Tool")
+        self.assertEqual(["bundle#16", "bundle#31"], [link["target_source_id"] for link in tool["provenance"]["relationships"]])
+        self.assertEqual({before["Rock"]["entity_key"], before["Metal"]["entity_key"]},
+                         {target for link in tool["semantic"]["relationships"] for target in link["targets"]})
+        pointer = self.root / "identity/latest.json"
+        stamp = pointer.stat().st_mtime_ns
+        repeated, metrics = self.run_history()
+        self.assertEqual(second, repeated)
+        self.assertEqual({"reused": True, "source_bytes_read": 0}, metrics)
+        self.assertEqual(stamp, pointer.stat().st_mtime_ns)
+        self.assertEqual(first, history.read(self.root, first["run_id"]))
+
     def test_changed_value_revises_only_affected_entity(self):
         self.metadata["bundle#2"] = self.metadata["bundle#1"]
         self.set_input([observation(), observation(source="bundle#2", name="B")])
@@ -190,6 +255,44 @@ class HistoryTests(unittest.TestCase):
         result, _ = self.run_history()
         self.assertEqual(1, result["counts"]["changed"])
         self.assertEqual(1, result["counts"]["unchanged"])
+
+    def test_reordered_definitions_keep_parent_keys_revisions_and_provenance_after_retry(self):
+        def capture(source, order, targets):
+            rows, self.metadata = skill_capture(source, order, targets)
+            for name, target in zip(order, targets):
+                rows.append({**observation(source=target, name=name), "kind": "configuration", "topic": "technical-reference",
+                             "component": {"assembly": "Language", "class": "Language_Text"}, "facts": {"text": name}})
+            return rows
+        self.set_input(capture("bundle#10", ("Forestry", "Gunsmith"), ("bundle#100", "bundle#200")))
+        first, _ = self.run_history()
+        before = {(row["descriptor"]["kind"], row["descriptor"]["name"]): row for row in history.load_state(self.root, first).values()}
+        self.set_input(capture("bundle#8", ("Gunsmith", "Forestry"), ("bundle#202", "bundle#101")), build="200")
+        original = history.write_changed
+        def fail_pointer(path, data):
+            if path == self.root / "identity/latest.json":
+                raise OSError("definition pointer interrupted")
+            return original(path, data)
+        with patch.object(history, "write_changed", side_effect=fail_pointer):
+            with self.assertRaisesRegex(OSError, "definition pointer interrupted"):
+                self.run_history()
+        self.assertEqual(first["run_id"], history.latest(self.root)["run_id"])
+        second, recovered = self.run_history()
+        self.assertTrue(recovered["reused"])
+        self.assertEqual({"unchanged": 5}, second["counts"])
+        after = {(row["descriptor"]["kind"], row["descriptor"]["name"]): row for row in history.load_state(self.root, second).values()}
+        for key, state in before.items():
+            self.assertEqual(state["entity_key"], after[key]["entity_key"])
+            self.assertEqual(state["revision_id"], after[key]["revision_id"])
+            self.assertEqual(state["last_changed"], after[key]["last_changed"])
+        skill = next(row for row in model.rows(extraction.artifact(self.root, second["models"]))
+                     if row["semantic"]["kind"] == "skill" and row["semantic"]["name"] == "Gunsmith")
+        self.assertEqual("bundle#8", skill["provenance"]["parent_source_id"])
+        self.assertEqual("/_SurviveSkills/0", skill["provenance"]["source_field_base"])
+        self.assertIn("/_SurviveSkills/0/_skill/maxLv", skill["provenance"]["evidence"][0]["fields"])
+        self.assertEqual(before[("survival-rule", "PlayerSkills")]["entity_key"],
+                         next(link["targets"][0] for link in skill["semantic"]["relationships"] if link["predicate"] == "defined-by"))
+        self.assertEqual(second, self.run_history()[0])
+        self.assertEqual(first, history.read(self.root, first["run_id"]))
 
     def test_duplicate_observations_fail_without_replacing_last_success(self):
         first, _ = self.run_history()
@@ -319,6 +422,104 @@ class HistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "same captured component"):
             identity.reviewed_supersessions({"new": current}, previous, {"new": "target"}, "snapshot",
                 [{"snapshot_id": "snapshot", "observation_key": "new", "supersedes": ["old"]}])
+
+
+class MetadataTests(unittest.TestCase):
+    def test_scope_coverage_and_unselected_context_counterpart_are_pinned(self):
+        index = [{"id": "bundle#1", "type": "GameObject", "name": "Snow_Heavy"},
+                 {"id": "bundle#8", "type": "GameObject", "name": "Fog_Heavy"}]
+        class PinnedSource:
+            bytes_read = 0
+            blobs = {"Catalog/objects/bundle.jsonl": {}}
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def records(self, path):
+                return iter(index)
+        fog = identity.typed_anchor("bundle#1", index[1])
+        with patch.object(history, "Source", return_value=PinnedSource()) as source:
+            source.object_path.side_effect = Source.object_path
+            metadata, _ = history.relevant_metadata("source", "revision", {"bundle#1", "missing#1", "catalog-type/summary"}, [fog])
+        self.assertEqual({"bundle#1", "bundle#8"}, set(metadata))
+        self.assertEqual({"bundle"}, metadata.captured_scopes)
+        self.assertEqual(fog, identity.target_anchors(metadata)["bundle#8"])
+
+    def test_pinned_hierarchy_and_raw_callers_supply_context_anchors(self):
+        records, catalog = {}, []
+        def add(key, name, engine_type, fields, refs, assembly=None, cls=None):
+            catalog.append({"id": key, "name": name, "type": engine_type, "assembly": assembly, "class": cls})
+            records[key] = {"id": key, "type": engine_type, "fields": fields, "references": refs}
+            if engine_type == "MonoBehaviour":
+                records[key]["script"] = {"assembly": assembly, "class": cls}
+        def ref(field, target):
+            return {"field": field, "target": target, "status": "resolved"}
+        def node(number, name, father, children, component=None):
+            owner, transform = f"bundle#{number}", f"bundle#{number + 100}"
+            refs = [ref("/m_Component/0/component", transform)]
+            if component:
+                refs.append(ref("/m_Component/1/component", component))
+            add(owner, name, "GameObject", {"m_Name": name}, refs)
+            fields = {"m_Father": {"m_FileID": 0, "m_PathID": 0 if father is None else father + 100}}
+            refs = [ref("/m_GameObject", owner), *[ref(f"/m_Children/{i}", f"bundle#{child + 100}") for i, child in enumerate(children)]]
+            if father is not None:
+                refs.append(ref("/m_Father", f"bundle#{father + 100}"))
+            add(transform, name, "RectTransform", fields, refs)
+        node(100, "Canvas", None, [101, 103])
+        node(101, "Bag", 100, [102])
+        node(102, "Icon", 101, [], "bundle#10")
+        node(103, "Crafting", 100, [104])
+        node(104, "Icon", 103, [], "bundle#20")
+        for source, owner in (("bundle#10", "bundle#102"), ("bundle#20", "bundle#104")):
+            add(source, "Icon", "MonoBehaviour", {"_slotIndex": 0}, [ref("/m_GameObject", owner)], "UI", "Slot_Info")
+        for source in ("bundle#30", "bundle#31"):
+            add(source, "Backpack", "MonoBehaviour", {"_Infos": [{"languageType": 2, "text": "Backpack"}]}, [], "Language", "Language_Text")
+        add("bundle#40", "HotKeys", "MonoBehaviour", {}, [ref("/_BagText", "bundle#30")], "UI", "Player_HotKeys")
+        add("bundle#41", "Save", "MonoBehaviour", {}, [ref("/_DeadBagIconTitle", "bundle#31")], "SaveData", "Save_Player_Data")
+        class PinnedSource:
+            def records(self, path):
+                return iter(catalog)
+            @contextmanager
+            def lines(self, path):
+                yield (json.dumps(row, sort_keys=True).encode() + b"\n" for row in records.values())
+        metadata = {row["id"]: {**row, "anchor_count": 2} for row in catalog if row["id"] in {"bundle#10", "bundle#20", "bundle#30", "bundle#31"}}
+        history.contextual_metadata(PinnedSource(), metadata)
+        self.assertEqual(["Canvas", "Bag", "Icon"], metadata["bundle#10"]["hierarchy"])
+        self.assertEqual(["Canvas", "Crafting", "Icon"], metadata["bundle#20"]["hierarchy"])
+        self.assertEqual([None, 0, 0], metadata["bundle#10"]["hierarchy_ordinals"])
+        self.assertEqual([None, 1, 0], metadata["bundle#20"]["hierarchy_ordinals"])
+        anchors = identity.target_anchors(metadata)
+        self.assertNotEqual(anchors["bundle#10"], anchors["bundle#20"])
+        self.assertNotEqual(anchors["bundle#30"], anchors["bundle#31"])
+        self.assertEqual("/_DeadBagIconTitle", anchors["bundle#31"]["callers"][0]["role"])
+        # A missing parent-child corroboration cannot become a complete hierarchy.
+        records["bundle#201"]["references"] = [ref("/m_GameObject", "bundle#101"), ref("/m_Father", "bundle#200")]
+        fresh = {row["id"]: {**row, "anchor_count": 2} for row in catalog if row["id"] in {"bundle#10", "bundle#20"}}
+        history.contextual_metadata(PinnedSource(), fresh)
+        self.assertNotIn("hierarchy", fresh["bundle#10"])
+        self.assertNotIn("bundle#10", identity.target_anchors(fresh))
+
+    def test_target_anchor_uniqueness_counts_unselected_catalog_objects(self):
+        index = [{"id": f"bundle#{i}", "type": "GameObject", "name": "Owner" if i == 1 else "Target"}
+                 for i in (1, 2, 3)]
+        class PinnedSource:
+            bytes_read = 0
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def records(self, path):
+                self.bytes_read += 120
+                return iter(index)
+        with patch.object(history, "Source", return_value=PinnedSource()) as source:
+            metadata, source_bytes = history.relevant_metadata("source", "pinned-revision", {"bundle#1", "bundle#2"})
+        source.assert_called_once_with("source", "pinned-revision")
+        self.assertEqual(240, source_bytes)
+        self.assertEqual({"bundle#1", "bundle#2"}, set(metadata))
+        self.assertEqual("Owner", metadata["bundle#1"]["name"])
+        self.assertEqual(2, metadata["bundle#2"]["anchor_count"])
+        self.assertEqual({"bundle#1"}, set(identity.target_anchors(metadata)))
+        self.assertIsNone(identity.describe(observation(source="bundle#2"), metadata)["anchor"])
 
 
 if __name__ == "__main__":

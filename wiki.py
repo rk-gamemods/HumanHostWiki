@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 
-from wikibuild import bounded, extraction, history, manifest, navigation, pipeline, publication, reader, release, run_timing, snapshots, storage, workspace
+from wikibuild import bounded, extraction, history, identity_migration, manifest, navigation, pipeline, publication, reader, release, run_timing, snapshots, storage, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 # Backstop for every wait without its own bound. A normal update takes minutes; the
@@ -155,6 +155,9 @@ def run(root, args, timing=None):
 
 def _run(root, args, timing=None):
     project = manifest.load(root)
+    if args.command == "migrate-identity":
+        source = Path(args.source) if args.source else root / project["source"]["default_path"]
+        return identity_migration.run(root, source, {"repositories": workspace.repositories(root, project)}, dry_run=args.dry_run)
     if args.command == "validate":
         states = [workspace.inspect(root, repo) for repo in workspace.repositories(root, project)]
         return {"valid": True, "repositories": len(states), "pipeline": manifest.stage_order(project),
@@ -231,6 +234,9 @@ def main():
     extract.add_argument("--source", help="Existing local codebase repository; default from project.json")
     normalize = sub.add_parser("normalize", help="Reconcile selected identities and semantic revisions; does not publish")
     normalize.add_argument("--source", help="Existing local codebase repository; default from project.json")
+    migration = sub.add_parser("migrate-identity", help="One-time chronological identity repair; preserves historical runs")
+    migration.add_argument("--source", help="Existing local codebase repository; default from project.json")
+    migration.add_argument("--dry-run", action="store_true", help="Read retained history and report the plan without writing")
     build = sub.add_parser("build", help="Build a local architecture/navigation preview, not gameplay articles")
     build.add_argument("--snapshot", help="Registered snapshot ID for the preview provenance banner")
     sub.add_parser("reader", help="Project normalized snapshots to a static reader candidate; does not publish")

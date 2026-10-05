@@ -438,7 +438,13 @@ function playerCard(card, player, record) {
 }
 
 async function showEntry(key) {
-  const record = await keyed(index.entries, key);
+  const canonical = index.redirects?.[key];
+  let record = await keyed(index.entries, canonical || key);
+  // Frozen versions can still store the proven lineage under its old key.
+  if (canonical && record?.status !== "present") {
+    const historical = await keyed(index.entries, key);
+    if (historical?.status === "present") record = historical;
+  }
   if (!record) {
     show(el("div", {class: "entry"}, el("h1", {class: "hed"}, "Not in this version"), notice("Nothing with this wiki key was captured in the selected game version. That does not mean the game lacks it.")));
     return;

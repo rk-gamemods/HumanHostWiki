@@ -3,7 +3,7 @@
 from collections import defaultdict
 import json
 
-from .identity import fingerprint
+from .identity import CaptureIndex, fingerprint
 from .storage import ContractError
 
 TARGET_KINDS = {
@@ -147,15 +147,28 @@ def project(row, entity, indexes, metadata, dependencies, issues):
         from .adapters.coded_values import values
         provenance["coded_facts"] = {field: value for pointer in row["fact_labels"]
                                       for field, value in values(row["facts"], pointer)}
-    for key in ("component", "asset_paths", "game_objects", "parent_source_id", "source_field_base", "examples", "decode_gaps"):
+    for key in ("component", "asset_paths", "game_objects", "parent_source_id", "source_field_base", "definition_identity", "examples", "decode_gaps"):
         if key in row:
             provenance[key] = row[key]
     return {"entity_key": entity, "revision_id": fingerprint(semantic), "semantic": semantic, "provenance": provenance}
 
 
-def absent_status(state, current_kinds, metadata, captured=True):
+def absent_status(state, current_kinds, metadata, captured=True, capture=None):
     if not captured or state["descriptor"]["kind"] not in current_kinds:
         return "uncaptured"
     if state["descriptor"]["summary"]:
         return "not-present"
+    descriptor = state["descriptor"]
+    scopes = getattr(metadata, "captured_scopes", None)
+    if scopes is not None and "#" in descriptor["source_object"] and descriptor["scope"] not in scopes:
+        return "uncaptured"
+    if descriptor.get("anchor"):
+        anchor = descriptor["anchor"]
+        if descriptor.get("definition"):
+            anchor = descriptor["definition"].get("parent_anchor")
+        if anchor:
+            capture = capture if capture is not None else CaptureIndex(metadata)
+            # Presence does not require uniqueness; an extant split is a gap.
+            found = fingerprint(anchor) in capture.presence or any(capture.paths.get(path) for path in descriptor["paths"])
+            return "unresolved" if found else "not-present"
     return "unresolved" if state["descriptor"]["source_object"] in metadata else "not-present"

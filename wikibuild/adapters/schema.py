@@ -1,6 +1,6 @@
 """Small explicit field contracts. Unsupported values never become facts."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections import Counter
 import math
 import re
@@ -54,6 +54,7 @@ class Component:
     fields: Fields
     notes: str = "Serialized configuration; runtime code and settings may modify these values."
     summary_only: bool = False
+    identity: dict = field(default_factory=dict)
 
 
 def fields(selected, excluded=""):

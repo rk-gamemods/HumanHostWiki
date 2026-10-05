@@ -1,15 +1,19 @@
 """Durable identity decisions and reusable normalized staging, under the writer lock."""
 
 from collections import Counter
+import io
 import json
 import os
 from pathlib import Path
+import re
 import uuid
 
 from . import extraction, identity, model
 from . import staging as staging_attempts
+from .adapters.components import identity_rule
 from .exceptions import Exceptions
 from .source import Source
+from .source_record import read_record
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -36,7 +40,8 @@ def install(root, temporary, namespace):
 def contract():
     folder = Path(__file__).parent
     return digest(json_bytes({name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
-                             for name in ("identity.py", "model.py", "history.py", "storage.py", "exceptions.py", "source.py")}))
+                             for name in ["identity.py", "identity_migration.py", "model.py", "history.py", "storage.py", "exceptions.py", "source.py"]
+                             + ["adapters/" + path.name for path in (folder / "adapters").glob("*.py")]}))
 
 
 def corrections(root):
@@ -82,12 +87,176 @@ def write_row(stream, row):
     stream.write((json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode())
 
 
-def relevant_metadata(source, revision, needed):
-    metadata = {}
+def context_records(inputs, catalog):
+    """Read only hierarchy objects and script reference context, in shard order."""
+    by_path = {}
+    for key in catalog:
+        by_path.setdefault(Source.object_path(key), set()).add(key)
+    result = {}
+    identifier = re.compile(rb'"id": ("(?:[^"\\]|\\.)*")')
+    for path, wanted in sorted(by_path.items()):
+        if hasattr(inputs, "blobs") and path not in inputs.blobs:
+            continue
+        with inputs.lines(path) as lines:
+            for line in lines:
+                # Canonical catalog records put id after fields. References and
+                # script descriptors have no id member. Check the decoded id too.
+                matches = list(identifier.finditer(line))
+                key = json.loads(matches[-1][1]) if matches else None
+                if key not in wanted:
+                    continue
+                entry = catalog[key]
+                rule = identity_rule(entry)
+                fields = {"m_GameObject"}
+                if rule.get("kind") == "slot":
+                    fields.add(rule["index_field"])
+                if rule.get("kind") == "localization":
+                    fields.add(rule["source_field"])
+                location = entry.get("record")
+                row = read_record(io.BytesIO(line).read, location, fields) if location else json.loads(line)
+                if not row or row.get("id") != key or row.get("type") != entry["type"]:
+                    raise ContractError("Hierarchy/reference context differs from the pinned object index")
+                if entry["type"] == "MonoBehaviour" and row.get("script", {}) != {"assembly": entry.get("assembly"), "class": entry.get("class")}:
+                    # Some captured script descriptors carry additional locators.
+                    script = row.get("script", {})
+                    if (script.get("assembly"), script.get("class")) != (entry.get("assembly"), entry.get("class")):
+                        continue
+                values = row.get("fields", {})
+                result[key] = {"fields": values if isinstance(values, dict) else {}, "references": row.get("references", [])}
+                if entry["type"] == "MonoBehaviour":
+                    result[key]["fields"] = {name: value for name, value in result[key]["fields"].items() if name in fields}
+    return result
+
+
+def contextual_metadata(inputs, metadata, extra_containers=()):
+    containers = set(extra_containers) | {key.split("#", 1)[0] for key, row in metadata.items()
+                  if identity_rule(row).get("kind") == "slot"
+                  or (identity_rule(row).get("kind") == "localization"
+                      and row.get("anchor_count", 1) > 1)}
+    if not containers:
+        return
+    catalog = {entry["id"]: entry for entry in inputs.records("Catalog/views/object-index.jsonl")
+               if entry["id"].split("#", 1)[0] in containers
+               and entry["type"] in {"MonoBehaviour", "GameObject", "Transform", "RectTransform"}}
+    records = context_records(inputs, catalog)
+    counts = Counter(identity.fingerprint(anchor) for key, row in catalog.items()
+                     if (anchor := identity.typed_anchor(key, row)))
+    for key, row in catalog.items():
+        if row["type"] != "MonoBehaviour":
+            continue
+        metadata[key] = {name: row[name] for name in ("type", "assembly", "class", "name", "paths") if name in row}
+        anchor = identity.typed_anchor(key, row)
+        if anchor:
+            metadata[key]["anchor_count"] = counts[identity.fingerprint(anchor)]
+    transforms = {}
+    for key, row in records.items():
+        if catalog[key]["type"] in {"Transform", "RectTransform"}:
+            for ref in row["references"]:
+                if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved":
+                    transforms.setdefault(ref.get("target"), []).append(key)
+    hierarchies, active = {}, set()
+
+    def hierarchy(transform):
+        if transform in hierarchies:
+            return hierarchies[transform]
+        if transform in active or transform not in records:
+            return None
+        active.add(transform)
+        row = records[transform]
+        owners = [ref.get("target") for ref in row["references"]
+                  if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved"]
+        result = None
+        if len(owners) == 1:
+            owner = owners[0]
+            name = catalog.get(owner, {}).get("name")
+            components = [ref.get("target") for ref in records.get(owner, {}).get("references", [])
+                          if ref.get("field", "").startswith("/m_Component/") and ref.get("status") == "resolved"]
+            father = [ref for ref in row["references"] if ref.get("field") == "/m_Father"]
+            root = row["fields"].get("m_Father", {})
+            if isinstance(name, str) and name and transform in components:
+                if isinstance(root, dict) and root.get("m_PathID") == 0 and all(ref.get("status") == "null" for ref in father):
+                    result = ([name], [None])
+                elif len(father) == 1 and father[0].get("status") == "resolved":
+                    parent = father[0].get("target")
+                    ancestry = hierarchy(parent)
+                    positions = [ref["field"].rsplit("/", 1)[1] for ref in records.get(parent, {}).get("references", [])
+                                 if ref.get("field", "").startswith("/m_Children/")
+                                 and ref.get("target") == transform and ref.get("status") == "resolved"]
+                    if ancestry and len(positions) == 1 and positions[0].isdigit():
+                        result = (ancestry[0] + [name], ancestry[1] + [int(positions[0])])
+        active.remove(transform)
+        hierarchies[transform] = result
+        return result
+
+    for key, row in records.items():
+        if catalog[key]["type"] != "MonoBehaviour" or key not in metadata:
+            continue
+        target = metadata[key]
+        owners = [ref.get("target") for ref in row["references"]
+                  if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved"]
+        if len(owners) == 1 and len(transforms.get(owners[0], [])) == 1:
+            owner_path = hierarchy(transforms[owners[0]][0])
+            if owner_path:
+                target["hierarchy"], target["hierarchy_ordinals"] = owner_path
+        rule = identity_rule(target)
+        if rule.get("kind") == "slot":
+            target["slot_index"] = row["fields"].get(rule["index_field"])
+        if rule.get("kind") == "localization":
+            infos = row["fields"].get(rule["source_field"], [])
+            texts = {info.get(rule["text_field"]) for info in (infos if isinstance(infos, list) else [])
+                     if isinstance(info, dict) and info.get(rule["language_field"]) == rule["language_value"]
+                     and isinstance(info.get(rule["text_field"]), str)}
+            if len(texts) == 1:
+                target["text"] = next(iter(texts))
+    for caller, row in records.items():
+        if catalog[caller]["type"] != "MonoBehaviour":
+            continue
+        metadata[caller]["reference_roles"] = [{"source_field": ref["field"], "status": ref.get("status"),
+                                               "targets": ref.get("targets", [ref["target"]] if ref.get("target") else [])}
+                                              for ref in row["references"]]
+        for ref in row["references"]:
+            if ref.get("status") != "resolved":
+                continue
+            for target in ref.get("targets", [ref["target"]] if ref.get("target") else []):
+                record = metadata.get(target, {})
+                if identity_rule(record).get("kind") == "localization":
+                    record.setdefault("callers", []).append({"source_id": caller, "source_field": ref["field"]})
+
+
+class CatalogMetadata(dict):
+    """Object metadata plus the pinned shards in which absence can be judged."""
+
+
+def relevant_metadata(source, revision, needed, expected=()):
+    metadata = CatalogMetadata()
+    expected = [anchor for anchor in expected if anchor]
+    wanted = {identity.fingerprint(anchor) for anchor in expected if "asset_name" in anchor}
+    wanted_paths = {path for anchor in expected for path in anchor.get("asset_paths", [])}
     with Source(source, revision) as inputs:
+        metadata.captured_scopes = ({key.split("#", 1)[0] for key in needed
+                                    if "#" in key and key.rsplit("#", 1)[-1].lstrip("-").isdigit()
+                                    and Source.object_path(key) in inputs.blobs}
+                                    if hasattr(inputs, "blobs") else None)
         for entry in inputs.records("Catalog/views/object-index.jsonl"):
-            if entry["id"] in needed:
-                metadata[entry["id"]] = {key: entry[key] for key in ("type", "assembly", "class", "paths") if key in entry}
+            anchor = identity.typed_anchor(entry["id"], entry)
+            if entry["id"] in needed or (anchor and identity.fingerprint(anchor) in wanted) or wanted_paths.intersection(entry.get("paths", [])):
+                metadata[entry["id"]] = {key: entry[key] for key in ("type", "assembly", "class", "name", "paths") if key in entry}
+        # Count only relevant anchors, but against the complete pinned catalog.
+        # An unselected namesake must not make two relationship targets equal.
+        counts = dict.fromkeys((identity.fingerprint(anchor) for key, record in metadata.items()
+                                if (anchor := identity.typed_anchor(key, record))), 0)
+        if counts:
+            for entry in inputs.records("Catalog/views/object-index.jsonl"):
+                anchor = identity.typed_anchor(entry["id"], entry)
+                key = identity.fingerprint(anchor) if anchor else None
+                if key in counts:
+                    counts[key] += 1
+            for key, record in metadata.items():
+                anchor = identity.typed_anchor(key, record)
+                if anchor:
+                    record["anchor_count"] = counts[identity.fingerprint(anchor)]
+        contextual_metadata(inputs, metadata, [anchor["container"] for anchor in expected if "container" in anchor
+                                               and ("owner_hierarchy" in anchor or "callers" in anchor)])
         return metadata, inputs.bytes_read
 
 
@@ -124,9 +293,12 @@ def run(root, source, receipt, extracted):
     if extracted["source_commit"] != receipt["source_commit"] or extracted["snapshot_id"] != receipt["snapshot_id"]:
         raise ContractError("Extraction and identity inputs name different snapshots")
     observations = extraction.artifact(root, extracted["records"])
+    from . import identity_migration
+    migration = identity_migration.read(root)
     reviewed = corrections(root)
     contract_hash = contract()
-    request_key = identity.fingerprint([receipt["snapshot_id"], extracted["run_id"], extracted["records"]["sha256"], contract_hash, reviewed])
+    request_key = identity.fingerprint([receipt["snapshot_id"], extracted["run_id"], extracted["records"]["sha256"], contract_hash, reviewed,
+                                        migration["migration_id"] if migration else None])
     request_path = within(root, f"identity/requests/{request_key}.json")
     pointer = within(root, "identity/latest.json")
     previous = latest(root)
@@ -144,20 +316,25 @@ def run(root, source, receipt, extracted):
         return prepared, {"reused": True, "source_bytes_read": source_bytes}
 
     run_id = identity.fingerprint([request_key, parent_id])
-    old = load_state(root, previous)
+    old = identity_migration.previous_state(root, previous, migration)
     needed = {state["descriptor"]["source_object"] for state in old.values()}
     for row in model.rows(observations):
         needed.update(model.source_ids(row))
-    metadata, source_bytes = relevant_metadata(source, receipt["source_commit"], needed)
+    expected = [anchor for state in old.values() for anchor in
+                (state["descriptor"].get("anchor"), (state["descriptor"].get("definition") or {}).get("parent_anchor"),
+                 {"asset_paths": state["descriptor"]["paths"]})]
+    metadata, source_bytes = relevant_metadata(source, receipt["source_commit"], needed, expected)
+    capture = identity.CaptureIndex(metadata, old)
     descriptors = {}
     for row in model.rows(observations):
         key = row["observation_key"]
         if key in descriptors:
             raise ContractError("Duplicate observation in identity input")
-        descriptors[key] = identity.describe(row, metadata)
+        descriptors[key] = identity.describe(row, metadata, capture)
     unchanged_inputs = same_inputs(receipt, previous)
     assignments, decisions = identity.reconcile(descriptors, old, receipt["snapshot_id"], request_key,
-                                               same_capture=unchanged_inputs, corrections=reviewed["mappings"])
+                                               same_capture=unchanged_inputs, corrections=reviewed["mappings"],
+                                               reserved=migration["redirects"] if migration else ())
     supersessions = identity.reviewed_supersessions(descriptors, old, assignments, receipt["snapshot_id"], reviewed["mappings"])
     indexes = model.targets_index(model.rows(observations), assignments)
     issues, states, counts = Exceptions(), {}, Counter()
@@ -197,7 +374,7 @@ def run(root, source, receipt, extracted):
             elif entity in ambiguous_old:
                 status = "unresolved"
             else:
-                status = model.absent_status(state, extracted["supported_kinds"], metadata)
+                status = model.absent_status(state, extracted["supported_kinds"], metadata, capture=capture)
             states[entity] = {**state, "status": status,
                               **({"superseded_by": replacement} if status == "superseded" else {})}
             if status == "unresolved":
@@ -208,6 +385,8 @@ def run(root, source, receipt, extracted):
             if status != state["status"]:
                 counts[status] += 1
         with (staging / "state.jsonl").open("wb") as stream:
+            if migration:
+                identity_migration.validate_redirects(migration["redirects"], states)
             for entity in sorted(states):
                 write_row(stream, states[entity])
         result = {"schema_version": 1, "run_id": run_id, "request_key": request_key, "parent_run": parent_id,
@@ -215,6 +394,7 @@ def run(root, source, receipt, extracted):
                   "extraction_run": extracted["run_id"], "contract_sha256": contract_hash,
                   "input_identity": {"steam": receipt["steam"], "inventory": receipt["input_inventory_git_blob"]},
                   "corrections_sha256": identity.fingerprint(reviewed),
+                  "migration_id": migration["migration_id"] if migration else None,
                   "change_origin": ("initial" if not previous else "game-input-change" if not unchanged_inputs else
                                     "identity-correction" if previous.get("corrections_sha256") != identity.fingerprint(reviewed) else "extractor-correction"),
                   "state": install(root, staging / "state.jsonl", "identity/states"),

@@ -2,9 +2,10 @@
 
 import json
 import unittest
+from unittest.mock import patch
 
 from wikibuild.adapters import components, entries
-from wikibuild.adapters.schema import NUMBER, OMIT, Ref, Selection, component
+from wikibuild.adapters.schema import NUMBER, OMIT, Ref, Selection, component, fields
 from wikibuild.exceptions import Exceptions
 from wikibuild.source import Source
 from wikibuild.storage import ContractError
@@ -31,6 +32,96 @@ class CatalogFixture:
 
 
 class ComponentTests(unittest.TestCase):
+    def test_declared_definition_rule_drives_extraction_for_an_unfamiliar_class(self):
+        spec = component("Example", "Effects", "survival-rule", "skills-survival",
+                         {"_Effect": fields({"period": int})},
+                         identity={"kind": "definition", "definition_kind": "status-member", "member_field": "source_field_base"})
+        source = CatalogFixture([{"id": "fixture#1", "type": "MonoBehaviour", "name": "Effects",
+                                  "assembly": "Example", "class": "Effects"}],
+                                {"fixture#1": {"id": "fixture#1", "type": "MonoBehaviour", "fields": {"_Effect": {"period": 5}},
+                                               "script": {"assembly": "Example", "class": "Effects"}, "references": []}})
+        issues = Exceptions()
+        with patch.dict(components.BY_CLASS, {("Example", "Effects"): spec}):
+            components.prepare(source, issues)
+            rows = list(components.extract(source, issues))
+        effect = next(row for row in rows if row["kind"] == "status-effect")
+        self.assertEqual({"type": "status-member", "member": "/_Effect"}, effect["definition_identity"])
+        self.assertEqual({"period": 5}, effect["facts"])
+        self.assertEqual(0, issues.report()["group_count"])
+
+    def test_skill_container_and_children_keep_semantic_roles_and_raw_positions(self):
+        parent = {"source_id": "fixture#1", "name": "Skills", "kind": "skill", "topic": "skills-survival",
+                  "component": {"assembly": "Creature", "class": "All_Skills_Set"}, "notes": "Serialized",
+                  "facts": {"_CraftSkills": [], "_FightSkills": [{"_skill": {"maxLv": 2}}], "_SurviveSkills": []},
+                  "relationships": [{"predicate": "localized-name", "source_field": "/_FightSkills/0/_skill/_name",
+                                     "target_source_ids": ["fixture#2"], "status": "resolved"}],
+                  "evidence": [{"path": "Catalog/objects/fixture.jsonl", "object": "fixture#1",
+                                "fields": ["/_FightSkills/0/_skill/maxLv"]}]}
+        label = {"name": "Fighter", "evidence": {"path": "Catalog/objects/fixture.jsonl", "object": "fixture#2", "fields": ["/_Infos/0/text"]}}
+        skill, container = list(entries.expand(parent, {}, {"fixture#2": label}))
+        self.assertEqual("fixture#1/_FightSkills/0", skill["source_id"])
+        self.assertEqual("/_FightSkills/0", skill["source_field_base"])
+        self.assertEqual(["/_FightSkills/0/_skill/maxLv"], skill["evidence"][0]["fields"])
+        self.assertEqual({"type": "skill", "family": "_FightSkills", "localized_name_source_id": "fixture#2"}, skill["definition_identity"])
+        self.assertEqual("survival-rule", container["kind"])
+        self.assertEqual("serialized-definition-container", container["fact_scope"])
+        self.assertEqual({}, container["facts"])
+        self.assertEqual([], container["relationships"])
+        self.assertEqual("fixture#1", container["source_id"])
+
+    def test_status_definition_keeps_named_member_as_identity_and_source_role(self):
+        parent = {"source_id": "fixture#1", "name": "Manager", "kind": "survival-rule", "topic": "skills-survival",
+                  "component": {"assembly": "Creature", "class": "Skill_Mgr"}, "notes": "Serialized",
+                  "facts": {"_Bleeding_Debuff": {"buffPeriod": 5}, "_MaxLevel": 4}, "relationships": [],
+                  "evidence": [{"path": "Catalog/objects/fixture.jsonl", "object": "fixture#1",
+                                "fields": ["/_Bleeding_Debuff/buffPeriod", "/_MaxLevel"]}]}
+        effect, manager = list(entries.expand(parent, {}, {}))
+        self.assertEqual({"type": "status-member", "member": "/_Bleeding_Debuff"}, effect["definition_identity"])
+        self.assertEqual("fixture#1/_Bleeding_Debuff", effect["source_id"])
+        self.assertEqual(["/_Bleeding_Debuff/buffPeriod"], effect["evidence"][0]["fields"])
+        self.assertEqual({"_MaxLevel": 4}, manager["facts"])
+
+    def test_sound_manager_material_keys_preserve_empty_strings_and_field_drift(self):
+        spec = components.BY_CLASS[("Sound_FX", "Sound_Mgr")]
+        for name in ("Rock", ""):
+            with self.subTest(layer_zero=name):
+                issues = Exceptions()
+                selector = Selection({"id": "fixture#1"}, spec, issues)
+                facts = selector.select({"_All_Sound_Mats": [], "_SFE_SoundMatName": "",
+                                         "_Layer0SoundMatName": name, "newMaterialField": 7}, spec.fields)
+                self.assertEqual({"_All_Sound_Mats": [], "_SFE_SoundMatName": "", "_Layer0SoundMatName": name}, facts)
+                self.assertIn("/_Layer0SoundMatName", selector.evidence)
+                self.assertEqual([("new-field", "Sound_Mgr/newMaterialField")],
+                                 [(group["code"], group["pattern"]) for group in issues.report()["groups"]])
+
+    def test_item_slot_manager_omits_only_reviewed_pickup_event(self):
+        spec = components.BY_CLASS[("UI", "Item_Slot_Mgr")]
+        data = {name: [] if isinstance(schema, list) else 2 for name, schema in spec.fields.selected.items()}
+        data.update(_OnPickItem={"m_PersistentCalls": {"m_Calls": []}}, _OnPickItemFuture={"callback": "UNREVIEWED"})
+        issues = Exceptions()
+        selector = Selection({"id": "fixture#1"}, spec, issues)
+        facts = selector.select(data, spec.fields)
+        self.assertEqual({name: data[name] for name in spec.fields.selected}, facts)
+        self.assertEqual([], selector.links)
+        self.assertNotIn("/_OnPickItem", selector.evidence)
+        self.assertEqual([("new-field", "Item_Slot_Mgr/_OnPickItemFuture")],
+                         [(group["code"], group["pattern"]) for group in issues.report()["groups"]])
+
+    def test_game_settings_omits_only_reviewed_commit_text_binding(self):
+        spec = components.BY_CLASS[("GameSettings", "GameSettings")]
+        for binding in ({"m_FileID": 0, "m_PathID": 10487}, {"m_FileID": 0, "m_PathID": 0}):
+            with self.subTest(binding=binding):
+                data = {name: 1 for name in spec.fields.selected}
+                data.update(_CommitText=binding, RAM_text={}, VRAM_text={}, FPS_text={}, _CommitTextFuture="UNREVIEWED")
+                issues = Exceptions()
+                selector = Selection({"id": "fixture#1"}, spec, issues)
+                facts = selector.select(data, spec.fields)
+                self.assertEqual({name: 1 for name in spec.fields.selected}, facts)
+                self.assertEqual([], selector.links)
+                self.assertNotIn("/_CommitText", selector.evidence)
+                self.assertEqual([("new-field", "GameSettings/_CommitTextFuture")],
+                                 [(group["code"], group["pattern"]) for group in issues.report()["groups"]])
+
     def test_merchant_manager_gameobject_activity_is_extracted_with_evidence(self):
         game_object = {"id": "fixture#1", "name": "Merchant_Mgr", "type": "GameObject"}
         component = {"id": "fixture#2", "name": "Merchant_Mgr", "type": "MonoBehaviour",

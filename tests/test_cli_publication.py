@@ -1,6 +1,7 @@
 """Publication CLI boundaries use synthetic gate fixtures without network."""
 
 from types import SimpleNamespace
+from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
@@ -8,6 +9,27 @@ import wiki
 from tests import test_publication_pins, test_publish_gate
 from wikibuild import publication, publish_gate
 from wikibuild.storage import ContractError, git, json_bytes
+
+
+class IdentityMigrationCliTests(unittest.TestCase):
+    def test_explicit_migration_routes_to_its_own_writer_with_physical_checkouts(self):
+        root = Path("fixture")
+        project = {"source": {"default_path": "capture"}}
+        checkouts = [{"path": "repositories/items"}]
+        with patch.object(wiki.manifest, "load", return_value=project), \
+                patch.object(wiki.workspace, "repositories", return_value=checkouts), \
+                patch.object(wiki.identity_migration, "run", return_value={"dry_run": True}) as migrate, \
+                patch.object(wiki, "writer_lock", side_effect=AssertionError("Nested CLI writer")):
+            self.assertEqual({"dry_run": True}, wiki.run(root, SimpleNamespace(command="migrate-identity", source=None, dry_run=True)))
+        migrate.assert_called_once_with(root, root / "capture", {"repositories": checkouts}, dry_run=True)
+
+    def test_migration_parser_accepts_explicit_source_and_dry_run(self):
+        with patch.object(wiki.sys, "argv", ["wiki.py", "migrate-identity", "--source", "capture", "--dry-run"]), \
+                patch.object(wiki, "run", return_value={}) as run, patch("builtins.print"):
+            self.assertEqual(0, wiki.main())
+        self.assertEqual("migrate-identity", run.call_args.args[1].command)
+        self.assertEqual("capture", run.call_args.args[1].source)
+        self.assertTrue(run.call_args.args[1].dry_run)
 
 
 class PublicationCliTests(unittest.TestCase):
