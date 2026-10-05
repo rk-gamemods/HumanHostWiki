@@ -33,7 +33,7 @@ _skipReleaseOnNextLoad _slotRootTag""",
     }, """On_Campfire_Enable UI_IconAfterSplit _ArrowIndicator _DecomposeMenu
 _DismantleMenu _DismantleOkMenu _DropItemIndicator _DyToolTipSet _EquipMenu
 _GameSettings _GunAttachMenu _GunAttachSlots _GunAttachWindow _HandCraftBullet
-_IconSplitPrefab _ItemMenuTop _On_DelOnHandItem _On_GunAttachSlot_Swap
+_IconSplitPrefab _ItemMenuTop _OnPickItem _On_DelOnHandItem _On_GunAttachSlot_Swap
 _On_Gun_Ammo_Unloaded _On_PickBI _On_Pick_EnviroBI _On_Slot_Combined _On_Slot_Swap
 _Player_BeltRoot _QualityTooltipColors _RepairMenu _SplitStackMenu _TerraBlockDropMesh
 _UnloadAmmoMenu _UpgradeBtnToolTipText _UpgradeFailedNoticeText _UpgradeMenu
@@ -41,7 +41,7 @@ _UpgradeNotFoundNoticeText _UpgradeOkMenu _UpgradeOkToolTipText _UpgradePityTool
 _UpgradeSuccessSFX _UseClickIcon _UseMenu _allSlots_NPC _allSlots_Player
 _craftDuraPercent _lastEnableMenus _randomItemQualityIndex _saveID _slotQualitySprites
 _slotsBag_Player _slotsBelt_Player _slotsEquip_Player""",
-       notes="Serialized item-quality and equipment-upgrade parameters, preserving tier order. Current quality, upgrade attempts and saved slot contents are not represented."),
+       notes="Serialized item-quality and equipment-upgrade parameters, preserving tier order. The _OnPickItem runtime event, current quality, upgrade attempts and saved slot contents are omitted."),
     component("UI", "UI_Control", "world-rule", "world-systems", {
         "DeleteDropItemSeconds": N, "_EnableScrollWheelBeltSwitch": int,
         "_CharInfos": [fields({"initTalentName": Ref("initial-talent-name"),

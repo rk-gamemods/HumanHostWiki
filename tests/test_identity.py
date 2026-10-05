@@ -28,6 +28,118 @@ def match(current, previous, **kwargs):
 
 
 class IdentityTests(unittest.TestCase):
+    def test_uneven_bundle_renumbering_preserves_named_objects_and_relationships(self):
+        def capture(ids):
+            names = ("Sound_Mgr", "Rock", "Metal")
+            metadata = {source: {"type": "MonoBehaviour", "assembly": "Sound_FX",
+                                 "class": "Sound_Mgr" if index == 0 else "Sound_Mat", "name": name}
+                        for index, (source, name) in enumerate(zip(ids, names))}
+            rows = [observation(source=source, name=name) for source, name in zip(ids, names)]
+            rows[0]["relationships"] = [{"predicate": "material", "source_field": f"/_All_Sound_Mats/{i}",
+                                         "target_source_id": target, "status": "resolved"}
+                                        for i, target in enumerate(ids[1:])]
+            for row in rows:
+                row["component"] = {key: metadata[row["source_id"]][key] for key in ("assembly", "class")}
+            return [identity.describe(row, metadata) for row in rows]
+
+        before = capture(("bundle#10", "bundle#20", "bundle#30"))
+        after = capture(("bundle#8", "bundle#16", "bundle#31"))
+        previous = {f"e-{i}": {"descriptor": row, "status": "present"} for i, row in enumerate(before)}
+        keys, decisions = match(after, previous)
+        for i, row in enumerate(after):
+            self.assertEqual(f"e-{i}", keys[row["observation_key"]])
+            self.assertEqual(before[i]["facts_hash"], row["facts_hash"])
+            self.assertEqual("unique-typed-anchor", decisions[row["observation_key"]]["rule"])
+
+    def test_empty_biome_marker_uses_unique_scoped_catalog_name(self):
+        def marker(source, display="Forest"):
+            row = {**observation(source=source, name=display), "kind": "biome", "facts": {},
+                   "component": {"assembly": "Build_System", "class": "Big_Terra_Bio_Type"}}
+            metadata = {source: {"type": "MonoBehaviour", "name": "Forest", **row["component"]}}
+            return identity.describe(row, metadata)
+        old, moved = marker("bundle#10"), marker("bundle#8", "Forest label corrected")
+        keys, decisions = match([moved], {"e-forest": {"descriptor": old, "status": "present"}})
+        self.assertFalse(moved["has_facts"])
+        self.assertEqual("e-forest", keys[moved["observation_key"]])
+        self.assertEqual("unique-typed-anchor", decisions[moved["observation_key"]]["rule"])
+        elsewhere = marker("other-bundle#8")
+        keys, _ = match([elsewhere], {"e-forest": {"descriptor": old, "status": "present"}})
+        self.assertNotEqual("e-forest", keys[elsewhere["observation_key"]])
+
+    def test_duplicate_anchors_on_either_side_remain_ambiguous(self):
+        def named(source):
+            row = {**observation(source=source), "facts": {}}
+            return identity.describe(row, {source: {"type": "GameObject", "name": "Same"}})
+        a, b, c, d = [named(f"bundle#{i}") for i in (1, 2, 8, 9)]
+        for before, after in (([a, b], [c]), ([a], [c, d]), ([a, b], [c, d])):
+            with self.subTest(before=len(before), after=len(after)):
+                previous = {f"e-{i}": {"descriptor": row, "status": "present"} for i, row in enumerate(before)}
+                keys, decisions = match(after, previous)
+                self.assertTrue(set(keys.values()).isdisjoint(previous))
+                self.assertTrue(all(value["status"] == "ambiguous" for value in decisions.values()))
+
+    def test_anchor_requires_catalog_evidence_and_engine_type(self):
+        row = {**observation(), "facts": {}}
+        self.assertIsNone(identity.describe(row, {})["anchor"])
+        old = identity.describe(row, {row["source_id"]: {"type": "GameObject", "name": "A"}})
+        moved = {**row, "source_id": "bundle#8", "observation_key": "moved"}
+        new = identity.describe(moved, {"bundle#8": {"type": "Texture2D", "name": "A"}})
+        keys, decisions = match([new], {"e-old": {"descriptor": old, "status": "present"}})
+        self.assertNotEqual("e-old", keys["moved"])
+        self.assertEqual("ambiguous", decisions["moved"]["status"])
+
+    def test_relationship_resolution_and_missing_targets_are_not_equal(self):
+        row = observation()
+        metadata = {"bundle#2": {"type": "GameObject", "name": "Target"}}
+        link = {"predicate": "model", "source_field": "/ModelRef", "target_source_id": "bundle#2", "status": "resolved"}
+        row["relationships"] = [link]
+        resolved = identity.describe(row, metadata)["facts_hash"]
+        self.assertNotEqual(resolved, identity.describe(row, {})["facts_hash"])
+        row["relationships"] = [{**link, "status": "unresolved"}]
+        self.assertNotEqual(resolved, identity.describe(row, metadata)["facts_hash"])
+        unresolved = identity.describe(row, metadata)["facts_hash"]
+        row["relationships"] = []
+        self.assertNotEqual(unresolved, identity.describe(row, metadata)["facts_hash"])
+        row["relationships"] = [{**link, "guid": "stable-guid"}]
+        by_guid = identity.describe(row, metadata)["facts_hash"]
+        row["relationships"] = [{**link, "guid": "stable-guid", "target_source_id": "bundle#99"}]
+        self.assertEqual(by_guid, identity.describe(row, metadata)["facts_hash"])
+        row["relationships"][0]["status"] = "unresolved"
+        self.assertNotEqual(by_guid, identity.describe(row, metadata)["facts_hash"])
+        row["relationships"] = [{"predicate": "model", "source_field": "/ModelRef", "guid": "stable-guid"}]
+        self.assertNotEqual(by_guid, identity.describe(row, metadata)["facts_hash"])
+
+    def test_relationship_fingerprint_preserves_relative_field_role_and_predicate(self):
+        metadata = {"bundle#2": {"type": "GameObject", "name": "Target"}}
+        row = {**observation(), "source_field_base": "/definitions/0",
+               "relationships": [{"predicate": "model", "source_field": "/definitions/0/model", "target_source_id": "bundle#2"}]}
+        before = identity.describe(row, metadata)["facts_hash"]
+        row["source_field_base"] = "/definitions/3"
+        row["relationships"][0]["source_field"] = "/definitions/3/model"
+        self.assertEqual(before, identity.describe(row, metadata)["facts_hash"])
+        row["relationships"][0]["source_field"] = "/definitions/3/other"
+        self.assertNotEqual(before, identity.describe(row, metadata)["facts_hash"])
+        row["relationships"][0].update(source_field="/definitions/3/model", predicate="headless-prefab")
+        self.assertNotEqual(before, identity.describe(row, metadata)["facts_hash"])
+
+    def test_duplicate_target_names_cannot_hide_relationship_changes(self):
+        metadata = {f"bundle#{i}": {"type": "GameObject", "name": "Duplicate"} for i in (2, 3)}
+        row = observation()
+        row["relationships"] = [{"predicate": "model", "source_field": "/model", "target_source_id": "bundle#2"}]
+        before = identity.describe(row, metadata)["facts_hash"]
+        row["relationships"][0]["target_source_id"] = "bundle#3"
+        self.assertNotEqual(before, identity.describe(row, metadata)["facts_hash"])
+
+    def test_script_relationship_uses_assembly_and_class_not_unity_id_or_name(self):
+        row = observation()
+        def describe_script(source, assembly="Game", cls="Marker", name="Marker"):
+            row["relationships"] = [{"predicate": "script-binding", "source_field": "/script", "target_source_id": source}]
+            return identity.describe(row, {source: {"type": "MonoScript", "assembly": assembly, "class": cls, "name": name}})["facts_hash"]
+        before = describe_script("bundle#2")
+        self.assertEqual(before, describe_script("bundle#99", name="Incidental script label"))
+        self.assertNotEqual(before, describe_script("bundle#99", assembly="Other"))
+        self.assertNotEqual(before, describe_script("bundle#99", cls="Other"))
+
     def test_known_source_with_changed_facts_keeps_key(self):
         old = state(observation())
         new = descriptor(observation(value=2))

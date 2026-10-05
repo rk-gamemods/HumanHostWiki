@@ -87,7 +87,21 @@ def relevant_metadata(source, revision, needed):
     with Source(source, revision) as inputs:
         for entry in inputs.records("Catalog/views/object-index.jsonl"):
             if entry["id"] in needed:
-                metadata[entry["id"]] = {key: entry[key] for key in ("type", "assembly", "class", "paths") if key in entry}
+                metadata[entry["id"]] = {key: entry[key] for key in ("type", "assembly", "class", "name", "paths") if key in entry}
+        # Count only relevant anchors, but against the complete pinned catalog.
+        # An unselected namesake must not make two relationship targets equal.
+        counts = dict.fromkeys((identity.fingerprint(anchor) for key, record in metadata.items()
+                                if (anchor := identity.typed_anchor(key, record))), 0)
+        if counts:
+            for entry in inputs.records("Catalog/views/object-index.jsonl"):
+                anchor = identity.typed_anchor(entry["id"], entry)
+                key = identity.fingerprint(anchor) if anchor else None
+                if key in counts:
+                    counts[key] += 1
+            for key, record in metadata.items():
+                anchor = identity.typed_anchor(key, record)
+                if anchor:
+                    record["anchor_count"] = counts[identity.fingerprint(anchor)]
         return metadata, inputs.bytes_read
 
 
@@ -149,12 +163,13 @@ def run(root, source, receipt, extracted):
     for row in model.rows(observations):
         needed.update(model.source_ids(row))
     metadata, source_bytes = relevant_metadata(source, receipt["source_commit"], needed)
+    anchors = identity.target_anchors(metadata)
     descriptors = {}
     for row in model.rows(observations):
         key = row["observation_key"]
         if key in descriptors:
             raise ContractError("Duplicate observation in identity input")
-        descriptors[key] = identity.describe(row, metadata)
+        descriptors[key] = identity.describe(row, metadata, anchors)
     unchanged_inputs = same_inputs(receipt, previous)
     assignments, decisions = identity.reconcile(descriptors, old, receipt["snapshot_id"], request_key,
                                                same_capture=unchanged_inputs, corrections=reviewed["mappings"])

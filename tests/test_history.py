@@ -182,6 +182,51 @@ class HistoryTests(unittest.TestCase):
         self.assertIsNone(after["last_verified"])
         self.assertEqual("game-input-change", second["change_origin"])
 
+    def test_uneven_renumbering_keeps_keys_revisions_and_raw_relationship_provenance(self):
+        def capture(ids):
+            self.metadata = {source: {"type": "MonoBehaviour", "class": "Icon_Info", "assembly": "Item_Info", "name": name}
+                             for source, name in zip(ids, ("Tool", "Rock", "Metal"))}
+            rows = [{**observation(source=source, name=name), "component": {"assembly": "Item_Info", "class": "Icon_Info"}}
+                    for source, name in zip(ids, ("Tool", "Rock", "Metal"))]
+            rows[0]["relationships"] = [{"predicate": "produces-item", "source_field": f"/materials/{i}",
+                                         "target_source_id": target, "status": "resolved"}
+                                        for i, target in enumerate(ids[1:])]
+            return rows
+
+        self.set_input(capture(("bundle#10", "bundle#20", "bundle#30")))
+        first, _ = self.run_history()
+        before = {state["descriptor"]["name"]: state for state in history.load_state(self.root, first).values()}
+        self.set_input(capture(("bundle#8", "bundle#16", "bundle#31")), build="200")
+        original = history.write_changed
+        def fail_pointer(path, data):
+            if path == self.root / "identity/latest.json":
+                raise OSError("renumbered pointer interrupted")
+            return original(path, data)
+        with patch.object(history, "write_changed", side_effect=fail_pointer):
+            with self.assertRaisesRegex(OSError, "renumbered pointer interrupted"):
+                self.run_history()
+        self.assertEqual(first["run_id"], history.latest(self.root)["run_id"])
+        second, recovered = self.run_history()
+        self.assertTrue(recovered["reused"])
+        self.assertEqual({"unchanged": 3}, second["counts"])
+        after = {state["descriptor"]["name"]: state for state in history.load_state(self.root, second).values()}
+        for name in before:
+            for field in ("entity_key", "revision_id", "first_seen", "last_changed"):
+                self.assertEqual(before[name][field], after[name][field])
+            self.assertEqual(before[name]["descriptor"]["facts_hash"], after[name]["descriptor"]["facts_hash"])
+            self.assertEqual("unique-typed-anchor", after[name]["decision"]["rule"])
+        tool = next(row for row in model.rows(extraction.artifact(self.root, second["models"])) if row["semantic"]["name"] == "Tool")
+        self.assertEqual(["bundle#16", "bundle#31"], [link["target_source_id"] for link in tool["provenance"]["relationships"]])
+        self.assertEqual({before["Rock"]["entity_key"], before["Metal"]["entity_key"]},
+                         {target for link in tool["semantic"]["relationships"] for target in link["targets"]})
+        pointer = self.root / "identity/latest.json"
+        stamp = pointer.stat().st_mtime_ns
+        repeated, metrics = self.run_history()
+        self.assertEqual(second, repeated)
+        self.assertEqual({"reused": True, "source_bytes_read": 0}, metrics)
+        self.assertEqual(stamp, pointer.stat().st_mtime_ns)
+        self.assertEqual(first, history.read(self.root, first["run_id"]))
+
     def test_changed_value_revises_only_affected_entity(self):
         self.metadata["bundle#2"] = self.metadata["bundle#1"]
         self.set_input([observation(), observation(source="bundle#2", name="B")])
@@ -319,6 +364,30 @@ class HistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "same captured component"):
             identity.reviewed_supersessions({"new": current}, previous, {"new": "target"}, "snapshot",
                 [{"snapshot_id": "snapshot", "observation_key": "new", "supersedes": ["old"]}])
+
+
+class MetadataTests(unittest.TestCase):
+    def test_target_anchor_uniqueness_counts_unselected_catalog_objects(self):
+        index = [{"id": f"bundle#{i}", "type": "GameObject", "name": "Owner" if i == 1 else "Target"}
+                 for i in (1, 2, 3)]
+        class PinnedSource:
+            bytes_read = 0
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def records(self, path):
+                self.bytes_read += 120
+                return iter(index)
+        with patch.object(history, "Source", return_value=PinnedSource()) as source:
+            metadata, source_bytes = history.relevant_metadata("source", "pinned-revision", {"bundle#1", "bundle#2"})
+        source.assert_called_once_with("source", "pinned-revision")
+        self.assertEqual(240, source_bytes)
+        self.assertEqual({"bundle#1", "bundle#2"}, set(metadata))
+        self.assertEqual("Owner", metadata["bundle#1"]["name"])
+        self.assertEqual(2, metadata["bundle#2"]["anchor_count"])
+        self.assertEqual({"bundle#1"}, set(identity.target_anchors(metadata)))
+        self.assertIsNone(identity.describe(observation(source="bundle#2"), metadata)["anchor"])
 
 
 if __name__ == "__main__":

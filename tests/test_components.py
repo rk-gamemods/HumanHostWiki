@@ -31,6 +31,47 @@ class CatalogFixture:
 
 
 class ComponentTests(unittest.TestCase):
+    def test_sound_manager_material_keys_preserve_empty_strings_and_field_drift(self):
+        spec = components.BY_CLASS[("Sound_FX", "Sound_Mgr")]
+        for name in ("Rock", ""):
+            with self.subTest(layer_zero=name):
+                issues = Exceptions()
+                selector = Selection({"id": "fixture#1"}, spec, issues)
+                facts = selector.select({"_All_Sound_Mats": [], "_SFE_SoundMatName": "",
+                                         "_Layer0SoundMatName": name, "newMaterialField": 7}, spec.fields)
+                self.assertEqual({"_All_Sound_Mats": [], "_SFE_SoundMatName": "", "_Layer0SoundMatName": name}, facts)
+                self.assertIn("/_Layer0SoundMatName", selector.evidence)
+                self.assertEqual([("new-field", "Sound_Mgr/newMaterialField")],
+                                 [(group["code"], group["pattern"]) for group in issues.report()["groups"]])
+
+    def test_item_slot_manager_omits_only_reviewed_pickup_event(self):
+        spec = components.BY_CLASS[("UI", "Item_Slot_Mgr")]
+        data = {name: [] if isinstance(schema, list) else 2 for name, schema in spec.fields.selected.items()}
+        data.update(_OnPickItem={"m_PersistentCalls": {"m_Calls": []}}, _OnPickItemFuture={"callback": "UNREVIEWED"})
+        issues = Exceptions()
+        selector = Selection({"id": "fixture#1"}, spec, issues)
+        facts = selector.select(data, spec.fields)
+        self.assertEqual({name: data[name] for name in spec.fields.selected}, facts)
+        self.assertEqual([], selector.links)
+        self.assertNotIn("/_OnPickItem", selector.evidence)
+        self.assertEqual([("new-field", "Item_Slot_Mgr/_OnPickItemFuture")],
+                         [(group["code"], group["pattern"]) for group in issues.report()["groups"]])
+
+    def test_game_settings_omits_only_reviewed_commit_text_binding(self):
+        spec = components.BY_CLASS[("GameSettings", "GameSettings")]
+        for binding in ({"m_FileID": 0, "m_PathID": 10487}, {"m_FileID": 0, "m_PathID": 0}):
+            with self.subTest(binding=binding):
+                data = {name: 1 for name in spec.fields.selected}
+                data.update(_CommitText=binding, RAM_text={}, VRAM_text={}, FPS_text={}, _CommitTextFuture="UNREVIEWED")
+                issues = Exceptions()
+                selector = Selection({"id": "fixture#1"}, spec, issues)
+                facts = selector.select(data, spec.fields)
+                self.assertEqual({name: 1 for name in spec.fields.selected}, facts)
+                self.assertEqual([], selector.links)
+                self.assertNotIn("/_CommitText", selector.evidence)
+                self.assertEqual([("new-field", "GameSettings/_CommitTextFuture")],
+                                 [(group["code"], group["pattern"]) for group in issues.report()["groups"]])
+
     def test_merchant_manager_gameobject_activity_is_extracted_with_evidence(self):
         game_object = {"id": "fixture#1", "name": "Merchant_Mgr", "type": "GameObject"}
         component = {"id": "fixture#2", "name": "Merchant_Mgr", "type": "MonoBehaviour",

@@ -130,14 +130,14 @@ _forceSaveRobo _inAutoOpenCloseDoors _inSavingData chunkPrefab""",
        notes="Autosave interval defaults in seconds; _Start selects the editor interval only when Application.isEditor. Save contents, live progress and timestamps are omitted."),
     component("GameSettings", "GameSettings", "configuration", "technical-reference", {
         "Language": int, "_PlayerHurtEach": int, "_DamageCreatureF": N, "_DamageBlockF": N,
-    }, """AO_AutoAjust FPS_text OnGI_Changed OnLodBiasChanged OnResChanged RAM_text VRAM_text
+    }, """AO_AutoAjust FPS_text OnGI_Changed OnLodBiasChanged OnResChanged RAM_text VRAM_text _CommitText
 _AdaptiveGI _BigResTooltip _CreateWorldLanHelper _DLSS _DLSS_enabled _GI_On _HDcam
 _H_Trace _H_TraceAO _IsWorldScene _LoadingImageTop _MaxBudgetMbRate _MinBudgetMB
 _NatureRenderCamSet _OnGameSetChanged _OnLanguageChanged _StreamingMipBudget
 _TexStrm_MaxLevelReduct _TotalTexRate _WhiteCursor _currTerraLod _grassGPUIPrefebMgr
 _rainDropActive _resFactor globalVolume incrementalGCseconds lastPlayerPos
 maxDisUpdateStaticShadow maxShadowDistanceSqt updateShadowCamAngle updateShadowLightAngle useStaticShadow""",
-       notes="Serialized language and player-friendly-fire defaults. The two damage-factor fields have no uses in the captured source and are not asserted to change damage. Rendering, performance and live player state are omitted."),
+       notes="Serialized language and player-friendly-fire defaults. The two damage-factor fields have no uses in the captured source and are not asserted to change damage. Rendering, performance diagnostic UI bindings (including _CommitText) and live player state are omitted."),
     reviewed("GameSettings", "Slot_Hover", "_BackgroundIMG _TextLanguage _TooltipText",
              "Settings tooltip and hover-highlight widget bindings."),
     reviewed("SaveData", "Save_Player_Data", "_BedIconTitle _DeadBagIconTitle _GameSettings _PlayerMgr",
