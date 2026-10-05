@@ -1,15 +1,18 @@
 """Durable identity decisions and reusable normalized staging, under the writer lock."""
 
 from collections import Counter
+import io
 import json
 import os
 from pathlib import Path
+import re
 import uuid
 
 from . import extraction, identity, model
 from . import staging as staging_attempts
 from .exceptions import Exceptions
 from .source import Source
+from .source_record import read_record
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -82,6 +85,139 @@ def write_row(stream, row):
     stream.write((json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode())
 
 
+def context_records(inputs, catalog):
+    """Read only hierarchy objects and script reference context, in shard order."""
+    by_path = {}
+    for key in catalog:
+        by_path.setdefault(Source.object_path(key), set()).add(key)
+    result = {}
+    identifier = re.compile(rb'"id": ("(?:[^"\\]|\\.)*")')
+    for path, wanted in sorted(by_path.items()):
+        if hasattr(inputs, "blobs") and path not in inputs.blobs:
+            continue
+        with inputs.lines(path) as lines:
+            for line in lines:
+                # Canonical catalog records put id after fields. References and
+                # script descriptors have no id member. Check the decoded id too.
+                matches = list(identifier.finditer(line))
+                key = json.loads(matches[-1][1]) if matches else None
+                if key not in wanted:
+                    continue
+                entry = catalog[key]
+                fields = {"m_GameObject"}
+                if (entry.get("assembly"), entry.get("class")) == ("UI", "Slot_Info"):
+                    fields.add("_slotIndex")
+                if (entry.get("assembly"), entry.get("class")) == ("Language", "Language_Text"):
+                    fields.add("_Infos")
+                location = entry.get("record")
+                row = read_record(io.BytesIO(line).read, location, fields) if location else json.loads(line)
+                if not row or row.get("id") != key or row.get("type") != entry["type"]:
+                    raise ContractError("Hierarchy/reference context differs from the pinned object index")
+                if entry["type"] == "MonoBehaviour" and row.get("script", {}) != {"assembly": entry.get("assembly"), "class": entry.get("class")}:
+                    # Some captured script descriptors carry additional locators.
+                    script = row.get("script", {})
+                    if (script.get("assembly"), script.get("class")) != (entry.get("assembly"), entry.get("class")):
+                        continue
+                values = row.get("fields", {})
+                result[key] = {"fields": values if isinstance(values, dict) else {}, "references": row.get("references", [])}
+                if entry["type"] == "MonoBehaviour":
+                    result[key]["fields"] = {name: value for name, value in result[key]["fields"].items() if name in fields}
+    return result
+
+
+def contextual_metadata(inputs, metadata):
+    containers = {key.split("#", 1)[0] for key, row in metadata.items()
+                  if (row.get("assembly"), row.get("class")) == ("UI", "Slot_Info")
+                  or ((row.get("assembly"), row.get("class")) == ("Language", "Language_Text")
+                      and row.get("anchor_count", 1) > 1)}
+    if not containers:
+        return
+    catalog = {entry["id"]: entry for entry in inputs.records("Catalog/views/object-index.jsonl")
+               if entry["id"].split("#", 1)[0] in containers
+               and entry["type"] in {"MonoBehaviour", "GameObject", "Transform", "RectTransform"}}
+    records = context_records(inputs, catalog)
+    counts = Counter(identity.fingerprint(anchor) for key, row in catalog.items()
+                     if (anchor := identity.typed_anchor(key, row)))
+    for key, row in catalog.items():
+        if row["type"] != "MonoBehaviour":
+            continue
+        metadata[key] = {name: row[name] for name in ("type", "assembly", "class", "name", "paths") if name in row}
+        anchor = identity.typed_anchor(key, row)
+        if anchor:
+            metadata[key]["anchor_count"] = counts[identity.fingerprint(anchor)]
+    transforms = {}
+    for key, row in records.items():
+        if catalog[key]["type"] in {"Transform", "RectTransform"}:
+            for ref in row["references"]:
+                if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved":
+                    transforms.setdefault(ref.get("target"), []).append(key)
+    hierarchies, active = {}, set()
+
+    def hierarchy(transform):
+        if transform in hierarchies:
+            return hierarchies[transform]
+        if transform in active or transform not in records:
+            return None
+        active.add(transform)
+        row = records[transform]
+        owners = [ref.get("target") for ref in row["references"]
+                  if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved"]
+        result = None
+        if len(owners) == 1:
+            owner = owners[0]
+            name = catalog.get(owner, {}).get("name")
+            components = [ref.get("target") for ref in records.get(owner, {}).get("references", [])
+                          if ref.get("field", "").startswith("/m_Component/") and ref.get("status") == "resolved"]
+            father = [ref for ref in row["references"] if ref.get("field") == "/m_Father"]
+            root = row["fields"].get("m_Father", {})
+            if isinstance(name, str) and name and transform in components:
+                if isinstance(root, dict) and root.get("m_PathID") == 0 and all(ref.get("status") == "null" for ref in father):
+                    result = ([name], [None])
+                elif len(father) == 1 and father[0].get("status") == "resolved":
+                    parent = father[0].get("target")
+                    ancestry = hierarchy(parent)
+                    positions = [ref["field"].rsplit("/", 1)[1] for ref in records.get(parent, {}).get("references", [])
+                                 if ref.get("field", "").startswith("/m_Children/")
+                                 and ref.get("target") == transform and ref.get("status") == "resolved"]
+                    if ancestry and len(positions) == 1 and positions[0].isdigit():
+                        result = (ancestry[0] + [name], ancestry[1] + [int(positions[0])])
+        active.remove(transform)
+        hierarchies[transform] = result
+        return result
+
+    for key, row in records.items():
+        if catalog[key]["type"] != "MonoBehaviour" or key not in metadata:
+            continue
+        target = metadata[key]
+        owners = [ref.get("target") for ref in row["references"]
+                  if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved"]
+        if len(owners) == 1 and len(transforms.get(owners[0], [])) == 1:
+            owner_path = hierarchy(transforms[owners[0]][0])
+            if owner_path:
+                target["hierarchy"], target["hierarchy_ordinals"] = owner_path
+        if (target.get("assembly"), target.get("class")) == ("UI", "Slot_Info"):
+            target["slot_index"] = row["fields"].get("_slotIndex")
+        if (target.get("assembly"), target.get("class")) == ("Language", "Language_Text"):
+            infos = row["fields"].get("_Infos", [])
+            texts = {info.get("text") for info in (infos if isinstance(infos, list) else [])
+                     if isinstance(info, dict) and info.get("languageType") == 2 and isinstance(info.get("text"), str)}
+            if len(texts) == 1:
+                target["text"] = next(iter(texts))
+    for caller, row in records.items():
+        if catalog[caller]["type"] != "MonoBehaviour":
+            continue
+        metadata[caller]["reference_roles"] = [{"source_field": ref["field"], "status": ref.get("status"),
+                                               "targets": ref.get("targets", [ref["target"]] if ref.get("target") else [])}
+                                              for ref in row["references"]]
+        for ref in row["references"]:
+            if ref.get("status") != "resolved":
+                continue
+            for target in ref.get("targets", [ref["target"]] if ref.get("target") else []):
+                record = metadata.get(target, {})
+                if (record.get("assembly"), record.get("class")) == ("Language", "Language_Text"):
+                    record.setdefault("callers", []).append({"source_id": caller, "source_field": ref["field"]})
+
+
 def relevant_metadata(source, revision, needed):
     metadata = {}
     with Source(source, revision) as inputs:
@@ -102,6 +238,7 @@ def relevant_metadata(source, revision, needed):
                 anchor = identity.typed_anchor(key, record)
                 if anchor:
                     record["anchor_count"] = counts[identity.fingerprint(anchor)]
+        contextual_metadata(inputs, metadata)
         return metadata, inputs.bytes_read
 
 

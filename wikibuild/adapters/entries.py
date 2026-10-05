@@ -9,7 +9,7 @@ def under(field, prefix):
     return field == prefix or field.startswith(prefix + "/")
 
 
-def child(parent, kind, prefix, facts, name, name_status="internal", extra_evidence=()):
+def child(parent, kind, prefix, facts, name, name_status="internal", extra_evidence=(), definition_identity=None):
     evidence = copy.deepcopy(parent["evidence"][0])
     evidence["fields"] = [field for field in evidence["fields"] if under(field, prefix)]
     links = [link for link in parent["relationships"] if under(link["source_field"], prefix)]
@@ -22,6 +22,8 @@ def child(parent, kind, prefix, facts, name, name_status="internal", extra_evide
     result["fact_scope"] = "serialized-definition"
     result["name_status"] = name_status
     result["notes"] = parent["notes"]
+    if definition_identity is not None:
+        result["definition_identity"] = definition_identity
     result["relationships"].append({"predicate": "defined-by", "target_source_id": parent["source_id"],
                                     "source_field": prefix})
     return result
@@ -80,9 +82,20 @@ def expand(parent, item_names, localized):
                 name, status, evidence = label(parent, prefix, localized)
                 row = child(parent, "skill", prefix, skill, name, status, evidence)
                 row["family"] = family
+                targets = {target for link in row["relationships"] if link["predicate"] == "localized-name" and link.get("status") in {None, "resolved"}
+                           for target in link.get("target_source_ids", [])}
+                row["definition_identity"] = {"type": "skill", "family": family,
+                                              "localized_name_source_id": next(iter(targets)) if len(targets) == 1 else None}
                 yield row
-        # The technical type summary accounts for the source container; no empty
-        # gameplay entry or duplicate list of every skill is emitted.
+        # A continuing parent identity scopes the children independently of their
+        # array positions. The serialized definitions remain in the child rows.
+        parent["facts"] = {}
+        remove_nested(parent, ["/_CraftSkills", "/_FightSkills", "/_SurviveSkills"])
+        parent["kind"] = "survival-rule"
+        parent["observation_key"] = observation("survival-rule", parent["source_id"], parent["name"], {},
+                                                parent["evidence"][0]["path"], ())["observation_key"]
+        parent["fact_scope"] = "serialized-definition-container"
+        yield parent
     elif cls == "Skill_Mgr":
         prefixes = []
         for field in sorted(list(parent["facts"])):
@@ -90,7 +103,8 @@ def expand(parent, item_names, localized):
                 continue
             prefix = "/" + field
             name, status, evidence = label(parent, prefix, localized)
-            yield child(parent, "status-effect", prefix, parent["facts"].pop(field), name, status, evidence)
+            yield child(parent, "status-effect", prefix, parent["facts"].pop(field), name, status, evidence,
+                        {"type": "status-member", "member": prefix})
             prefixes.append(prefix)
         remove_nested(parent, prefixes)
         yield parent

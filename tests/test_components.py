@@ -31,6 +31,38 @@ class CatalogFixture:
 
 
 class ComponentTests(unittest.TestCase):
+    def test_skill_container_and_children_keep_semantic_roles_and_raw_positions(self):
+        parent = {"source_id": "fixture#1", "name": "Skills", "kind": "skill", "topic": "skills-survival",
+                  "component": {"assembly": "Creature", "class": "All_Skills_Set"}, "notes": "Serialized",
+                  "facts": {"_CraftSkills": [], "_FightSkills": [{"_skill": {"maxLv": 2}}], "_SurviveSkills": []},
+                  "relationships": [{"predicate": "localized-name", "source_field": "/_FightSkills/0/_skill/_name",
+                                     "target_source_ids": ["fixture#2"], "status": "resolved"}],
+                  "evidence": [{"path": "Catalog/objects/fixture.jsonl", "object": "fixture#1",
+                                "fields": ["/_FightSkills/0/_skill/maxLv"]}]}
+        label = {"name": "Fighter", "evidence": {"path": "Catalog/objects/fixture.jsonl", "object": "fixture#2", "fields": ["/_Infos/0/text"]}}
+        skill, container = list(entries.expand(parent, {}, {"fixture#2": label}))
+        self.assertEqual("fixture#1/_FightSkills/0", skill["source_id"])
+        self.assertEqual("/_FightSkills/0", skill["source_field_base"])
+        self.assertEqual(["/_FightSkills/0/_skill/maxLv"], skill["evidence"][0]["fields"])
+        self.assertEqual({"type": "skill", "family": "_FightSkills", "localized_name_source_id": "fixture#2"}, skill["definition_identity"])
+        self.assertEqual("survival-rule", container["kind"])
+        self.assertEqual("serialized-definition-container", container["fact_scope"])
+        self.assertEqual({}, container["facts"])
+        self.assertEqual([], container["relationships"])
+        self.assertEqual("fixture#1", container["source_id"])
+
+    def test_status_definition_keeps_named_member_as_identity_and_source_role(self):
+        parent = {"source_id": "fixture#1", "name": "Manager", "kind": "survival-rule", "topic": "skills-survival",
+                  "component": {"assembly": "Creature", "class": "Skill_Mgr"}, "notes": "Serialized",
+                  "facts": {"_Bleeding_Debuff": {"buffPeriod": 5}, "_MaxLevel": 4}, "relationships": [],
+                  "evidence": [{"path": "Catalog/objects/fixture.jsonl", "object": "fixture#1",
+                                "fields": ["/_Bleeding_Debuff/buffPeriod", "/_MaxLevel"]}]}
+        effect, manager = list(entries.expand(parent, {}, {}))
+        self.assertEqual({"type": "status-member", "member": "/_Bleeding_Debuff"}, effect["definition_identity"])
+        self.assertEqual("fixture#1/_Bleeding_Debuff", effect["source_id"])
+        self.assertEqual(["/_Bleeding_Debuff/buffPeriod"], effect["evidence"][0]["fields"])
+        self.assertEqual({"_MaxLevel": 4}, manager["facts"])
+
     def test_sound_manager_material_keys_preserve_empty_strings_and_field_drift(self):
         spec = components.BY_CLASS[("Sound_FX", "Sound_Mgr")]
         for name in ("Rock", ""):

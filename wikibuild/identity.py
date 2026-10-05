@@ -1,6 +1,7 @@
 """Pure, conservative identity reconciliation. No filesystem or network access."""
 
 from collections import Counter, defaultdict
+import re
 
 from .storage import ContractError, digest, json_bytes
 
@@ -27,12 +28,73 @@ def typed_anchor(source_id, record):
             "assembly": assembly, "class": cls, "asset_name": name}
 
 
+def owner_anchor(source_id, record):
+    anchor = typed_anchor(source_id, record)
+    hierarchy = record.get("hierarchy")
+    if not anchor or not hierarchy or not all(isinstance(name, str) and name for name in hierarchy):
+        return None
+    return {key: value for key, value in anchor.items() if key != "asset_name"} | {"owner_hierarchy": hierarchy}
+
+
+def reference_role(field):
+    return re.sub(r"/\d+(?=/|$)", "/*", field)
+
+
 def target_anchors(metadata):
     """Only independently unique catalog targets can replace build-scoped IDs."""
     anchors = {key: typed_anchor(key, record) for key, record in metadata.items()}
     counts = Counter(fingerprint(anchor) for anchor in anchors.values() if anchor)
-    return {key: anchor for key, anchor in anchors.items() if anchor
-            and counts[fingerprint(anchor)] == 1 and metadata[key].get("anchor_count", 1) == 1}
+    result = {key: anchor for key, anchor in anchors.items() if anchor
+              and counts[fingerprint(anchor)] == 1 and metadata[key].get("anchor_count", 1) == 1}
+    owners = {key: owner_anchor(key, record) for key, record in metadata.items()}
+    owner_counts = Counter(fingerprint(anchor) for anchor in owners.values() if anchor)
+    callers = {key: result.get(key) or anchor for key, anchor in owners.items()
+               if key in result or (anchor and owner_counts[fingerprint(anchor)] == 1)}
+    blocked_roles = set()
+    for source, caller in callers.items():
+        for ref in metadata[source].get("reference_roles", []):
+            if ref.get("status") == "null":
+                continue
+            targets = ref.get("targets", [])
+            missing_text = any(target not in metadata or
+                               ((metadata[target].get("assembly"), metadata[target].get("class")) == ("Language", "Language_Text")
+                                and not isinstance(metadata[target].get("text"), str)) for target in targets)
+            if ref.get("status") not in {None, "resolved"} or not targets or missing_text:
+                blocked_roles.add((fingerprint(caller), reference_role(ref["source_field"])))
+    roles = defaultdict(set)
+    claims = defaultdict(dict)
+    for target, record in metadata.items():
+        if (record.get("assembly"), record.get("class")) != ("Language", "Language_Text") or not isinstance(record.get("text"), str):
+            continue
+        for ref in record.get("callers", []):
+            caller = callers.get(ref["source_id"])
+            if caller is None:
+                continue
+            role = reference_role(ref["source_field"])
+            if (fingerprint(caller), role) in blocked_roles:
+                continue
+            key = (fingerprint(caller), role, record["text"])
+            roles[key].add(target)
+            claims[target][key] = {"caller": caller, "role": role}
+    for target, values in claims.items():
+        if target in result:
+            continue
+        # Numeric list positions are incidental only when the normalized caller
+        # role and selected text still identify exactly one target.
+        selected = [value for key, value in values.items() if len(roles[key]) == 1]
+        if selected:
+            record = metadata[target]
+            result[target] = {"container": target.split("#", 1)[0], "engine_type": record["type"],
+                              "assembly": record["assembly"], "class": record["class"],
+                              "text": record["text"], "callers": sorted(selected, key=fingerprint)}
+    for key, record in metadata.items():
+        if (record.get("assembly"), record.get("class")) == ("UI", "Slot_Info"):
+            result.pop(key, None)
+            owner = owners.get(key)
+            if owner and type(record.get("slot_index")) is int:
+                result[key] = {**owner, "slot_index": record["slot_index"]}
+    final_counts = Counter(fingerprint(anchor) for anchor in result.values())
+    return {key: anchor for key, anchor in result.items() if final_counts[fingerprint(anchor)] == 1}
 
 
 def relationship_signature(link, anchors):
@@ -59,6 +121,24 @@ def describe(row, metadata, anchors=None):
     base = row.get("source_field_base", "")
     if anchors is None:
         anchors = target_anchors(metadata)
+    anchor = None if summary or row.get("parent_source_id") else anchors.get(identity)
+    context_kind, anchor_rule, ordinals = None, "unique-typed-anchor", None
+    record = metadata.get(identity, {})
+    if (component.get("assembly"), component.get("class")) == ("UI", "Slot_Info"):
+        context_kind, anchor_rule = "slot", "slot-owner-and-index"
+        ordinals = record.get("hierarchy_ordinals")
+        if not anchor or type(row["facts"].get("_slotIndex")) is not int or anchor.get("slot_index") != row["facts"]["_slotIndex"] or ordinals is None:
+            anchor = None
+    elif (component.get("assembly"), component.get("class")) == ("Language", "Language_Text") and record and (not anchor or "callers" in anchor):
+        context_kind, anchor_rule = "localization", "caller-role-and-text"
+        if anchor and row["facts"].get("text") != anchor["text"]:
+            anchor = None
+    definition = row.get("definition_identity")
+    if definition is not None:
+        context_kind, anchor_rule = "definition", "parent-relative-definition"
+        definition = {**definition, "parent_source_id": row["parent_source_id"]}
+        if definition["type"] == "skill":
+            definition["localized_name_anchor"] = anchors.get(definition.get("localized_name_source_id"))
     references = []
     for link in row.get("relationships", []):
         if link["predicate"] == "defined-by":
@@ -76,7 +156,16 @@ def describe(row, metadata, anchors=None):
             "name": row["name"], "facts_hash": fingerprint([row["facts"], sorted(references, key=fingerprint)]),
             "has_facts": bool(row["facts"] or references),
             "paths": sorted(paths), "summary": summary,
-            "anchor": None if summary or row.get("parent_source_id") else anchors.get(identity)}
+            "anchor": anchor, "anchor_rule": anchor_rule, "context_kind": context_kind,
+            "hierarchy_ordinals": ordinals, "definition": definition}
+
+
+def context_compatible(current, old):
+    if not (current.get("context_kind") or old.get("context_kind")):
+        return True
+    if not current.get("anchor") or current.get("anchor") != old.get("anchor"):
+        return False
+    return current.get("context_kind") != "slot" or current.get("hierarchy_ordinals") == old.get("hierarchy_ordinals")
 
 
 def compatible(left, right):
@@ -110,15 +199,18 @@ def candidate_rules(current, previous, index, same_capture, anchor_counts=None):
         anchored = index["anchor"].get(anchor_key, set())
         if anchor_counts and anchor_counts[anchor_key] == 1 and len(anchored) == 1:
             entity = next(iter(anchored))
-            levels[4][entity] = ["unique-typed-anchor", "container-and-engine-type", "assembly-and-class", "catalog-asset-name"]
+            if context_compatible(current, previous[entity]["descriptor"]):
+                levels[4][entity] = [current.get("anchor_rule", "unique-typed-anchor"), "unique-on-both-sides"]
     direct = index["source"].get((family, current["source_id"]), set())
     for entity in direct:
         state = previous[entity]
         old = state["descriptor"]
         evidence = ["scoped-source-id", "kind-and-component"]
-        if same_capture and state["status"] == "present" and old["observation_key"] == current["observation_key"]:
+        if same_capture and state["status"] == "present" and old["observation_key"] == current["observation_key"] and context_compatible(current, old):
             evidence.append("same-captured-game-inputs")
             levels[5][entity] = evidence
+            continue
+        elif current.get("context_kind") or old.get("context_kind"):
             continue
         elif current["paths"] and old["paths"] and set(current["paths"]).isdisjoint(old["paths"]) and current["facts_hash"] != old["facts_hash"]:
             continue
@@ -132,21 +224,59 @@ def candidate_rules(current, previous, index, same_capture, anchor_counts=None):
     for path in current["paths"]:
         for entity in index["path"].get((family, path), set()):
             old = previous[entity]["descriptor"]
+            if current.get("context_kind") or old.get("context_kind"):
+                continue
             if current["name"] == old["name"] or (current["has_facts"] and current["facts_hash"] == old["facts_hash"]):
                 levels[2][entity] = ["asset-path", path, "kind-and-component",
                                      "unchanged-name" if current["name"] == old["name"] else "unchanged-selected-facts"]
     if current["has_facts"]:
         for entity in index["content"].get((family, current["scope"], current["name"], current["facts_hash"]), set()):
+            if current.get("context_kind") or previous[entity]["descriptor"].get("context_kind"):
+                continue
             levels[1][entity] = ["container", "kind-and-component", "unchanged-name-and-selected-facts"]
     return levels, direct | anchored | index["name"].get((family, current["scope"], current["name"]), set())
 
 
 def reconcile(current, previous, snapshot, request_key, same_capture=False, corrections=()):
+    """Reconcile containers first, then anchor definitions to their assigned keys."""
+    for correction in corrections:
+        if correction.get("snapshot_id") == snapshot and correction.get("observation_key") not in current:
+            raise ContractError("Invalid, duplicate or stale reviewed identity mapping")
+    parents = {key: row for key, row in current.items() if not row.get("definition")}
+    children = {key: row for key, row in current.items() if row.get("definition")}
+    parent_corrections = [row for row in corrections if row.get("observation_key") in parents]
+    assignments, decisions = reconcile_rows(parents, previous, snapshot, request_key, same_capture, parent_corrections)
+    by_source = defaultdict(list)
+    for key, row in parents.items():
+        if not row["summary"]:
+            by_source[row["source_id"]].append(key)
+    for row in children.values():
+        definition = row["definition"]
+        possible = by_source.get(definition["parent_source_id"], [])
+        row["anchor"] = None
+        if len(possible) != 1:
+            continue
+        parent_key = possible[0]
+        if row["component"] != parents[parent_key]["component"]:
+            continue
+        parent = assignments[parent_key]
+        if definition["type"] == "status-member":
+            row["anchor"] = {"parent_entity": parent, "member": definition["member"]}
+        elif definition["type"] == "skill" and definition.get("localized_name_anchor"):
+            row["anchor"] = {"parent_entity": parent, "skill_family": definition["family"],
+                             "localized_name": definition["localized_name_anchor"]}
+    child_corrections = [row for row in corrections if row.get("observation_key") in children]
+    child_assignments, child_decisions = reconcile_rows(children, previous, snapshot, request_key, same_capture,
+                                                       child_corrections, assignments.values())
+    return assignments | child_assignments, decisions | child_decisions
+
+
+def reconcile_rows(current, previous, snapshot, request_key, same_capture=False, corrections=(), reserved=()):
     """Reserve stronger unique matches first; leave all ties explicit."""
     index = indexes(previous)
     anchor_counts = Counter(((row["family"], tuple(row["component"])), fingerprint(row["anchor"]))
                             for row in current.values() if row.get("anchor"))
-    proposals, direct, assignments, decisions, used = {}, {}, {}, {}, set()
+    proposals, direct, assignments, decisions, used = {}, {}, {}, {}, set(reserved)
     for observation, row in sorted(current.items()):
         proposals[observation], direct[observation] = candidate_rules(row, previous, index, same_capture, anchor_counts)
 
@@ -184,7 +314,7 @@ def reconcile(current, previous, snapshot, request_key, same_capture=False, corr
                 continue
             assignments[key] = entity
             used.add(entity)
-            decisions[key] = {"status": "matched", "rule": {5: "same-observation-in-capture", 4: "unique-typed-anchor", 3: "corroborated-source", 2: "corroborated-path-or-history", 1: "unique-content-in-container"}[level],
+            decisions[key] = {"status": "matched", "rule": {5: "same-observation-in-capture", 4: current[key].get("anchor_rule", "unique-typed-anchor"), 3: "corroborated-source", 2: "corroborated-path-or-history", 1: "unique-content-in-container"}[level],
                               "confidence": "deterministic", "candidates": [entity], "evidence": values[entity]}
             if previous[entity].get("decision", {}).get("status") == "ambiguous":
                 decisions[key] = {**previous[entity]["decision"], "rule": "retained-unresolved-identity"}
