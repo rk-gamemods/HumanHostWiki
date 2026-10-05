@@ -41,6 +41,14 @@ def previous_state(root, previous, migration):
     return history.load_state(root, previous)
 
 
+def repaired_semantic(semantic, rekeys):
+    """Project relationship assignments without changing frozen model data."""
+    return {**semantic, "relationships": [
+        {**relation, **{field: sorted({rekeys.get(target, target) for target in relation[field]})
+                       for field in ("targets", "technical_targets") if field in relation}}
+        for relation in semantic["relationships"]]}
+
+
 def reader_inputs(root, run, migration, destination):
     """Apply recorded assignment repairs to packs, never to frozen history."""
     state = history.load_state(root, run)
@@ -61,10 +69,7 @@ def reader_inputs(root, run, migration, destination):
                 raise ContractError("Retained reader model differs from its identity state")
             seen.add(old)
             key = rekeys.get(old, old)
-            for relation in row["semantic"]["relationships"]:
-                for field in ("targets", "technical_targets"):
-                    if field in relation:
-                        relation[field] = sorted({rekeys.get(target, target) for target in relation[field]})
+            row["semantic"] = repaired_semantic(row["semantic"], rekeys)
             for target in row["provenance"].get("resolved_targets", []):
                 if "target_entity" in target:
                     target["target_entity"] = rekeys.get(target["target_entity"], target["target_entity"])
@@ -99,7 +104,7 @@ def observations(root, run):
         yield frozen, {**frozen["semantic"], **frozen["provenance"]}
 
 
-def repair_capture(run, rows, metadata, previous, redirects):
+def repair_capture(run, rows, metadata, previous, redirects, corrections=()):
     """Pure chronological step; seed first appearances with their recorded keys."""
     capture = identity.CaptureIndex(metadata, previous)
     current, frozen, parents, missing_parents = {}, {}, set(), {}
@@ -125,15 +130,41 @@ def repair_capture(run, rows, metadata, previous, redirects):
             container = next(expand(container, {}, {}))
             current[container["observation_key"]] = identity.describe(container, metadata, capture)
     allocations = {key: stored["entity_key"] for key, stored in frozen.items()}
+    reviewed = {}
+    for key, stored in frozen.items():
+        decision = stored.get("identity_decision", {})
+        if decision.get("status") == "reviewed":
+            target = stored["entity_key"]
+            if target == "e-" + identity.fingerprint([run["snapshot_id"], key, "reviewed-new"])[:32]:
+                target = "new"
+            else:
+                target = redirects.get(target, {}).get("entity_key", target)
+            reviewed[key] = {"snapshot_id": run["snapshot_id"], "observation_key": key, "entity_key": target,
+                             "reviewer": decision.get("reviewer"), "reason": decision.get("reason")}
+    seen_corrections = set()
+    for correction in corrections:
+        # Later reviews cannot be applied before their observations/targets existed.
+        if (correction.get("snapshot_id") == run["snapshot_id"]
+                and correction.get("observation_key") in current
+                and (correction.get("entity_key") == "new" or correction.get("entity_key") in previous)):
+            key = correction["observation_key"]
+            if key in seen_corrections:
+                raise ContractError("Duplicate reviewed identity correction")
+            seen_corrections.add(key)
+            reviewed[key] = correction
+    reviewed = list(reviewed.values())
     assignments, decisions = identity.reconcile(current, previous, run["snapshot_id"], run["run_id"],
         same_capture=bool(previous and all(state["last_seen"] == run["snapshot_id"]
                                          for state in previous.values() if state["status"] == "present")),
-        reserved=redirects, allocations=allocations)
+        corrections=reviewed, reserved=redirects, allocations=allocations)
+    supersessions = identity.reviewed_supersessions(current, previous, assignments, run["snapshot_id"], reviewed)
+    rekeys = {stored["entity_key"]: assignments[key] for key, stored in frozen.items()}
     states = {}
     for key, entity in assignments.items():
         prior = previous.get(entity)
         stored = frozen.get(key, {})
-        revision = stored.get("revision_id")
+        revision = (identity.fingerprint(repaired_semantic(stored["semantic"], rekeys))
+                    if "semantic" in stored else stored.get("revision_id"))
         changed = not prior or prior["revision_id"] != revision
         states[entity] = {"entity_key": entity, "descriptor": current[key], "revision_id": revision,
             "status": "present", "first_seen": prior["first_seen"] if prior else run["snapshot_id"],
@@ -142,7 +173,14 @@ def repair_capture(run, rows, metadata, previous, redirects):
     kinds = {row["kind"] for row in current.values()}
     for entity, state in previous.items():
         if entity not in states:
-            states[entity] = {**state, "status": model.absent_status(state, kinds, metadata, capture=capture)}
+            if state["status"] == "superseded":
+                states[entity] = state
+                continue
+            key = state["descriptor"]["observation_key"]
+            replacement = supersessions.get(entity) or assignments.get(key)
+            superseded = entity in supersessions or (replacement and decisions[key]["status"] == "reviewed")
+            states[entity] = {**state, "status": "superseded" if superseded else model.absent_status(state, kinds, metadata, capture=capture),
+                              **({"superseded_by": replacement} if superseded else {})}
     return states, assignments, decisions, current, frozen
 
 
@@ -150,7 +188,8 @@ def plan(root, source, progress=None):
     """Read-only planner. Historical states and models are never rewritten."""
     runs = retained_runs(root)
     contract_hash = history.contract()
-    corrections_hash = identity.fingerprint(history.corrections(root))
+    corrections = history.corrections(root)
+    corrections_hash = identity.fingerprint(corrections)
     needed = defaultdict(set)
     for run in runs:
         for _, row in observations(root, run):
@@ -162,7 +201,7 @@ def plan(root, source, progress=None):
             metadata[revision] = history.relevant_metadata(source, revision, needed[revision])[0]
         prior = states
         states, assignments, decisions, current, frozen = repair_capture(
-            run, observations(root, run), metadata[revision], prior, redirects)
+            run, observations(root, run), metadata[revision], prior, redirects, corrections["mappings"])
         for entity, recorded in history.load_state(root, run).items():
             if recorded["status"] == "superseded" and entity in states and states[entity]["status"] != "present":
                 states[entity] = recorded
@@ -178,7 +217,8 @@ def plan(root, source, progress=None):
             repairs.append({"old_key": old, **proof})
             # A reused historical canonical key is a bad assignment, not a URL redirect.
             # First appearances remain canonical, including coexisting identical values.
-            if old not in states and old not in origins and decision["status"] == "matched" and current[key].get("anchor"):
+            if (old not in states and old not in origins
+                    and (decision["status"] == "reviewed" or (decision["status"] == "matched" and current[key].get("anchor")))):
                 if old in redirects and redirects[old]["entity_key"] != target:
                     continue  # Later reuse is already recorded above, never changes the map.
                 redirects.setdefault(old, proof)

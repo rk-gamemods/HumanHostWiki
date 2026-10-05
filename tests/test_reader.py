@@ -195,6 +195,36 @@ class ReaderTests(unittest.TestCase):
         return {"entity_key": key, "semantic": semantic, "revision_id": digest(json_bytes(semantic)),
                 "provenance": {"source_id": "bundle#" + str(ord(key[-1])), "evidence": [{"path": "Catalog/views/items.jsonl", "git_blob": "a" * 40}]}}
 
+    def test_migrated_history_compares_corrected_relationships_in_every_capture(self):
+        provisional = ["e-" + letter * 32 for letter in "def"]
+        runs, repairs = [], []
+        origin = {"snapshot_id": "build-300-" + "a" * 12}
+        for build, key in zip(("300", "400", "500"), provisional):
+            run = self.make_run(build, [self.observation(self.a, "A", target=key), self.observation(key, "B")])
+            runs.append(run)
+            receipt_path = self.root / "snapshots" / (run["snapshot_id"] + ".json")
+            receipt = json.loads(receipt_path.read_bytes())
+            receipt["game_version"] = "0.8." + build
+            receipt_path.write_bytes(json_bytes(receipt))
+            repairs.append({"old_key": key, "entity_key": self.b, "run_id": run["run_id"], "topic": "items",
+                            "origin": origin, "evidence": {"decision": {"status": "matched"}}})
+        migration = {"schema_version": 1, "base_run": runs[-1]["run_id"], "repairs": repairs,
+                     "redirects": {row["old_key"]: row for row in repairs}}
+        state, _ = identity_migration.reader_inputs(self.root, runs[-1], migration, self.root / "corrected-models.jsonl")
+        temporary = self.root / "corrected-state.jsonl"
+        temporary.write_bytes(b"".join(packs.compact(row) + b"\n" for row in state.values()))
+        migration["baseline"] = history.install(self.root, temporary, "fixtures/baseline")
+        migration["migration_id"] = model.fingerprint(migration)
+        history.immutable(self.root / "identity/migration.json", json_bytes(migration))
+        self.runs = list(reversed(runs))
+        site, _ = self.build()
+        for count, run in enumerate(runs, 1):
+            summary = self.index(site, "hub", run)["history"]
+            self.assertEqual(count, len(summary))
+            for row in summary[:-1]:
+                self.assertEqual({"new": 0, "changed": 0, "removed": 0},
+                                 {field: row["changes"][field] for field in ("new", "changed", "removed")})
+
     def make_run(self, build, observations, absent=None):
         snapshot = f"build-{build}-{'a' * 12}"
         state = []

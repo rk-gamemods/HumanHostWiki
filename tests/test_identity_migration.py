@@ -20,11 +20,13 @@ class MigrationTests(unittest.TestCase):
         self.parent = None
         self.keys = ["e-" + letter * 32 for letter in "abcd"]
 
-    def capture(self, number, records):
+    def capture(self, number, records, *, targets=None, reviewed=None):
         rows, allocation, metadata = [], {}, {}
         snapshot = "build-" + str(number) + "-" + "a" * 12
         for source, name, key in records:
             row = {**observation(source=source, name=name), "component": {"assembly": "Item_Info", "class": "Icon_Info"}}
+            if targets and source in targets:
+                row["relationships"] = [{"predicate": "references", "field": "/target", "target_source_id": targets[source]}]
             rows.append(row)
             allocation[row["observation_key"]] = key
             metadata[source] = {"type": "MonoBehaviour", "name": name, **row["component"]}
@@ -36,6 +38,8 @@ class MigrationTests(unittest.TestCase):
             frozen = model.project(row, key, indexes, metadata,
                 {"Catalog/views/items.jsonl": {"git_blob": "a" * 40}}, Exceptions())
             frozen["snapshot_id"] = snapshot
+            if reviewed:
+                frozen["identity_decision"] = reviewed
             projected.append(frozen)
             states.append({"entity_key": key, "descriptor": identity.describe(row, metadata), "status": "present",
                            "revision_id": frozen["revision_id"], "first_seen": snapshot, "last_seen": snapshot,
@@ -71,6 +75,49 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(a, live["A"])
         self.assertNotEqual(provisional, live["B"])
         self.assertEqual(record, self.plan()[0])
+
+    def test_reviewed_rename_overrides_provisional_lineage(self):
+        a, provisional, _, _ = self.keys
+        self.capture(1, [("bundle#1", "Old name", a)])
+        last = self.capture(2, [("bundle#1", "Reviewed rename", provisional)])
+        correction = {"snapshot_id": last["snapshot_id"], "observation_key": observation(source="bundle#1", name="Reviewed rename")["observation_key"],
+                      "entity_key": a, "reviewer": "Coordinator", "reason": "Reviewed rename of the original object."}
+        (self.root / "identity/corrections.json").write_bytes(json_bytes({"schema_version": 1, "mappings": [correction]}))
+        record, states = self.plan()
+        self.assertEqual("Reviewed rename", states[a]["descriptor"]["name"])
+        self.assertEqual("reviewed", states[a]["decision"]["status"])
+        self.assertNotIn(provisional, states)
+        self.assertEqual(a, record["redirects"][provisional]["entity_key"])
+
+    def test_frozen_reviewed_decision_survives_without_current_correction(self):
+        a, provisional, _, _ = self.keys
+        self.capture(1, [("bundle#1", "Old name", a)])
+        self.capture(2, [("bundle#1", "Reviewed rename", provisional)])
+        decision = {"status": "reviewed", "rule": "reviewed-mapping", "confidence": "reviewed",
+                    "reviewer": "Coordinator", "reason": "Reviewed rename.", "candidates": [a]}
+        self.capture(3, [("bundle#1", "Reviewed rename", a)], reviewed=decision)
+        _, states = self.plan()
+        self.assertEqual("Reviewed rename", states[a]["descriptor"]["name"])
+        self.assertEqual("reviewed", states[a]["decision"]["status"])
+        self.assertEqual("superseded", states[provisional]["status"])
+        self.assertEqual(a, states[provisional]["superseded_by"])
+
+    def test_repaired_relationship_revision_is_unchanged_on_next_update(self):
+        a, b, provisional, _ = self.keys
+        first = self.capture(1, [("bundle#1", "A", a), ("bundle#2", "B", b)], targets={"bundle#1": "bundle#2"})
+        last = self.capture(2, [("bundle#1", "A", a), ("bundle#20", "B", provisional)], targets={"bundle#1": "bundle#20"})
+        record, states = self.plan()
+        self.assertEqual(history.load_state(self.root, first)[a]["revision_id"], states[a]["revision_id"])
+        self.assertEqual(first["snapshot_id"], states[a]["last_changed"])
+        projected, _ = migration.reader_inputs(self.root, last, record, self.root / "corrected.jsonl")
+        self.assertEqual(states[a]["revision_id"], projected[a]["revision_id"])
+        row = {**observation(source="bundle#1", name="A"), "component": {"assembly": "Item_Info", "class": "Icon_Info"},
+               "relationships": [{"predicate": "references", "field": "/target", "target_source_id": "bundle#20"}]}
+        target = {**observation(source="bundle#20", name="B"), "component": row["component"]}
+        assignments = {row["observation_key"]: a, target["observation_key"]: b}
+        next_model = model.project(row, a, model.targets_index([row, target], assignments), self.metadata["2"],
+                                   {"Catalog/views/items.jsonl": {"git_blob": "a" * 40}}, Exceptions())
+        self.assertEqual(next_model["revision_id"], states[a]["revision_id"])
 
     def test_fog_snow_identical_facts_repair_reused_key_chronologically(self):
         fog, snow, provisional, _ = self.keys

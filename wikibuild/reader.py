@@ -208,7 +208,7 @@ def project_guides(root, identities, context, output):
                   "features": context["features"]}
 
 
-def history_rows(root, runs, current_state, topic_ids):
+def history_rows(root, runs, current_state, topic_ids, *, migration=None, staging=None):
     """Summarize the latest capture of each of the four newest game versions."""
     selected = {}
     for order, run in enumerate(reversed(runs)):
@@ -225,7 +225,10 @@ def history_rows(root, runs, current_state, topic_ids):
     rows = []
     present_by_row = []
     for _, run, receipt in sorted(selected.values(), key=lambda item: item[0], reverse=True)[:4]:
-        state = current_state if run["snapshot_id"] == runs[0]["snapshot_id"] else history.load_state(root, run)
+        if migration:
+            state, _ = identity_migration.reader_inputs(root, run, migration, staging / ("history-" + run["run_id"] + ".jsonl"))
+        else:
+            state = current_state if run["snapshot_id"] == runs[0]["snapshot_id"] else history.load_state(root, run)
         present = {key: (entry["descriptor"]["topic"], entry["revision_id"])
                    for key, entry in state.items() if entry["status"] == "present"}
         topics = Counter(topic for topic, _ in present.values())
@@ -378,7 +381,7 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
     maps["hub"]["search"] = hub_search
     topic_counts = {topic: {"total": sum(kinds.values()), "kinds": dict(sorted(kinds.items()))}
                     for topic, kinds in counts.items()}
-    changes_history = history_rows(root, captured_runs, state, topics)
+    changes_history = history_rows(root, captured_runs, state, topics, migration=migration, staging=stage.parent)
     for topic, data in maps.items():
         writer = lambda name, value, topic=topic: output(f"{topic}/{name}", value)
         # Reuse whole single-card shards: a removed entry must not leave its card
