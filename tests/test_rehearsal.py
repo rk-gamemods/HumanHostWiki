@@ -678,14 +678,15 @@ class RehearsalTests(unittest.TestCase):
                 return sha
             return real_git(root, *args)
 
-        def gate_api(method, endpoint, **kwargs):
+        def gate_api(method, endpoint, *args, **kwargs):
             if "actions/runs?head_sha=" in endpoint:
                 return {"workflow_runs": [{"id": 1, "name": "CI", "head_sha": sha,
                     "path": publish_gate.CI_PATH, "event": "push", "head_branch": "main",
                     "status": "completed", "conclusion": "success"}]}
-            if endpoint.endswith("/pulls"):
-                return [{"number": 1, "merged_at": "2026-10-03T00:00:00Z", "merge_commit_sha": sha}]
-            return real_api(method, endpoint, **kwargs)
+            if endpoint == "graphql":
+                return {"data": {"repository": {"object": {"associatedPullRequests": {
+                    "nodes": [{"number": 1, "merged": True, "mergeCommit": {"oid": sha}}]}}}}}
+            return real_api(method, endpoint, *args, **kwargs)
 
         with patch.object(publish_gate, "git", side_effect=gate_git), \
                 patch.object(self.remote, "api", side_effect=gate_api), \
