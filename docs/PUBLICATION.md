@@ -22,8 +22,9 @@ The production checks then run in this order:
    finds workflow `CI` at `.github/workflows/ci.yml`, triggered by `push` on `main`,
    completed with conclusion `success` for that exact commit.
    The newest matching run/attempt must succeed; absent or unfinished CI is refused.
-5. `GET /repos/rk-gamemods/HumanHostWiki/commits/<sha>/pulls` returns a PR with
-   `merged_at` set and `merge_commit_sha` equal to this exact commit. A direct push
+5. GraphQL `associatedPullRequests` for this commit returns a merged PR whose
+   `mergeCommit.oid` is this exact commit. REST API version 2026-03-10 returns
+   `merge_commit_sha` as null, so the gate no longer reads it. A direct push
    without matching merged-PR evidence is refused.
 6. `.local/publication/rehearsals/<release-id>.json` is a valid successful rehearsal
    receipt for the requested release, current workspace commit and
