@@ -9,6 +9,39 @@ from wikibuild.exceptions import Exceptions
 
 
 class ModelTests(unittest.TestCase):
+    def test_thousand_records_use_linear_capture_index_lookups(self):
+        class Metadata(dict):
+            visits = 0
+            sealed = False
+            def items(self):
+                if self.sealed:
+                    raise AssertionError("A record consumer rescanned the catalog")
+                for item in super().items():
+                    self.visits += 1
+                    yield item
+            def values(self):
+                if self.sealed:
+                    raise AssertionError("A record consumer rescanned catalog values")
+                return super().values()
+        class Presence(set):
+            lookups = 0
+            def __contains__(self, key):
+                self.lookups += 1
+                return super().__contains__(key)
+        metadata = Metadata({f"bundle#{i}": {"type": "GameObject", "name": f"Name {i}", "paths": [f"Assets/{i}"]} for i in range(1000)})
+        capture = identity.CaptureIndex(metadata)
+        self.assertLessEqual(metadata.visits, 6000)
+        metadata.sealed = True
+        capture.presence = Presence(capture.presence)
+        described = [identity.describe(observation(source=key, name=record["name"]), metadata, capture) for key, record in dict.items(metadata)]
+        previous = {f"e-{i}": {"descriptor": row, "status": "present"} for i, row in enumerate(described)}
+        assigned, decisions = identity.reconcile({row["observation_key"]: row for row in described}, previous, "next", "next")
+        self.assertEqual(set(previous), set(assigned.values()))
+        self.assertTrue(all(row["status"] == "matched" for row in decisions.values()))
+        for state in previous.values():
+            self.assertEqual("unresolved", model.absent_status(state, ["item"], metadata, capture=capture))
+        self.assertEqual(1000, capture.presence.lookups)
+
     def test_absence_uses_context_instead_of_the_reused_numeric_id(self):
         row = observation(name="Fog_Heavy")
         described = identity.describe(row, {row["source_id"]: {"type": "GameObject", "name": "Fog_Heavy"}})

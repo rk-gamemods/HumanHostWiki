@@ -25,7 +25,8 @@ _GatheringToolSmallAxe""".split()}),
 _SlotBelongBI_Info _SlotRootOfChar _assetRefForSplit _equip_Ins _forceNewDuraData
 _iconInfoPrefab _inLoading _initAlready _isEmptySlot _qualityIndex _runtimeSmashAgent
 _skipReleaseOnNextLoad _slotRootTag""",
-       notes="Serialized slot index, type and swap restrictions. Current item, stack, quality, durability and save ownership are omitted."),
+       notes="Serialized slot index, type and swap restrictions. Current item, stack, quality, durability and save ownership are omitted.",
+       identity={"kind": "slot", "index_field": "_slotIndex", "review_fields": ("hierarchy_ordinals",)}),
     component("UI", "Item_Slot_Mgr", "equipment", "items-equipment", {
         "_MaxCraftLevel": int, "_MaxLootLevel": int,
         "_EquipUpgradePityFailCounts": [int], "_EquipUpgradeSuccessRates": [N],

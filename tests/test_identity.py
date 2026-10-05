@@ -2,6 +2,7 @@
 
 import copy
 import unittest
+from unittest.mock import patch
 
 from wikibuild import identity, model
 from wikibuild.adapters import entries
@@ -47,6 +48,73 @@ def skill_capture(source="bundle#10", order=("Forestry", "Gunsmith"), targets=("
 
 
 class IdentityTests(unittest.TestCase):
+    def test_same_capture_duplicate_texts_keep_keys_without_unique_anchors(self):
+        rows = [{**observation(source=f"bundle#{i}", name="Backpack"), "kind": "configuration",
+                 "facts": {"text": "Backpack"}, "component": {"assembly": "Language", "class": "Language_Text"}}
+                for i in (1, 2)]
+        metadata = {row["source_id"]: {"type": "MonoBehaviour", "name": "Backpack", **row["component"], "text": "Backpack"} for row in rows}
+        capture = identity.CaptureIndex(metadata)
+        described = [identity.describe(row, metadata, capture) for row in rows]
+        self.assertTrue(all(row["anchor"] is None for row in described))
+        previous = {f"e-{i}": {"status": "present", "descriptor": row, "decision": {"status": "matched"}} for i, row in enumerate(described)}
+        for key, value in match(described, previous, same_capture=True)[0].items():
+            self.assertEqual(next(entity for entity, state in previous.items() if state["descriptor"]["observation_key"] == key), value)
+        _, decisions = match(described, previous)
+        self.assertTrue(all(row["status"] == "ambiguous" for row in decisions.values()))
+
+    def test_same_capture_legacy_context_descriptor_keeps_resolved_key(self):
+        row = {**observation(name="Backpack"), "kind": "configuration", "facts": {"text": "Backpack"},
+               "component": {"assembly": "Language", "class": "Language_Text"}}
+        described = identity.describe(row, {row["source_id"]: {"type": "MonoBehaviour", **row["component"], "name": "Backpack", "anchor_count": 2}})
+        legacy = {key: value for key, value in described.items() if key not in {"anchor", "context_kind", "review_fields"}}
+        keys, decisions = match([described], {"e-resolved": {"status": "present", "descriptor": legacy}}, same_capture=True)
+        self.assertEqual("e-resolved", keys[described["observation_key"]])
+        self.assertEqual("matched", decisions[described["observation_key"]]["status"])
+
+    def test_localization_retains_one_unique_claim_when_callers_are_added(self):
+        caller = {"type": "MonoBehaviour", "assembly": "UI", "class": "Caller", "name": "Caller"}
+        row = {**observation(source="bundle#10", name="Speed"), "kind": "configuration", "facts": {"text": "Speed"},
+               "component": {"assembly": "Language", "class": "Language_Text"}}
+        metadata = {"bundle#30": caller, "bundle#10": {"type": "MonoBehaviour", "name": "Speed", **row["component"], "text": "Speed",
+                    "anchor_count": 2, "callers": [{"source_id": "bundle#30", "source_field": "/_AllTexts/3"}]}}
+        parent = observation(source="bundle#30")
+        parent["relationships"] = [{"predicate": "label", "source_field": "/label", "target_source_id": "bundle#10"}]
+        capture = identity.CaptureIndex(metadata)
+        old = identity.describe(row, metadata, capture)
+        old_parent = identity.describe(parent, metadata, capture)
+        previous = {"e-speed": {"status": "present", "descriptor": old}}
+        metadata["bundle#40"] = {**caller, "name": "New Caller"}
+        metadata["bundle#11"] = metadata.pop("bundle#10")
+        metadata["bundle#11"]["callers"] = [{"source_id": "bundle#30", "source_field": "/_AllTexts/99"},
+                                               {"source_id": "bundle#40", "source_field": "/_Speed"}]
+        row.update(source_id="bundle#11", observation_key="moved-speed")
+        parent["relationships"][0]["target_source_id"] = "bundle#11"
+        capture = identity.CaptureIndex(metadata, previous)
+        changed = identity.describe(row, metadata, capture)
+        self.assertEqual(old["anchor"], changed["anchor"])
+        self.assertEqual(1, len(changed["anchor"]["callers"]))
+        self.assertEqual(old_parent["facts_hash"], identity.describe(parent, metadata, capture)["facts_hash"])
+        self.assertEqual("e-speed", match([changed], previous)[0]["moved-speed"])
+        # Once another text shares that role, the old claim cannot be retained.
+        metadata["bundle#12"] = {**metadata["bundle#11"], "callers": [{"source_id": "bundle#30", "source_field": "/_AllTexts/100"}]}
+        capture = identity.CaptureIndex(metadata, previous)
+        changed = identity.describe(row, metadata, capture)
+        self.assertNotEqual(old["anchor"], changed["anchor"])
+        self.assertNotEqual("e-speed", match([changed], previous)[0]["moved-speed"])
+
+    def test_adapter_declares_slot_rule_for_an_unfamiliar_class(self):
+        from wikibuild.adapters.components import BY_CLASS
+        from wikibuild.adapters.schema import component
+        spec = component("Example", "Cell", "equipment", "items-equipment", {"logical": int},
+                         identity={"kind": "slot", "index_field": "logical", "review_fields": ("hierarchy_ordinals",)})
+        row = {**observation(), "component": {"assembly": "Example", "class": "Cell"}, "facts": {"logical": 7}}
+        metadata = {row["source_id"]: {"type": "MonoBehaviour", **row["component"], "name": "Icon",
+                                      "hierarchy": ["Bag", "Icon"], "hierarchy_ordinals": [None, 0], "slot_index": 7}}
+        with patch.dict(BY_CLASS, {("Example", "Cell"): spec}):
+            described = identity.describe(row, metadata)
+        self.assertEqual(7, described["anchor"]["slot_index"])
+        self.assertEqual("slot-owner-and-index", described["anchor_rule"])
+
     def test_equal_fog_and_snow_facts_do_not_make_reused_ids_renames(self):
         def capture(ids):
             rows = [{**observation(source=source, name=name), "kind": "world-rule",
@@ -81,70 +149,9 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual("e-provisional", keys[described["observation_key"]])
         self.assertEqual("matched", decisions[described["observation_key"]]["status"])
 
-    def test_continuity_replays_original_keys_and_provisional_aliases_chronologically(self):
-        captures = []
-        for i, source in enumerate(("bundle#10", "bundle#8", "bundle#6")):
-            row = observation(source=source)
-            described = identity.describe(row, {source: {"type": "GameObject", "name": "A"}})
-            captures.append({"run_id": str(i), "parent_run": str(i - 1) if i else None, "snapshot_id": str(i), "capture_id": str(i),
-                             "descriptors": {row["observation_key"]: described},
-                             "records": {row["observation_key"]: {"entity_key": "e-original" if not i else f"e-provisional-{i}",
-                                         "decision": {"status": "new" if not i else "ambiguous", "candidates": [] if not i else ["e-original"]}}}})
-        before = copy.deepcopy(captures)
-        states, aliases = identity.continuity(captures)
-        self.assertEqual({"e-provisional-1", "e-provisional-2"}, set(aliases))
-        self.assertTrue(all(proof["entity_key"] == "e-original" and proof["origin_run"] == "0" for proof in aliases.values()))
-        self.assertEqual("bundle#6", states["e-original"]["descriptor"]["source_id"])
-        self.assertEqual((states, aliases), identity.continuity(captures))
-        self.assertEqual(before, captures)
-        with self.assertRaisesRegex(ContractError, "chronology"):
-            identity.continuity(list(reversed(captures)))
 
-    def test_continuity_never_aliases_keys_that_represented_coexisting_equal_objects(self):
-        captures = []
-        for i, ids in enumerate((("bundle#1", "bundle#2"), ("bundle#8", "bundle#9"))):
-            rows = [observation(source=source, name=name) for source, name in zip(ids, ("One", "Two"))]
-            metadata = {row["source_id"]: {"type": "GameObject", "name": row["name"]} for row in rows}
-            captures.append({"run_id": str(i), "parent_run": "0" if i else None, "snapshot_id": str(i), "capture_id": str(i),
-                             "descriptors": {row["observation_key"]: identity.describe(row, metadata) for row in rows},
-                             "records": {row["observation_key"]: {"entity_key": f"e-{1 - n if i else n}",
-                                          "decision": {"status": "ambiguous" if i else "new", "candidates": []}}
-                                         for n, row in enumerate(rows)}})
-        states, aliases = identity.continuity(captures)
-        self.assertEqual({}, aliases)
-        self.assertEqual({"One", "Two"}, {row["descriptor"]["name"] for row in states.values()})
-        self.assertEqual(2, sum(row["status"] == "present" for row in states.values()))
 
-    def test_chronological_replay_separates_a_legacy_fog_key_incorrectly_used_for_snow(self):
-        captures = []
-        for i, ids in enumerate((("bundle#1", "bundle#2"), ("bundle#8", "bundle#1"), ("bundle#6", "bundle#8"))):
-            rows = [observation(source=source, name=name) for source, name in zip(ids, ("Fog_Heavy", "Snow_Heavy"))]
-            metadata = {row["source_id"]: {"type": "GameObject", "name": row["name"]} for row in rows}
-            captures.append({"run_id": str(i), "parent_run": str(i - 1) if i else None, "snapshot_id": str(i), "capture_id": str(i),
-                             "descriptors": {row["observation_key"]: identity.describe(row, metadata) for row in rows},
-                             "records": {row["observation_key"]: {"entity_key": ("e-fog", "e-snow")[n] if not i else ("e-provisional-fog", "e-fog")[n],
-                                          "decision": {"status": "new" if not i else "matched" if n else "ambiguous", "candidates": ["e-fog"] if i else []}}
-                                         for n, row in enumerate(rows)}})
-        states, aliases = identity.continuity(captures)
-        self.assertEqual("Fog_Heavy", states["e-fog"]["descriptor"]["name"])
-        self.assertEqual("Snow_Heavy", states["e-snow"]["descriptor"]["name"])
-        self.assertEqual({"e-provisional-fog"}, set(aliases))
-        self.assertEqual("e-fog", aliases["e-provisional-fog"]["entity_key"])
-        self.assertEqual(2, sum(row["status"] == "present" for row in states.values()))
 
-    def test_same_capture_match_with_nonunique_anchor_cannot_prove_an_alias(self):
-        captures = []
-        for i in range(2):
-            rows = [observation(source=f"bundle#{n}") for n in (1, 2)]
-            descriptors = {row["observation_key"]: identity.describe(row, {row["source_id"]: {"type": "GameObject", "name": "Same"}}) for row in rows}
-            captures.append({"run_id": str(i), "parent_run": "0" if i else None, "snapshot_id": "same", "capture_id": "same",
-                             "descriptors": descriptors,
-                             "records": {row["observation_key"]: {"entity_key": f"e-provisional-{n}" if i else f"e-{n}",
-                                          "decision": {"status": "ambiguous" if i else "new", "candidates": [f"e-{n}"] if i else []}}
-                                         for n, row in enumerate(rows)}})
-        states, aliases = identity.continuity(captures)
-        self.assertEqual({}, aliases)
-        self.assertEqual(2, sum(row["status"] == "present" for row in states.values()))
 
     def test_slot_hierarchy_separates_bag_and_crafting_icons(self):
         def capture(ids):

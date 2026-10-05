@@ -2,9 +2,10 @@
 
 import json
 import unittest
+from unittest.mock import patch
 
 from wikibuild.adapters import components, entries
-from wikibuild.adapters.schema import NUMBER, OMIT, Ref, Selection, component
+from wikibuild.adapters.schema import NUMBER, OMIT, Ref, Selection, component, fields
 from wikibuild.exceptions import Exceptions
 from wikibuild.source import Source
 from wikibuild.storage import ContractError
@@ -31,6 +32,23 @@ class CatalogFixture:
 
 
 class ComponentTests(unittest.TestCase):
+    def test_declared_definition_rule_drives_extraction_for_an_unfamiliar_class(self):
+        spec = component("Example", "Effects", "survival-rule", "skills-survival",
+                         {"_Effect": fields({"period": int})},
+                         identity={"kind": "definition", "definition_kind": "status-member", "member_field": "source_field_base"})
+        source = CatalogFixture([{"id": "fixture#1", "type": "MonoBehaviour", "name": "Effects",
+                                  "assembly": "Example", "class": "Effects"}],
+                                {"fixture#1": {"id": "fixture#1", "type": "MonoBehaviour", "fields": {"_Effect": {"period": 5}},
+                                               "script": {"assembly": "Example", "class": "Effects"}, "references": []}})
+        issues = Exceptions()
+        with patch.dict(components.BY_CLASS, {("Example", "Effects"): spec}):
+            components.prepare(source, issues)
+            rows = list(components.extract(source, issues))
+        effect = next(row for row in rows if row["kind"] == "status-effect")
+        self.assertEqual({"type": "status-member", "member": "/_Effect"}, effect["definition_identity"])
+        self.assertEqual({"period": 5}, effect["facts"])
+        self.assertEqual(0, issues.report()["group_count"])
+
     def test_skill_container_and_children_keep_semantic_roles_and_raw_positions(self):
         parent = {"source_id": "fixture#1", "name": "Skills", "kind": "skill", "topic": "skills-survival",
                   "component": {"assembly": "Creature", "class": "All_Skills_Set"}, "notes": "Serialized",

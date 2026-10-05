@@ -17,7 +17,8 @@ _particleRecycle _respawnPos _sleepingBagBIkey _sleepingBagMapIcon _useF_HitBI _
        notes="Serialized death-bag prefab key and random respawn distance scale bounds. Player_Respawn multiplies a point inside the unit circle by a sampled scale, so the lower bound is not a guaranteed minimum distance. Saved respawn positions and bag identities are omitted."),
     component("Creature", "All_Skills_Set", "skill", "skills-survival", {
         "_CraftSkills": [SKILL], "_FightSkills": [SKILL], "_SurviveSkills": [SKILL],
-    }),
+    }, identity={"kind": "definition", "definition_kind": "skill",
+                 "families": ("_CraftSkills", "_FightSkills", "_SurviveSkills"), "name_predicate": "localized-name"}),
     component("Creature", "Char_Status", "survival-rule", "skills-survival", {
         **numbers("_DnaDmgMaxHp_Factor _EnableFoodWater _foodCostPerTime _foodWaterInterval _maxFood _maxHP _maxStamina _maxWater _origMaxHP _origMaxStamina _origStamRege _stamRegePerSec _waterCostPerTime"),
         "_CharSkill": Ref("character-skills"),
@@ -30,7 +31,8 @@ _particleRecycle _respawnPos _sleepingBagBIkey _sleepingBagMapIcon _useF_HitBI _
 _Canvas _CraftSkillRoot _DeBuffColor _DeBuff_Root _DelSkillWindow _DnaMaxLvAlertWindow _EXP_Bar _EXP_Text
 _FightSkillRoot _LevelUpRoot _LevelUpVFX _LevelUp_CraftRoot _LevelUp_FightRoot _LevelUp_SurviveRoot
 _MinerSoundMats _SFX _SilentIcon _SilentText _SkillSlotPrefab _SkillToolTipPrefab _SurviveSkillRoot
-_WoodJackSoundMats _currTargetGray _seed"""),
+_WoodJackSoundMats _currTargetGray _seed""",
+       identity={"kind": "definition", "definition_kind": "status-member", "member_field": "source_field_base"}),
     component("Creature", "Char_Skills", "survival-rule", "skills-survival", {
         **numbers("""_HpRegeInterval _addedMaxHp _adrlinAntiHitDown_Add _adrlinMeleeDmg_Factor
 _adrlinPeriod _adrlinStaCost_Factor _adrlinTriggerHpRate _adrlinWaterCost_Factor _antiBodySerum_Rate

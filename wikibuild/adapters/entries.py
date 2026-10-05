@@ -5,11 +5,24 @@ import copy
 from .items_loot import observation
 
 
+def definition_identity(row, rule):
+    base = row.get("source_field_base")
+    if not row.get("parent_source_id") or not base or rule.get("kind") != "definition":
+        return None
+    if rule["definition_kind"] == "status-member":
+        return {"type": "status-member", "member": row[rule["member_field"]]}
+    targets = {target for link in row.get("relationships", []) if link["predicate"] == rule["name_predicate"]
+               and link.get("status") in {None, "resolved"} for target in link.get("target_source_ids", [])}
+    return {"type": "skill", "family": row.get("family", base.split("/")[1]),
+            "localized_name_source_id": next(iter(targets)) if len(targets) == 1 else None}
+
+
 def under(field, prefix):
     return field == prefix or field.startswith(prefix + "/")
 
 
-def child(parent, kind, prefix, facts, name, name_status="internal", extra_evidence=(), definition_identity=None):
+def child(parent, kind, prefix, facts, name, name_status="internal", extra_evidence=()):
+    from .components import identity_rule
     evidence = copy.deepcopy(parent["evidence"][0])
     evidence["fields"] = [field for field in evidence["fields"] if under(field, prefix)]
     links = [link for link in parent["relationships"] if under(link["source_field"], prefix)]
@@ -22,8 +35,9 @@ def child(parent, kind, prefix, facts, name, name_status="internal", extra_evide
     result["fact_scope"] = "serialized-definition"
     result["name_status"] = name_status
     result["notes"] = parent["notes"]
-    if definition_identity is not None:
-        result["definition_identity"] = definition_identity
+    definition = definition_identity(result, identity_rule(parent["component"]))
+    if definition:
+        result["definition_identity"] = definition
     result["relationships"].append({"predicate": "defined-by", "target_source_id": parent["source_id"],
                                     "source_field": prefix})
     return result
@@ -44,6 +58,8 @@ def label(parent, prefix, labels):
 
 
 def expand(parent, item_names, localized):
+    from .components import identity_rule
+    rule = identity_rule(parent["component"])
     cls = parent["component"]["class"]
     if cls == "Merchant_Mgr":
         for index, stock in enumerate(parent["facts"].pop("_BiomeItemSet", [])):
@@ -73,8 +89,8 @@ def expand(parent, item_names, localized):
                 yield row
         remove_nested(parent, ["/_CraftItemsData"])
         yield parent
-    elif cls == "All_Skills_Set":
-        for family in ("_CraftSkills", "_FightSkills", "_SurviveSkills"):
+    elif rule.get("definition_kind") == "skill":
+        for family in rule["families"]:
             for index, skill in enumerate(parent["facts"].get(family, [])):
                 if not isinstance(skill, dict):
                     continue
@@ -82,29 +98,24 @@ def expand(parent, item_names, localized):
                 name, status, evidence = label(parent, prefix, localized)
                 row = child(parent, "skill", prefix, skill, name, status, evidence)
                 row["family"] = family
-                targets = {target for link in row["relationships"] if link["predicate"] == "localized-name" and link.get("status") in {None, "resolved"}
-                           for target in link.get("target_source_ids", [])}
-                row["definition_identity"] = {"type": "skill", "family": family,
-                                              "localized_name_source_id": next(iter(targets)) if len(targets) == 1 else None}
                 yield row
         # A continuing parent identity scopes the children independently of their
         # array positions. The serialized definitions remain in the child rows.
         parent["facts"] = {}
-        remove_nested(parent, ["/_CraftSkills", "/_FightSkills", "/_SurviveSkills"])
+        remove_nested(parent, ["/" + family for family in rule["families"]])
         parent["kind"] = "survival-rule"
         parent["observation_key"] = observation("survival-rule", parent["source_id"], parent["name"], {},
                                                 parent["evidence"][0]["path"], ())["observation_key"]
         parent["fact_scope"] = "serialized-definition-container"
         yield parent
-    elif cls == "Skill_Mgr":
+    elif rule.get("definition_kind") == "status-member":
         prefixes = []
         for field in sorted(list(parent["facts"])):
             if not isinstance(parent["facts"][field], dict):
                 continue
             prefix = "/" + field
             name, status, evidence = label(parent, prefix, localized)
-            yield child(parent, "status-effect", prefix, parent["facts"].pop(field), name, status, evidence,
-                        {"type": "status-member", "member": prefix})
+            yield child(parent, "status-effect", prefix, parent["facts"].pop(field), name, status, evidence)
             prefixes.append(prefix)
         remove_nested(parent, prefixes)
         yield parent

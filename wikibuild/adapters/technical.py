@@ -18,7 +18,9 @@ def reviewed(assembly, name, omitted, reason, inspected=None):
 SPECS = (
     component("Language", "Language_Text", "configuration", "technical-reference", {
         "_Infos": EnglishText("text"),
-    }, notes="English game text selected by LanguageType.English; other languages are omitted."),
+    }, notes="English game text selected by LanguageType.English; other languages are omitted.",
+       identity={"kind": "localization", "source_field": "_Infos", "text_field": "text",
+                 "language_field": "languageType", "language_value": 2, "normalize_indices": True}),
     component("Language", "Tooltip_Text", "configuration", "technical-reference", {
         "_Infos": EnglishText("_ItemName", ("_ItemInstruction",),
                               frozenset({"_ItemType", "_ItemProperty"})),

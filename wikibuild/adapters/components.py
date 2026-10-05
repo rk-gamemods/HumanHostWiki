@@ -30,6 +30,11 @@ PAYLOAD_TYPES = {"Texture2D", "Texture3D", "Cubemap", "Mesh", "AudioClip", "Vide
 MERCHANT_MANAGER_OBJECT = "Merchant_Mgr"
 
 
+def identity_rule(record):
+    spec = BY_CLASS.get((record.get("assembly"), record.get("class")))
+    return spec.identity if spec else {}
+
+
 def spec_for(row):
     key = (row.get("assembly"), row.get("class"))
     if key[0] is not None:
@@ -172,7 +177,7 @@ def extract(source, issues):
             row["evidence"][0]["record_sha256"] = source.locations[identity]["sha256"]
         if spec.name == "Terrain_Block_Info":
             biomes.enrich_mineable_items(row, mineable_items, issues)
-        if spec.name in {"All_Skills_Set", "Skill_Mgr"}:
+        if spec.identity.get("kind") == "definition":
             pending.append(row)
         else:
             yield from expand(row, getattr(source, "item_names", {}), {})
