@@ -220,6 +220,27 @@ function fixture(count = 121) {
     {first: "revision-1", last: "revision-1", count: 1});
   const entryIndex = data.store({snapshot_id: selected, steam: {build_id: latest.version.build_id},
     counts: {item: 1}, entries: [entryRef], semantics: [semanticRef], provenance: [], backlinks: []});
+  const published = "e-" + "d".repeat(32), historicalSnapshot = data.records[0].version.snapshot_id;
+  const redirectedIndex = data.store({snapshot_id: historicalSnapshot, steam: {build_id: "1000"},
+    redirects: {[published]: entity}, counts: {item: 1}, entries: [entryRef], semantics: [semanticRef], provenance: [], backlinks: []});
+  subject = reader({...flat, snapshots: {...flat.snapshots, [historicalSnapshot]: redirectedIndex}},
+    url => data.files[url], historicalSnapshot);
+  subject.context.location.pathname += "entry/" + published + "/";
+  await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /Axe.*Game fields.*MaxStack.*1/);
+  assert.equal(subject.nodes.version.children.find(row => row.selected).value, historicalSnapshot);
+  assert.match(subject.nodes.status.textContent.replaceAll("\u00a0", " "), /Steam build 1000/);
+  assert.ok(!subject.calls.includes(base + entryIndex.path), "Redirect changed the selected capture");
+  // Immutable older packs may still have their data only under the redirect source.
+  const historicalRef = data.store({[published]: {...entry, entity_key: published}}, {first: published, last: published, count: 1});
+  const legacyRedirectIndex = data.store({snapshot_id: historicalSnapshot, steam: {build_id: "1000"},
+    redirects: {[published]: entity}, entries: [historicalRef], semantics: [semanticRef], provenance: [], backlinks: []});
+  subject = reader({...flat, snapshots: {...flat.snapshots, [historicalSnapshot]: legacyRedirectIndex}},
+    url => data.files[url], historicalSnapshot);
+  subject.context.location.pathname += "entry/" + published + "/";
+  await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /Axe.*MaxStack.*1/);
+  console.log("Published-key redirects retain selected capture and frozen historical data");
   const articleControl = data.store(articleView);
   for (const route of ["overview", "entry"]) {
     let requested, finish;

@@ -40,7 +40,7 @@ def install(root, temporary, namespace):
 def contract():
     folder = Path(__file__).parent
     return digest(json_bytes({name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
-                             for name in ["identity.py", "model.py", "history.py", "storage.py", "exceptions.py", "source.py"]
+                             for name in ["identity.py", "identity_migration.py", "model.py", "history.py", "storage.py", "exceptions.py", "source.py"]
                              + ["adapters/" + path.name for path in (folder / "adapters").glob("*.py")]}))
 
 
@@ -293,9 +293,12 @@ def run(root, source, receipt, extracted):
     if extracted["source_commit"] != receipt["source_commit"] or extracted["snapshot_id"] != receipt["snapshot_id"]:
         raise ContractError("Extraction and identity inputs name different snapshots")
     observations = extraction.artifact(root, extracted["records"])
+    from . import identity_migration
+    migration = identity_migration.read(root)
     reviewed = corrections(root)
     contract_hash = contract()
-    request_key = identity.fingerprint([receipt["snapshot_id"], extracted["run_id"], extracted["records"]["sha256"], contract_hash, reviewed])
+    request_key = identity.fingerprint([receipt["snapshot_id"], extracted["run_id"], extracted["records"]["sha256"], contract_hash, reviewed,
+                                        migration["migration_id"] if migration else None])
     request_path = within(root, f"identity/requests/{request_key}.json")
     pointer = within(root, "identity/latest.json")
     previous = latest(root)
@@ -313,7 +316,7 @@ def run(root, source, receipt, extracted):
         return prepared, {"reused": True, "source_bytes_read": source_bytes}
 
     run_id = identity.fingerprint([request_key, parent_id])
-    old = load_state(root, previous)
+    old = identity_migration.previous_state(root, previous, migration)
     needed = {state["descriptor"]["source_object"] for state in old.values()}
     for row in model.rows(observations):
         needed.update(model.source_ids(row))
@@ -330,7 +333,8 @@ def run(root, source, receipt, extracted):
         descriptors[key] = identity.describe(row, metadata, capture)
     unchanged_inputs = same_inputs(receipt, previous)
     assignments, decisions = identity.reconcile(descriptors, old, receipt["snapshot_id"], request_key,
-                                               same_capture=unchanged_inputs, corrections=reviewed["mappings"])
+                                               same_capture=unchanged_inputs, corrections=reviewed["mappings"],
+                                               reserved=migration["redirects"] if migration else ())
     supersessions = identity.reviewed_supersessions(descriptors, old, assignments, receipt["snapshot_id"], reviewed["mappings"])
     indexes = model.targets_index(model.rows(observations), assignments)
     issues, states, counts = Exceptions(), {}, Counter()
@@ -381,6 +385,8 @@ def run(root, source, receipt, extracted):
             if status != state["status"]:
                 counts[status] += 1
         with (staging / "state.jsonl").open("wb") as stream:
+            if migration:
+                identity_migration.validate_redirects(migration["redirects"], states)
             for entity in sorted(states):
                 write_row(stream, states[entity])
         result = {"schema_version": 1, "run_id": run_id, "request_key": request_key, "parent_run": parent_id,
@@ -388,6 +394,7 @@ def run(root, source, receipt, extracted):
                   "extraction_run": extracted["run_id"], "contract_sha256": contract_hash,
                   "input_identity": {"steam": receipt["steam"], "inventory": receipt["input_inventory_git_blob"]},
                   "corrections_sha256": identity.fingerprint(reviewed),
+                  "migration_id": migration["migration_id"] if migration else None,
                   "change_origin": ("initial" if not previous else "game-input-change" if not unchanged_inputs else
                                     "identity-correction" if previous.get("corrections_sha256") != identity.fingerprint(reviewed) else "extractor-correction"),
                   "state": install(root, staging / "state.jsonl", "identity/states"),

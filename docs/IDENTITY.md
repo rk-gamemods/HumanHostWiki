@@ -8,6 +8,7 @@ mapping was accepted or left unresolved. It does not grant gameplay verification
 | `wikibuild/identity.py` | Pure matching rules over selected descriptors and prior decisions | Keys, evidence and ambiguity |
 | `wikibuild/model.py` | Selected observations, identities and relevant object-index matches | Semantic revisions and resolved/gapped relationships |
 | `wikibuild/history.py` | Pinned extraction, corrections, prior ledger and writer lock | Immutable state, run receipt and last-success pointer |
+| `wikibuild/identity_migration.py` | Explicit chronological repair of retained captures | Corrected baseline and immutable redirects with evidence |
 
 `identity/` is durable umbrella-owned decision history. Keep it in Git. The
 normalized content under `.local/` is staging for the later topic release stage;
@@ -57,3 +58,39 @@ Required proof covers unchanged repeats, source-ID changes, renames, reused IDs,
 additions/removals, ambiguous splits/merges, extraction corrections, missing capture
 scope, reviewed mappings, writer exclusion, modified outputs and interruption
 before promotion. Full public history/navigation remains a later delivery gate.
+
+## One-time baseline migration
+
+From a clean umbrella and clean existing topic checkouts, run:
+
+```powershell
+py -3 wiki.py migrate-identity --source ..\HumanHostCodebase --dry-run
+py -3 wiki.py migrate-identity --source ..\HumanHostCodebase
+```
+
+The dry run reads retained identity runs and their models without writing. The
+writer takes the existing wiki writer lock and refuses dirty checkouts. All model
+artifacts and pinned source captures must still be available. The migration walks
+the retained ancestry from oldest to newest using the current adapter anchor
+contracts. It preserves the first key of each proven lineage and keeps objects
+that coexisted in a capture separate, including objects with identical facts.
+Reused-key assignment repairs are recorded separately from duplicate-key redirects.
+
+The command installs a hash-addressed corrected state in `identity/states/` and
+activates it by writing `identity/migration.json` last. That immutable record pins
+the input runs, matching contract, baseline, redirects and their anchor/decision
+evidence. Historical receipts, decisions, models and `identity/latest.json` stay
+unchanged. Commit these generated artifacts before running the command again;
+on a clean workspace, a repeat validates and returns the same record without
+rewriting it. Modified migration artifacts fail validation.
+
+The next normalize/update uses the corrected baseline as its previous state.
+Later updates compare only their immediate predecessor. Redirect-source keys are
+reserved permanently and cannot become canonical keys, even for a new object at
+a reused source ID. A redirect cannot point to another redirect or conflict with
+an existing mapping. Reader snapshot packs apply the recorded assignment repairs
+and export the redirects without rewriting historical state or models. An old entry
+URL resolves within its selected capture; frozen captures that retained data only
+under the old key still display that historical data. Run normalize and rebuild
+the reader after migration to project the corrected current baseline. Migration
+does not create a release or publish anything.

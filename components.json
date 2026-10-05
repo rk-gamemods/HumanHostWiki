@@ -108,12 +108,14 @@
         "wikibuild/identity.py",
         "wikibuild/model.py",
         "wikibuild/history.py",
+        "wikibuild/identity_migration.py",
         "tools/check_history.py"
       ],
       "tests": [
         "tests/test_identity.py",
         "tests/test_model.py",
-        "tests/test_history.py"
+        "tests/test_history.py",
+        "tests/test_identity_migration.py"
       ],
       "depends_on": [
         "process-runtime",

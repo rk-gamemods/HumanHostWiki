@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 
-from . import availability, curation, external_links, extraction, game_text, guide_queries, guides, history, model, packs, pages, presentation, snapshots
+from . import availability, curation, external_links, extraction, game_text, guide_queries, guides, history, identity_migration, model, packs, pages, presentation, snapshots
 from . import staging
 from .exceptions import Exceptions
 # Moved validation may change failure-journal location paths, lines and function names.
@@ -29,6 +29,7 @@ def contract():
     folder = Path(__file__).parent
     paths = [folder / name for name in ("reader.py", "reader_validation.py", "availability.py", "extraction.py", "history.py", "model.py", "snapshots.py", "staging.py", "exceptions.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py", "presentation.py", "game_text.py", "gameplay.py", "names.py", "guide_queries.py", "lint.py")]
     paths.append(folder / "guides.py")
+    paths.append(folder / "identity_migration.py")
     paths += sorted(folder.glob("guide_query_*.py"))
     paths += sorted(path for path in (folder / "web").rglob("*") if path.is_file())
     return {path.relative_to(folder).as_posix(): digest(path.read_bytes() if path.suffix == ".woff2" else path.read_bytes().replace(b"\r\n", b"\n"))
@@ -274,10 +275,9 @@ def biome_rows(context):
     return rows
 
 
-def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, site, captured_runs):
+def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, site, captured_runs, migration=None):
     snapshot = run["snapshot_id"]
-    state = history.load_state(root, run)
-    models = extraction.artifact(root, run["models"])
+    state, models = identity_migration.reader_inputs(root, run, migration, stage.parent / ("models-" + snapshot + ".jsonl"))
     routes = {key: {"name": row["descriptor"]["name"], "topic": row["descriptor"]["topic"]} for key, row in state.items()}
     owners = {kind: repo["id"] for repo in project["repositories"] for kind in repo["owns"]}
     topics = [repo["id"] for repo in project["repositories"]]
@@ -388,12 +388,14 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
         player_shards = [shard for key, value in sorted(data.pop("player").items())
                          for shard in packs.reuse({key: value}, known[topic]["player"], limit, writer)]
         index = {"schema_version": 1, "snapshot_id": snapshot, "identity_run": run["run_id"],
+                 **({"identity_migration": migration["migration_id"]} if migration else {}),
                  "source_commit": run["source_commit"], "steam": receipt["steam"], "game_version": receipt["game_version"],
                  "game_version_status": receipt.get("game_version_status", "not-recorded-by-source-generator"),
                  "game_version_evidence": receipt.get("game_version_evidence", []),
                  "counts": dict(sorted(counts[topic].items())), "coverage": "partial", "verification": "not-performed",
                  "latest_available_build": receipt["latest_available_game_build"], "change_origin": run["change_origin"],
                  "cards": card_shards,
+                 "redirects": {key: proof["entity_key"] for key, proof in (migration or {}).get("redirects", {}).items() if proof["topic"] == topic},
                  "player": player_shards,
                  **({"guides": guide_rows, "topic_counts": topic_counts, "history": changes_history, "biomes": biomes} if topic == "hub" else {}),
                  **{kind: packs.reuse(values, known[topic][kind], limit, writer) if kind in {"semantics", "provenance"}
@@ -442,6 +444,7 @@ def validate_bases(project, bases):
 
 def inputs_changed(root, project, inputs, registry_path, hub_digests):
     return (contract() != inputs["renderer"] or availability.latest(root, project) != inputs["availability"]
+            or (identity_migration.read(root) or {}).get("migration_id") != inputs["identity_migration"]
             or digest(registry_path.read_bytes()) != inputs["presentation"]
             or hub_inputs(root)[1] != hub_digests
             or external_links.configured(root, project) != inputs["external_articles"])
@@ -473,8 +476,10 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     registry_digest = digest(registry_path.read_bytes())
     registry = presentation.load(registry_path)
     site, hub_digests = hub_inputs(root)
+    migration = identity_migration.read(root)
     inputs = {"project": project, "runs": [digest(json_bytes(run)) for run in runs], "renderer": contract(),
               "presentation": registry_digest,
+              "identity_migration": migration["migration_id"] if migration else None,
               **hub_digests,
               "receipts": [digest(json_bytes(snapshots.read(root, run["snapshot_id"]))) for run in runs],
               "bases": bases, "pack_bytes": max_pack_bytes, "availability": availability.latest(root, project),
@@ -582,7 +587,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
             extraction.artifact(root, run["models"])
             version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known,
                                                checked["snapshots"].get(run["snapshot_id"]) if checked else None,
-                                               registry=registry, site=site, captured_runs=runs[index:])
+                                               registry=registry, site=site, captured_runs=runs[index:],
+                                               migration=migration)
             projected[run["snapshot_id"]] = version
             for topic, kinds in groups.items():
                 all_groups[topic].update(kinds)

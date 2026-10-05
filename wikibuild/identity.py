@@ -295,10 +295,19 @@ def candidate_rules(current, previous, index, same_capture, anchor_counts=None, 
             if current.get("context_kind") or previous[entity]["descriptor"].get("context_kind"):
                 continue
             levels[1][entity] = ["container", "kind-and-component", "unchanged-name-and-selected-facts"]
-    return levels, direct | anchored | index["name"].get((family, current["scope"], current["name"]), set())
+    related = direct | anchored | index["name"].get((family, current["scope"], current["name"]), set())
+    if same_capture:
+        # Different objects in one pinned capture cannot become one lineage
+        # through equal values or a shared path; require independent anchors.
+        related = {entity for entity in related if entity in levels.get(4, {})
+                   or previous[entity]["descriptor"]["source_object"] == current["source_object"]}
+        levels = {level: {entity: evidence for entity, evidence in values.items() if entity in related}
+                  for level, values in levels.items()}
+        levels = {level: values for level, values in levels.items() if values}
+    return levels, related
 
 
-def reconcile(current, previous, snapshot, request_key, same_capture=False, corrections=()):
+def reconcile(current, previous, snapshot, request_key, same_capture=False, corrections=(), reserved=(), allocations=None):
     """Reconcile containers first, then anchor definitions to their assigned keys."""
     for correction in corrections:
         if correction.get("snapshot_id") == snapshot and correction.get("observation_key") not in current:
@@ -307,7 +316,8 @@ def reconcile(current, previous, snapshot, request_key, same_capture=False, corr
     children = {key: row for key, row in current.items() if row.get("definition")}
     parent_corrections = [row for row in corrections if row.get("observation_key") in parents]
     index = indexes(previous)
-    assignments, decisions = reconcile_rows(parents, previous, snapshot, request_key, same_capture, parent_corrections, index=index)
+    assignments, decisions = reconcile_rows(parents, previous, snapshot, request_key, same_capture, parent_corrections,
+                                             reserved, index, allocations)
     by_source = defaultdict(list)
     for key, row in parents.items():
         if not row["summary"]:
@@ -324,11 +334,11 @@ def reconcile(current, previous, snapshot, request_key, same_capture=False, corr
         row["anchor"] = definition_anchor(definition, assignments[parent_key])
     child_corrections = [row for row in corrections if row.get("observation_key") in children]
     child_assignments, child_decisions = reconcile_rows(children, previous, snapshot, request_key, same_capture,
-                                                       child_corrections, assignments.values(), index)
+                                                       child_corrections, set(reserved) | set(assignments.values()), index, allocations)
     return assignments | child_assignments, decisions | child_decisions
 
 
-def reconcile_rows(current, previous, snapshot, request_key, same_capture=False, corrections=(), reserved=(), index=None):
+def reconcile_rows(current, previous, snapshot, request_key, same_capture=False, corrections=(), reserved=(), index=None, allocations=None):
     """Reserve stronger unique matches first; leave all ties explicit."""
     index = indexes(previous) if index is None else index
     anchor_counts = Counter(((row["family"], tuple(row["component"])), fingerprint(row["anchor"]))
@@ -394,7 +404,9 @@ def reconcile_rows(current, previous, snapshot, request_key, same_capture=False,
         candidates = sorted({entity for values in proposals[key].values() for entity in values} | direct[key])
         # First appearance uses a wiki-owned allocation seed. Later source IDs
         # may change without changing this key; source IDs are not the key itself.
-        entity = "e-" + fingerprint([snapshot, row["family"], key])[:32]
+        entity = (allocations or {}).get(key) or "e-" + fingerprint([snapshot, row["family"], key])[:32]
+        if entity in previous or entity in used:
+            entity = "e-" + fingerprint([snapshot, row["family"], key])[:32]
         if entity in previous or entity in used:
             entity = "e-" + fingerprint([request_key, row["family"], key])[:32]
         if entity in previous or entity in used:

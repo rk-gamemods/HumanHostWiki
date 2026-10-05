@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from tests._support import fixture_dir
 
-from wikibuild import game_text, history, model, packs, presentation, reader
+from wikibuild import game_text, history, identity_migration, model, packs, presentation, reader
 from wikibuild.storage import ContractError, digest, json_bytes, writer_lock
 
 
@@ -228,6 +228,50 @@ class ReaderTests(unittest.TestCase):
 
     def index(self, site, topic, run):
         return json.loads((site / topic / "snapshots" / f"{run['snapshot_id']}.json").read_text())
+
+    def test_redirect_map_is_exported_for_each_selected_snapshot_and_pinned(self):
+        _, before = self.build()
+        record = {"schema_version": 1, "base_run": self.new["run_id"], "baseline": self.new["state"],
+                  "redirects": {"e-" + "d" * 32: {"entity_key": self.a, "topic": "items", "evidence": {"anchor": "A"}}}}
+        record["migration_id"] = model.fingerprint(record)
+        history.immutable(self.root / "identity/migration.json", json_bytes(record))
+        site, after = self.build()
+        self.assertNotEqual(before["candidate_id"], after["candidate_id"])
+        for run in self.runs:
+            index = self.index(site, "items", run)
+            self.assertEqual({"e-" + "d" * 32: self.a}, index["redirects"])
+            self.assertEqual(run["snapshot_id"], index["snapshot_id"])
+            self.assertEqual(record["migration_id"], index["identity_migration"])
+            entries = reader.load_maps(site / "items", index["entries"])
+            self.assertEqual("present", entries[index["redirects"]["e-" + "d" * 32]]["status"])
+            self.assertEqual({}, self.index(site, "loot", run)["redirects"])
+        self.assertEqual(after["candidate_id"], self.build()[1]["candidate_id"])
+
+    def test_historical_reused_key_is_repaired_in_packs_without_rewriting_history(self):
+        provisional = "e-" + "d" * 32
+        run = self.make_run("300", [self.observation(self.a, "Snow_Heavy"), self.observation(provisional, "Fog_Heavy")],
+                            absent={self.b: "unresolved"})
+        self.runs = [run]
+        original = {label: (self.root / run[label]["path"]).read_bytes() for label in ("state", "models")}
+        repairs = [{"old_key": old, "entity_key": canonical, "topic": "items", "run_id": run["run_id"],
+                    "origin": {"snapshot_id": self.old["snapshot_id"]}, "evidence": {"decision": {"status": "matched"}}}
+                   for old, canonical in ((self.a, self.b), (provisional, self.a))]
+        migration = {"schema_version": 1, "base_run": run["run_id"], "repairs": repairs,
+                     "redirects": {provisional: repairs[1]}}
+        states, _ = identity_migration.reader_inputs(self.root, run, migration, self.root / "pack-models.jsonl")
+        temp = self.root / "baseline.jsonl"
+        temp.write_bytes(b"".join(packs.compact(value) + b"\n" for value in states.values()))
+        migration["baseline"] = history.install(self.root, temp, "fixtures/baseline")
+        migration["migration_id"] = model.fingerprint(migration)
+        history.immutable(self.root / "identity/migration.json", json_bytes(migration))
+        site, _ = self.build()
+        index = self.index(site, "items", run)
+        entries = reader.load_maps(site / "items", index["entries"])
+        self.assertEqual("Fog_Heavy", entries[self.a]["name"])
+        self.assertEqual("Snow_Heavy", entries[self.b]["name"])
+        self.assertEqual(self.a, index["redirects"][provisional])
+        self.assertNotIn(provisional, entries)
+        self.assertEqual(original, {label: (self.root / run[label]["path"]).read_bytes() for label in original})
 
     def test_shared_fonts_have_exact_bytes_resolving_links_and_repeat_build(self):
         site, _ = self.build()
