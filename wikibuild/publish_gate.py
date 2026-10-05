@@ -11,6 +11,8 @@ from .storage import ContractError, within
 GIT_TIMEOUT = 120
 WORKSPACE_REPOSITORY = "rk-gamemods/HumanHostWiki"
 CI_PATH = ".github/workflows/ci.yml"
+MERGED_PR_QUERY = ("query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) "
+                   "{ object(oid: $oid) { ... on Commit { associatedPullRequests(first: 10) { nodes { number merged mergeCommit { oid } } } } } } }")
 
 
 def git(root, *arguments):
@@ -87,11 +89,18 @@ def check(root, project, manifest):
     if latest.get("conclusion") != "success":
         raise ContractError("Publish gate: CI did not conclude success for this exact commit")
 
-    pulls = host.api("GET", f"repos/{WORKSPACE_REPOSITORY}/commits/{commit}/pulls")
+    # REST API 2026-03-10 returns merge_commit_sha as null; GraphQL still names the merge commit.
+    owner, name = WORKSPACE_REPOSITORY.split("/")
+    response = host.api("POST", "graphql", {"query": MERGED_PR_QUERY,
+                                            "variables": {"owner": owner, "name": name, "oid": commit}})
+    try:
+        pulls = response["data"]["repository"]["object"]["associatedPullRequests"]["nodes"]
+    except (KeyError, TypeError):
+        pulls = None
     if not isinstance(pulls, list) or any(not isinstance(row, dict) for row in pulls):
         raise ContractError("Publish gate: invalid merged PR response for this exact commit")
-    merged = next((row for row in pulls if isinstance(row.get("merged_at"), str)
-                   and row["merged_at"] and row.get("merge_commit_sha") == commit), None)
+    merged = next((row for row in pulls if row.get("merged") is True
+                   and isinstance(row.get("mergeCommit"), dict) and row["mergeCommit"].get("oid") == commit), None)
     if merged is None:
         raise ContractError("Publish gate: this exact commit must be the merge commit of a merged PR")
 

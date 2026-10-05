@@ -31,13 +31,14 @@ class PublishGateTests(unittest.TestCase):
                                                         "path": publish_gate.CI_PATH, "event": "push",
                                                         "head_branch": "main", "run_attempt": 1,
                                                         "status": "completed", "conclusion": "success"}]}
-        self.pulls = [{"number": 27, "merged_at": "2026-10-03T00:00:00Z", "merge_commit_sha": self.commit}]
+        self.pulls = [{"number": 27, "merged": True, "mergeCommit": {"oid": self.commit}}]
         self.pages = {"source": {"branch": "gh-pages", "path": "/"}, "build_type": "legacy",
                       "cname": None, "html_url": "https://rk-gamemods.github.io/Wiki-hub/"}
         self.remote = {"id": 1, "full_name": "rk-gamemods/Wiki-hub", "private": False,
                        "archived": False, "fork": False, "permissions": {"admin": True}}
         self.host.repository.side_effect = lambda name: self.remote
-        self.host.api.side_effect = lambda method, path, **kwargs: (self.pulls if path.endswith("/pulls") else
+        self.host.api.side_effect = lambda method, path, *args, **kwargs: (
+            {"data": {"repository": {"object": {"associatedPullRequests": {"nodes": self.pulls}}}}} if path == "graphql" else
                                                                   self.pages if path.endswith("/pages") else self.host.api.return_value)
         self.host.ref.return_value = "c" * 40
         self.client = patch.object(publish_gate.github_pages, "GitHubPages", return_value=self.host)
@@ -96,7 +97,8 @@ class PublishGateTests(unittest.TestCase):
         self.assertEqual(result["merged_pr"], 27)
         self.assertEqual(self.host.api.call_count, 3)
         self.host.api.assert_any_call("GET", f"repos/rk-gamemods/HumanHostWiki/actions/runs?head_sha={self.commit}")
-        self.host.api.assert_any_call("GET", f"repos/rk-gamemods/HumanHostWiki/commits/{self.commit}/pulls")
+        self.host.api.assert_any_call("POST", "graphql", {"query": publish_gate.MERGED_PR_QUERY, "variables": {
+            "owner": "rk-gamemods", "name": "HumanHostWiki", "oid": self.commit}})
         self.assertEqual(self.host.ref.call_count, 2)
 
     def test_dirty_and_untracked_fail_before_fetch_or_host_construction(self):
@@ -389,8 +391,9 @@ class PublishGateTests(unittest.TestCase):
                 self.host.ref.assert_not_called()
 
     def test_merged_pr_for_this_exact_commit_is_required(self):
-        for pulls in ([], [{"merged_at": None, "merge_commit_sha": self.commit}],
-                      [{"merged_at": "2026-10-03T00:00:00Z", "merge_commit_sha": "b" * 40}]):
+        for pulls in ([], [{"number": 27, "merged": False, "mergeCommit": None}],
+                      [{"number": 27, "merged": True, "mergeCommit": {"oid": "b" * 40}}],
+                      [{"number": 27, "merged": True, "mergeCommit": None}]):
             with self.subTest(pulls=pulls):
                 self.pulls = pulls
                 with self.assertRaisesRegex(ContractError, "merge commit of a merged PR"):
