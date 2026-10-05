@@ -4,11 +4,25 @@ import copy
 import unittest
 
 from test_identity import observation
-from wikibuild import model
+from wikibuild import history, identity, model
 from wikibuild.exceptions import Exceptions
 
 
 class ModelTests(unittest.TestCase):
+    def test_absence_uses_context_instead_of_the_reused_numeric_id(self):
+        row = observation(name="Fog_Heavy")
+        described = identity.describe(row, {row["source_id"]: {"type": "GameObject", "name": "Fog_Heavy"}})
+        state = {"descriptor": described}
+        reused = {"bundle#1": {"type": "GameObject", "name": "Snow_Heavy"}}
+        self.assertEqual("not-present", model.absent_status(state, ["item"], reused))
+        moved = {**reused, "bundle#8": {"type": "GameObject", "name": "Fog_Heavy"}}
+        self.assertEqual("unresolved", model.absent_status(state, ["item"], moved))
+        split = {**moved, "bundle#9": {"type": "GameObject", "name": "Fog_Heavy"}}
+        self.assertEqual("unresolved", model.absent_status(state, ["item"], split))
+        incomplete = history.CatalogMetadata(reused)
+        incomplete.captured_scopes = set()
+        self.assertEqual("uncaptured", model.absent_status(state, ["item"], incomplete))
+
     def test_spawn_prefab_resolves_creature_separately_from_its_controller(self):
         from wikibuild.adapters.components import BY_CLASS
         rows = []

@@ -3,7 +3,7 @@
 from collections import defaultdict
 import json
 
-from .identity import fingerprint
+from .identity import fingerprint, owner_anchor, reference_role, target_anchors, typed_anchor
 from .storage import ContractError
 
 TARGET_KINDS = {
@@ -153,9 +153,38 @@ def project(row, entity, indexes, metadata, dependencies, issues):
     return {"entity_key": entity, "revision_id": fingerprint(semantic), "semantic": semantic, "provenance": provenance}
 
 
-def absent_status(state, current_kinds, metadata, captured=True):
+def absent_status(state, current_kinds, metadata, captured=True, anchors=None):
     if not captured or state["descriptor"]["kind"] not in current_kinds:
         return "uncaptured"
     if state["descriptor"]["summary"]:
         return "not-present"
+    descriptor = state["descriptor"]
+    scopes = getattr(metadata, "captured_scopes", None)
+    if scopes is not None and "#" in descriptor["source_object"] and descriptor["scope"] not in scopes:
+        return "uncaptured"
+    if descriptor.get("anchor"):
+        anchor = descriptor["anchor"]
+        if descriptor.get("definition"):
+            anchor = descriptor["definition"].get("parent_anchor")
+        if anchor:
+            anchors = target_anchors(metadata) if anchors is None else anchors
+            found = any(value == anchor for value in anchors.values())
+            # Uniqueness is required for a match, not for detecting an extant
+            # contextual candidate. A split is unresolved rather than a removal.
+            if not found and "asset_name" in anchor:
+                found = any(typed_anchor(key, record) == anchor for key, record in metadata.items())
+            elif not found and "owner_hierarchy" in anchor:
+                found = any(owner_anchor(key, record) == {name: value for name, value in anchor.items() if name != "slot_index"}
+                            and record.get("slot_index") == anchor.get("slot_index") for key, record in metadata.items())
+            elif not found and "callers" in anchor:
+                found = any((key.split("#", 1)[0], record.get("type"), record.get("assembly"), record.get("class")) ==
+                            (anchor["container"], anchor["engine_type"], anchor["assembly"], anchor["class"])
+                    and record.get("text") == anchor["text"] and any(
+                    {"caller": candidate, "role": reference_role(ref["source_field"])} in anchor["callers"]
+                    for ref in record.get("callers", []) for candidate in
+                    (typed_anchor(ref["source_id"], metadata.get(ref["source_id"], {})), owner_anchor(ref["source_id"], metadata.get(ref["source_id"], {}))))
+                    for key, record in metadata.items())
+            if not found and descriptor["paths"]:
+                found = any(set(descriptor["paths"]) & set(record.get("paths", [])) for record in metadata.values())
+            return "unresolved" if found else "not-present"
     return "unresolved" if state["descriptor"]["source_object"] in metadata else "not-present"

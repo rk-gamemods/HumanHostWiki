@@ -12,10 +12,61 @@ from tests._support import fixture_dir
 
 from test_identity import observation, skill_capture
 from wikibuild import extraction, history, identity, model
+from wikibuild.source import Source
 from wikibuild.storage import ContractError, json_bytes, writer_lock
 
 
 class HistoryTests(unittest.TestCase):
+    def test_retained_provisional_continuity_aliases_keep_history_and_repeat_after_retry(self):
+        catalogs = {}
+        pinned_catalog = patch("wikibuild.history.relevant_metadata", side_effect=lambda source, revision, *args: (catalogs[revision], 120))
+        pinned_catalog.start()
+        self.addCleanup(pinned_catalog.stop)
+        def capture(source, target, build):
+            self.metadata = {source: {"type": "GameObject", "name": "Tool"}, target: {"type": "GameObject", "name": "Model"}}
+            row = observation(source=source, name="Tool")
+            row["relationships"] = [{"predicate": "model", "source_field": "/model", "target_source_id": target}]
+            self.set_input([row], build=build)
+            catalogs[self.receipt["source_commit"]] = self.metadata
+        capture("bundle#10", "bundle#100", "100")
+        first, _ = self.run_history()
+        original = next(iter(history.load_state(self.root, first)))
+        capture("bundle#8", "bundle#101", "200")
+        with patch.object(identity, "target_anchors", return_value={}):
+            provisional, _ = self.run_history()
+        state = history.load_state(self.root, provisional)
+        provisional_key = next(key for key, value in state.items() if value["status"] == "present")
+        self.assertNotEqual(original, provisional_key)
+        self.assertEqual("ambiguous", state[provisional_key]["decision"]["status"])
+        frozen = {run["run_id"]: (self.root / run["state"]["path"]).read_bytes() for run in (first, provisional)}
+        original_write = history.write_changed
+        def fail_pointer(path, data):
+            if path == self.root / "identity/latest.json":
+                raise OSError("alias pointer interrupted")
+            return original_write(path, data)
+        with patch.object(history, "contract", return_value="stronger-regression"):
+            with patch.object(history, "write_changed", side_effect=fail_pointer):
+                with self.assertRaisesRegex(OSError, "alias pointer interrupted"):
+                    self.run_history()
+            self.assertEqual(provisional, history.latest(self.root))
+            fixed, recovered = self.run_history()
+            self.assertTrue(recovered["reused"])
+            repaired = history.load_state(self.root, fixed)
+            self.assertEqual("present", repaired[original]["status"])
+            self.assertEqual(first["snapshot_id"], repaired[original]["first_seen"])
+            self.assertEqual("aliased", repaired[provisional_key]["status"])
+            self.assertEqual(original, repaired[provisional_key]["alias_of"])
+            self.assertEqual(state[provisional_key]["decision"], repaired[provisional_key]["decision"])
+            self.assertEqual(original, fixed["continuity_aliases"][provisional_key]["entity_key"])
+            self.assertEqual(0, fixed["exceptions"]["group_count"])
+            pointer = self.root / "identity/latest.json"
+            saved, stamp = pointer.read_bytes(), pointer.stat().st_mtime_ns
+            self.assertEqual((fixed, {"reused": True, "source_bytes_read": 0}), self.run_history())
+            self.assertEqual((saved, stamp), (pointer.read_bytes(), pointer.stat().st_mtime_ns))
+        for run in (first, provisional):
+            self.assertEqual(run, history.read(self.root, run["run_id"]))
+            self.assertEqual(frozen[run["run_id"]], (self.root / run["state"]["path"]).read_bytes())
+
     def test_native_nested_extra_ownership_is_unrecognized_and_kept(self):
         from wikibuild import staging
         unknown = self.root / ".local/history/staging" / ("f" * 32)
@@ -406,6 +457,26 @@ class HistoryTests(unittest.TestCase):
 
 
 class MetadataTests(unittest.TestCase):
+    def test_scope_coverage_and_unselected_context_counterpart_are_pinned(self):
+        index = [{"id": "bundle#1", "type": "GameObject", "name": "Snow_Heavy"},
+                 {"id": "bundle#8", "type": "GameObject", "name": "Fog_Heavy"}]
+        class PinnedSource:
+            bytes_read = 0
+            blobs = {"Catalog/objects/bundle.jsonl": {}}
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def records(self, path):
+                return iter(index)
+        fog = identity.typed_anchor("bundle#1", index[1])
+        with patch.object(history, "Source", return_value=PinnedSource()) as source:
+            source.object_path.side_effect = Source.object_path
+            metadata, _ = history.relevant_metadata("source", "revision", {"bundle#1", "missing#1", "catalog-type/summary"}, [fog])
+        self.assertEqual({"bundle#1", "bundle#8"}, set(metadata))
+        self.assertEqual({"bundle"}, metadata.captured_scopes)
+        self.assertEqual(fog, identity.target_anchors(metadata)["bundle#8"])
+
     def test_pinned_hierarchy_and_raw_callers_supply_context_anchors(self):
         records, catalog = {}, []
         def add(key, name, engine_type, fields, refs, assembly=None, cls=None):

@@ -10,6 +10,7 @@ import uuid
 
 from . import extraction, identity, model
 from . import staging as staging_attempts
+from .adapters.items_loot import observation as make_observation
 from .exceptions import Exceptions
 from .source import Source
 from .source_record import read_record
@@ -125,8 +126,8 @@ def context_records(inputs, catalog):
     return result
 
 
-def contextual_metadata(inputs, metadata):
-    containers = {key.split("#", 1)[0] for key, row in metadata.items()
+def contextual_metadata(inputs, metadata, extra_containers=()):
+    containers = set(extra_containers) | {key.split("#", 1)[0] for key, row in metadata.items()
                   if (row.get("assembly"), row.get("class")) == ("UI", "Slot_Info")
                   or ((row.get("assembly"), row.get("class")) == ("Language", "Language_Text")
                       and row.get("anchor_count", 1) > 1)}
@@ -218,11 +219,23 @@ def contextual_metadata(inputs, metadata):
                     record.setdefault("callers", []).append({"source_id": caller, "source_field": ref["field"]})
 
 
-def relevant_metadata(source, revision, needed):
-    metadata = {}
+class CatalogMetadata(dict):
+    """Object metadata plus the pinned shards in which absence can be judged."""
+
+
+def relevant_metadata(source, revision, needed, expected=()):
+    metadata = CatalogMetadata()
+    expected = [anchor for anchor in expected if anchor]
+    wanted = {identity.fingerprint(anchor) for anchor in expected if "asset_name" in anchor}
+    wanted_paths = {path for anchor in expected for path in anchor.get("asset_paths", [])}
     with Source(source, revision) as inputs:
+        metadata.captured_scopes = ({key.split("#", 1)[0] for key in needed
+                                    if "#" in key and key.rsplit("#", 1)[-1].lstrip("-").isdigit()
+                                    and Source.object_path(key) in inputs.blobs}
+                                    if hasattr(inputs, "blobs") else None)
         for entry in inputs.records("Catalog/views/object-index.jsonl"):
-            if entry["id"] in needed:
+            anchor = identity.typed_anchor(entry["id"], entry)
+            if entry["id"] in needed or (anchor and identity.fingerprint(anchor) in wanted) or wanted_paths.intersection(entry.get("paths", [])):
                 metadata[entry["id"]] = {key: entry[key] for key in ("type", "assembly", "class", "name", "paths") if key in entry}
         # Count only relevant anchors, but against the complete pinned catalog.
         # An unselected namesake must not make two relationship targets equal.
@@ -238,8 +251,87 @@ def relevant_metadata(source, revision, needed):
                 anchor = identity.typed_anchor(key, record)
                 if anchor:
                     record["anchor_count"] = counts[identity.fingerprint(anchor)]
-        contextual_metadata(inputs, metadata)
+        contextual_metadata(inputs, metadata, [anchor["container"] for anchor in expected if "container" in anchor
+                                               and ("owner_hierarchy" in anchor or "callers" in anchor)])
         return metadata, inputs.bytes_read
+
+
+def historical_row(projected):
+    """Recover selected observations, using raw relationships from provenance."""
+    row = {**projected["semantic"], **projected["provenance"]}
+    parent, base = row.get("parent_source_id"), row.get("source_field_base")
+    component = row.get("component", {})
+    if parent and base and component == {"assembly": "Creature", "class": "Skill_Mgr"} and row["kind"] == "status-effect":
+        row["definition_identity"] = {"type": "status-member", "member": base}
+    elif parent and base and component == {"assembly": "Creature", "class": "All_Skills_Set"} and row["kind"] == "skill":
+        targets = {target for link in row["relationships"] if link["predicate"] == "localized-name"
+                   and link.get("status") in {None, "resolved"} for target in link.get("target_source_ids", [])}
+        row["definition_identity"] = {"type": "skill", "family": row["family"],
+                                      "localized_name_source_id": next(iter(targets)) if len(targets) == 1 else None}
+    return row
+
+
+def retained_continuity(root, source, previous, old):
+    """Read retained ancestry and refresh affected families with pinned evidence."""
+    families = {(row["descriptor"]["kind"], tuple(row["descriptor"]["component"])) for row in old.values()
+                if row["status"] == "unresolved" or row.get("decision", {}).get("status") == "ambiguous"}
+    if not families:
+        return {}, {}, 0
+    # Nested records also need their continuing source container.
+    families.update({("survival-rule", component) for _, component in tuple(families)
+                     if component in {("Creature", "All_Skills_Set"), ("Creature", "Skill_Mgr")}})
+    ancestry, seen = [], set()
+    run = previous
+    while run:
+        if run["run_id"] in seen:
+            raise ContractError("Identity parent-run cycle")
+        seen.add(run["run_id"])
+        ancestry.append(run)
+        run = read(root, run["parent_run"], require_models=False) if run["parent_run"] else None
+    captures, needed = [], {}
+    for run in reversed(ancestry):
+        path = within(root, run["models"]["path"])
+        if not path.exists():
+            # Only a contiguous retained suffix can establish chronological proof.
+            captures.clear()
+            needed.clear()
+            continue
+        rows, records = {}, {}
+        for projected in model.rows(extraction.artifact(root, run["models"])):
+            row = historical_row(projected)
+            component = row.get("component", {})
+            if row.get("fact_scope") == "catalog-type-summary" or (row["kind"], (component.get("assembly"), component.get("class"))) not in families:
+                continue
+            key = row["observation_key"]
+            if key in rows:
+                raise ContractError("Duplicate retained observation")
+            rows[key] = row
+            records[key] = {"entity_key": projected["entity_key"], "decision": projected["identity_decision"]}
+            needed.setdefault(run["source_commit"], set()).update(model.source_ids(row))
+        captures.append({"run_id": run["run_id"], "parent_run": captures[-1]["run_id"] if captures else None,
+                         "snapshot_id": run["snapshot_id"], "capture_id": identity.fingerprint(run["input_identity"]),
+                         "source_commit": run["source_commit"], "rows": rows, "records": records})
+    metadata, source_bytes = {}, 0
+    for revision, keys in needed.items():
+        metadata[revision], size = relevant_metadata(source, revision, keys)
+        source_bytes += size
+    for capture in captures:
+        catalog = metadata.get(capture["source_commit"], {})
+        rows = capture.pop("rows")
+        parents = {row["source_id"] for row in rows.values() if not row.get("parent_source_id")}
+        for row in list(rows.values()):
+            definition = row.get("definition_identity", {})
+            parent = row.get("parent_source_id")
+            if definition.get("type") != "skill" or parent in parents or parent not in catalog:
+                continue
+            container = make_observation("survival-rule", parent, catalog[parent].get("name", ""), {}, Source.object_path(parent), ())
+            container.update(topic=row["topic"], component=row["component"], fact_scope="serialized-definition-container")
+            rows[container["observation_key"]] = container
+            parents.add(parent)
+        anchors = identity.target_anchors(catalog)
+        capture["descriptors"] = {key: identity.describe(row, catalog, anchors) for key, row in rows.items()}
+    states, aliases = identity.continuity(captures)
+    return states, aliases, source_bytes
 
 
 def restore_models(root, source, observations, extracted, prepared):
@@ -296,10 +388,26 @@ def run(root, source, receipt, extracted):
 
     run_id = identity.fingerprint([request_key, parent_id])
     old = load_state(root, previous)
+    refreshed, aliases, replay_bytes = retained_continuity(root, source, previous, old)
+    for entity, replayed in refreshed.items():
+        if entity in old and entity not in aliases and old[entity]["status"] not in {"superseded", "aliased"}:
+            old[entity] = {**old[entity], "descriptor": replayed["descriptor"], "decision": replayed["decision"]}
+        elif entity not in old:
+            # Virtual nested-definition containers scope children; current
+            # observations will materialize them with normal state metadata.
+            old[entity] = {"entity_key": entity, **replayed, "first_seen": replayed["origin_snapshot"],
+                           "last_seen": previous["snapshot_id"], "revision_id": None, "last_changed": previous["snapshot_id"]}
+    for entity, proof in aliases.items():
+        if entity in old and old[entity]["status"] != "superseded":
+            old[entity] = {**old[entity], "status": "aliased", "alias_of": proof["entity_key"], "alias_proof": proof}
     needed = {state["descriptor"]["source_object"] for state in old.values()}
     for row in model.rows(observations):
         needed.update(model.source_ids(row))
-    metadata, source_bytes = relevant_metadata(source, receipt["source_commit"], needed)
+    expected = [anchor for state in old.values() for anchor in
+                (state["descriptor"].get("anchor"), (state["descriptor"].get("definition") or {}).get("parent_anchor"),
+                 {"asset_paths": state["descriptor"]["paths"]})]
+    metadata, source_bytes = relevant_metadata(source, receipt["source_commit"], needed, expected)
+    source_bytes += replay_bytes
     anchors = identity.target_anchors(metadata)
     descriptors = {}
     for row in model.rows(observations):
@@ -339,7 +447,7 @@ def run(root, source, receipt, extracted):
         for entity, state in old.items():
             if entity in states:
                 continue
-            if state["status"] == "superseded":
+            if state["status"] in {"superseded", "aliased"}:
                 states[entity] = state
                 continue
             observation = state["descriptor"]["observation_key"]
@@ -349,7 +457,7 @@ def run(root, source, receipt, extracted):
             elif entity in ambiguous_old:
                 status = "unresolved"
             else:
-                status = model.absent_status(state, extracted["supported_kinds"], metadata)
+                status = model.absent_status(state, extracted["supported_kinds"], metadata, anchors=anchors)
             states[entity] = {**state, "status": status,
                               **({"superseded_by": replacement} if status == "superseded" else {})}
             if status == "unresolved":
@@ -367,6 +475,7 @@ def run(root, source, receipt, extracted):
                   "extraction_run": extracted["run_id"], "contract_sha256": contract_hash,
                   "input_identity": {"steam": receipt["steam"], "inventory": receipt["input_inventory_git_blob"]},
                   "corrections_sha256": identity.fingerprint(reviewed),
+                  "continuity_aliases": {entity: state["alias_proof"] for entity, state in states.items() if state["status"] == "aliased"},
                   "change_origin": ("initial" if not previous else "game-input-change" if not unchanged_inputs else
                                     "identity-correction" if previous.get("corrections_sha256") != identity.fingerprint(reviewed) else "extractor-correction"),
                   "state": install(root, staging / "state.jsonl", "identity/states"),
