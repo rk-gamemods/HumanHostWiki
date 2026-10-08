@@ -42,8 +42,9 @@ def raw_records(source, commit, path):
                         timeout=GIT_STREAM_TIMEOUT) as process:
         for line in process.stdout:
             yield json.loads(line), hashlib.sha256(line).hexdigest()
-        if process.wait():
-            raise ValueError(f"Raw source read failed: {path}: {process.stderr.decode('utf-8', errors='replace')}")
+        code = process.wait()
+        if code:
+            raise ValueError(f"Raw source read failed: {path}: Git exit {code}: {process.stderr.decode('utf-8', errors='replace')}")
 
 
 def at(value, path):

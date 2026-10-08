@@ -274,6 +274,25 @@ class GitBoundsTests(unittest.TestCase):
     def test_check_extraction_raw_records(self):
         self.assert_bound(check_extraction, "GIT_STREAM_TIMEOUT", lambda: list(check_extraction.raw_records(self.root, "a" * 40, "Catalog/view.jsonl")))
 
+    def test_check_extraction_rejects_partial_output_with_silent_nonzero_exit(self):
+        original = bounded.start
+
+        def launch(command, **options):
+            self.assertEqual(command, ["git", "-C", str(self.root), "show", "a" * 40 + ":Catalog/view.jsonl"])
+            script = "import sys; sys.stdout.buffer.write(b'{\"id\":\"fixture#1\"}\\n'); sys.stdout.buffer.flush(); sys.exit(17)"
+            child = original([sys.executable, "-c", script], **options)
+            self.children.append(child)
+            return child
+
+        with patch.object(bounded, "start", side_effect=launch):
+            records = check_extraction.raw_records(self.root, "a" * 40, "Catalog/view.jsonl")
+            self.assertEqual(next(records)[0], {"id": "fixture#1"})
+            with self.assertRaisesRegex(ValueError, "Raw source read failed: Catalog/view.jsonl: Git exit 17"):
+                next(records)
+        self.assertEqual(self.children[0].returncode, 17)
+        self.assertFalse(storage.process_running(self.children[0].pid))
+        self.assertEqual(bounded._children, set())
+
     def test_check_extraction_tree(self):
         self.assert_bound(check_extraction, "GIT_TREE_TIMEOUT", lambda: check_extraction.pinned_objects(self.root, "a" * 40, ["world#1"]))
 
