@@ -1120,6 +1120,76 @@ placements and zero unresolved placements, and kept the previous substantive-cha
 date. No browser warnings or errors were recorded. Registry, map and checkout-lock
 checks passed. This completes the measured large-record memory correction.
 
+### Game 0.8.319 update checkpoint (2026-10-08)
+
+Captured Steam build `25752290` as local source commit
+`072c9ca90af0d9fe156df062db952d11cfd5b6d1`. Installed-byte version auditing
+verified game `0.8.319`. The selected snapshot contains 27,283 current observations:
+2 changed and 27,281 unchanged. It reports zero content exception groups and
+22 populated external article checks. Catalog decoding reports no failures or
+unresolved non-null references. Three unchanged, unshipped editor-only layouts
+remain explicitly unsupported; this does not establish gameplay verification.
+
+The repairs remain limited to checks and observed reader/retention defects. The
+independent reader audit now accepts declared fonts and validates identity
+supersessions, provenance, player-facing names and hub aggregates. Merchant owner
+facts are checked against their pinned source fields without adding owner links
+to stock records. Creature browse lists now show the 325 present entries and
+preserve the 77 superseded entries in history. Long source keys wrap at a
+390-pixel viewport. Local search/guide routing matches the published reader.
+Capture timing accepts the structured game identity and skipped phases.
+
+Retention validates 26 completed legacy stages against their immutable bindings
+without adopting or deleting them. Independent repeat checks preserved all
+702 legacy files and all 40,711 owned/metadata files across the 13 clean child
+repositories, including their bytes, timestamps and file identities. The
+unchanged full capture/wiki command completed in 111.81 seconds. One measured
+legacy-stage validation fell from 12.354 to 0.287 seconds; this is a local sample,
+not an overall throughput claim. The final cold wiki run spent 403.70 seconds
+in reader retention and 265.89 seconds in projection, the next profiling targets.
+
+The full local suite ran 990 tests with six expected skips and no failures.
+The final reader style change passed its 87 affected tests and native browser review. A
+precision-sensitive CI fixture was reproduced with a fractional virtual clock
+origin and fixed with an exactly representable origin, preserving exact deadline
+assertions; all 26 deadline tests passed locally. Catalog, capture timing and
+Windows handoff tests passed, and the mod solution built without warnings or
+errors. Independent source, history, reader and release audits passed.
+
+Windows main CI also exposed a silent nonzero Git read in the independent
+source checker. The exact fixture and its 32-test module passed locally.
+Eighteen ordinary direct and nested Git-read cases passed without an observed
+ownership race. Separate timeout and termination controls behaved distinctly.
+The original process exit remains unidentified. The auditor now preserves
+native Git exit codes. A real subprocess test proves that valid partial JSONL followed by a
+silent exit 17 still fails and leaves no child behind; all 59 affected tests
+passed. This diagnostic change leaves generation fingerprints and the selected
+release unchanged.
+
+Publication used merged commit `ad6dc39faefb36e925be38360322ccbaea62719c`
+and successful exact-main push [CI run 37733674721](https://github.com/rk-gamemods/HumanHostWiki/actions/runs/37733674721).
+Both platforms ran all 991 tests with no failed modules: Ubuntu had seven expected
+skips and Windows had six. A fresh hash-bound rehearsal passed 26 simulated
+pushes and 978 file checks, preserved GitHub state and promoted the hub last.
+The separate publish completed in 399.93 seconds. Its
+[immutable receipt](../publications/6207400cdf3a24ef64685d9319cc4471bbf1b314d8bbb3a0d5fb732fd8e3ec72.json)
+selects release `6207400cdf3a24ef64685d9319cc4471bbf1b314d8bbb3a0d5fb732fd8e3ec72`
+and records all 13 destinations as verified.
+
+Fresh native browser checks covered all 13 public landings, topic counts, current
+version/build and release selection. Browse/search controls, older capture
+selection, cross-topic navigation and retired Creature replacement links passed.
+The 390-pixel expanded source panel wrapped long identifiers and had matching
+375-pixel client and scroll widths. No asset/data failures, unhandled site errors
+or source-disassociation notices were observed. Successful static-host SPA
+404 shells were classified separately. Native desktop captures retain a known
+soft-text artifact; layout review used actual captures, DOM labels and public
+hash verification. Original-size mobile source evidence was legible and unclipped.
+
+Further profiling should measure reader-retention verification, projection
+fingerprint reuse and Windows test scheduling while preserving full byte checks,
+deterministic promotion, cleanup and platform coverage.
+
 ## Deferred classifier experiments
 
 No classifier is implemented. Record evidence-backed candidates here as adapters
