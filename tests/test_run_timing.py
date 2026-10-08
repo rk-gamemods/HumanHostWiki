@@ -105,6 +105,35 @@ class TimingTests(unittest.TestCase):
                     self.assertIsNone(run_timing.capture(receipt))
                 self.assertEqual(stderr.getvalue().count("WARNING:"), 1)
 
+    def test_capture_accepts_current_game_identity_and_skipped_work(self):
+        receipt = self.root / "capture.json"
+        for game in ({"version": "0.8.319", "build": "25752290"},
+                     {"version": None, "build": "25752290"}, None):
+            with self.subTest(game=game):
+                value = copy.deepcopy(CAPTURE)
+                value["game"] = game
+                value["phases"].append({"name": "decompile", "seconds": 0, "outcome": "skipped"})
+                value["assemblies"] = [{"name": "UnityEngine.dll", "seconds": 0, "outcome": "skipped"}]
+                receipt.write_bytes(json_bytes(value))
+                stderr = io.StringIO()
+                with patch.object(run_timing.sys, "stderr", stderr):
+                    summary = run_timing.capture(receipt)
+                self.assertIsNotNone(summary)
+                self.assertEqual(summary["seconds"], 8)
+                self.assertEqual(summary["phases"][-1]["outcome"], "skipped")
+                self.assertEqual(stderr.getvalue(), "")
+
+    def test_capture_rejects_malformed_game_identity(self):
+        receipt = self.root / "capture.json"
+        for game in ({}, {"version": "1.2"}, {"version": 1, "build": "123"},
+                     {"version": "1.2", "build": False}):
+            with self.subTest(game=game):
+                receipt.write_bytes(json_bytes({**CAPTURE, "game": game}))
+                stderr = io.StringIO()
+                with patch.object(run_timing.sys, "stderr", stderr):
+                    self.assertIsNone(run_timing.capture(receipt))
+                self.assertEqual(stderr.getvalue().count("WARNING:"), 1)
+
     def test_invalid_or_missing_capture_continues_update(self):
         for data in (None, "{broken"):
             receipt = self.root / "bad.json"

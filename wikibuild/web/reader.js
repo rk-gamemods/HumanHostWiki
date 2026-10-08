@@ -564,7 +564,7 @@ function backlinks(key, total) {
 // ---------- Topic index ----------
 async function topicIndex(group) {
   const topic = topicOf(config.topic), query = params.get("q") || "", rows = await allRows(index.search);
-  const all = rank(rows, query, {kind: group});
+  const all = rank(rows.filter(row => row.status === "present"), query, {kind: group});
   const initial = row => {const c = (row.name || "#")[0].toUpperCase(); return /[A-Z]/.test(c) ? c : "#";};
   const present = new Set(all.map(initial)), letter = params.get("l") || (query || all.length <= 400 ? "" : [...present].sort()[0]);
   const shown = (letter ? all.filter(row => initial(row) === letter) : all).slice(0, 900);

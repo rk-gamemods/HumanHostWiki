@@ -46,14 +46,19 @@ def capture(path):
         for key in ("error", "output_commit"):
             if value[key] is not None and not isinstance(value[key], str):
                 raise ValueError(f"{key} must be a string or null")
-        if not isinstance(value["game"], str):
-            raise ValueError("game must be a string")
+        game = value["game"]
+        if isinstance(game, dict):
+            for key in ("version", "build"):
+                if game[key] is not None and not isinstance(game[key], str):
+                    raise ValueError(f"game.{key} must be a string or null")
+        elif game is not None and not isinstance(game, str):
+            raise ValueError("game must be an identity object, legacy string or null")
         for key in ("phases", "assemblies"):
             if not isinstance(value[key], list):
                 raise ValueError(f"{key} must be an array")
             for row in value[key]:
                 if (not isinstance(row, dict) or not isinstance(row["name"], str)
-                        or not number(row["seconds"]) or row["outcome"] not in ("succeeded", "failed", "reused")):
+                        or not number(row["seconds"]) or row["outcome"] not in ("succeeded", "failed", "reused", "skipped")):
                     raise ValueError(f"invalid {key} entry")
         return {"seconds": value["seconds"], "outcome": value["outcome"],
                 "phases": [{key: row[key] for key in ("name", "seconds", "outcome")} for row in value["phases"]]}

@@ -333,6 +333,72 @@ function fixture(count = 121) {
   assert.equal(subject.context.rank(names, "Axe_Combo_2")[0].entity_key, "combat");
   console.log("Player phrases, route-complete links and source-name search passed");
 
+  // Retained identities keep direct routes but must not inflate current discovery.
+  const currentRows = {}, retiredRows = {}, olderRows = {};
+  const currentSnapshot = latest.version.snapshot_id, olderSnapshot = data.records[0].version.snapshot_id;
+  for (let i = 0; i < 325; i++) {
+    const key = "e-" + i.toString(16).padStart(32, "0"), kind = i < 251 ? "ai-rule" : "creature";
+    currentRows[key] = {entity_key: key, topic: "creatures-ai", kind, status: "present",
+      name: `${kind === "creature" ? "Creature" : "AI rule"} ${i}`, revision_id: "fixture-revision",
+      decision: {status: "continued"}, links: {}, backlink_count: 0};
+  }
+  for (let i = 0; i < 77; i++) {
+    const key = "e-" + (1000 + i).toString(16).padStart(32, "0");
+    retiredRows[key] = {entity_key: key, topic: "creatures-ai", kind: "creature", status: "superseded",
+      name: `Retired creature ${i}`, superseded_by: Object.keys(currentRows)[i]};
+    olderRows[key] = {...retiredRows[key], status: "present", revision_id: "fixture-revision",
+      decision: {status: "continued"}, links: {}, backlink_count: 0};
+    delete olderRows[key].superseded_by;
+  }
+  const discoveryPack = values => {
+    const keys = Object.keys(values).sort();
+    return data.store(values, {first: keys[0], last: keys.at(-1), count: keys.length});
+  };
+  const currentPack = discoveryPack({...currentRows, ...retiredRows}), olderPack = discoveryPack(olderRows);
+  const discoverySemantic = discoveryPack({"fixture-revision": {facts: {}, relationships: []}});
+  const discoveryIndex = (snapshot_id, counts, pack) => data.store({snapshot_id, counts,
+    steam: {build_id: snapshot_id.split("-")[1]}, entries: [pack], search: [pack],
+    semantics: [discoverySemantic], provenance: [], backlinks: []});
+  const discoveryConfig = {...flat, topic: "creatures-ai", default_snapshot: currentSnapshot,
+    topics: [{id: "hub", base, title: "Home"}, {id: "creatures-ai", base, title: "Creatures and AI", coverage: "Partial"}],
+    versions: [latest.version, data.records[0].version], snapshots: {
+      [currentSnapshot]: discoveryIndex(currentSnapshot, {"ai-rule": 251, creature: 74}, currentPack),
+      [olderSnapshot]: discoveryIndex(olderSnapshot, {creature: 77}, olderPack)}};
+  const discoveryReader = (selected = currentSnapshot, route = "", query = "") => {
+    const result = reader(discoveryConfig, url => data.files[url], selected);
+    result.context.location.pathname += route;
+    if (query) vm.runInContext(`params.set("q", ${JSON.stringify(query)})`, result.context);
+    return result;
+  };
+  subject = discoveryReader(); await subject.context.start();
+  let discoveryView = subject.nodes.content.children[0];
+  assert.equal(discoveryView.children.find(node => node.className === "note").children[0].textContent, "325 entries.");
+  assert.match(flattened(discoveryView.children.find(node => node.className === "kinds")).join(" "), /Everything\s+325/);
+  assert.equal(discoveryView.children.find(node => node.className === "idx").children.filter(node => node.tag === "p").length, 325);
+  assert.doesNotMatch(flattened(discoveryView).join(" "), /Retired creature/);
+  assert.equal((await subject.context.allRows([currentPack])).length, 402);
+  const retiredKey = Object.keys(retiredRows)[0];
+  assert.equal((await subject.context.keyed([currentPack], retiredKey)).status, "superseded");
+  subject = discoveryReader(currentSnapshot, "groups/creature/"); await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /74 entries\./);
+  subject = discoveryReader(currentSnapshot, "", "Retired"); await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /0 matches for/);
+  subject = discoveryReader(currentSnapshot, "", "Creature"); await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /74 matches for/);
+  subject = discoveryReader(currentSnapshot, "entry/" + retiredKey + "/"); await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /A reviewed correction replaced this entry/);
+  assert.ok(descendants(subject.nodes.content).some(node => node.tag === "a" && node.textContent === "Go to the replacement"));
+  subject = discoveryReader(olderSnapshot); await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /77 entries\./);
+  assert.match(flattened(subject.nodes.content).join(" "), /Retired creature 0/);
+  subject = discoveryReader(olderSnapshot, "entry/" + retiredKey + "/"); await subject.context.start();
+  assert.match(flattened(subject.nodes.content).join(" "), /Retired creature 0/);
+  assert.doesNotMatch(flattened(subject.nodes.content).join(" "), /reviewed correction replaced/);
+  const historyLinks = descendants(subject.nodes.content).filter(node => node.tag === "a" && /entry\//.test(node.href || ""));
+  assert.ok(historyLinks.some(node => new URL(node.href).searchParams.get("snapshot") === olderSnapshot));
+  assert.ok(historyLinks.some(node => new URL(node.href).searchParams.get("snapshot") === currentSnapshot));
+  console.log("Present-only topic browse, kinds and search retain retired routes and historical entries");
+
   if (process.argv[2]) {
     const input = JSON.parse(fs.readFileSync(process.argv[2], "utf8")), root = path.resolve(input.root);
     const disk = url => {

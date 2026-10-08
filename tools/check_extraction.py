@@ -32,6 +32,7 @@ _GatheringToolSmallAxe""".split()
 TEXT_CLASSES = {"Language_Text", "Tooltip_Text"}
 DERIVED_GAP_CODES = {"english-text", "missing-field", "unsupported-field-type", "unresolved-reference"}
 TERRAIN_COMPONENT = {"assembly": "Build_System", "class": "Terrain_Block_Info"}
+MERCHANT_COMPONENT = {"assembly": "Merchant", "class": "Merchant_Mgr"}
 MINEABLE_ITEMS = "Catalog/views/items.jsonl"
 MINEABLE_ADDRESSES = "Catalog/addressables.jsonl"
 
@@ -338,6 +339,22 @@ def _build_pinned_evidence(source, run, sample, prefabs):
             if raw["id"] in wanted:
                 objects[raw["id"]] = raw
                 hashes[raw["id"]] = sha
+    # Follow the pinned component's owner even if generated evidence omits or
+    # substitutes it. Valid joins normally loaded this object in the first pass.
+    owners = {}
+    for row in sample:
+        raw = objects.get(row["evidence"][0].get("object"), {})
+        if not row.get("source_field_base") and all(
+                raw.get("script", {}).get(key) == value for key, value in MERCHANT_COMPONENT.items()):
+            for identity in _merchant_owners(raw):
+                if identity not in objects:
+                    path = "Catalog/objects/" + identity.rsplit("#", 1)[0].replace("::", "/") + ".jsonl"
+                    owners.setdefault(path, set()).add(identity)
+    for path, wanted in owners.items():
+        for raw, sha in raw_records(source, run["source_commit"], path):
+            if raw["id"] in wanted:
+                objects[raw["id"]] = raw
+                hashes[raw["id"]] = sha
     terrain_records = [objects[row["evidence"][0]["object"]] for row in sample if row.get("component") == TERRAIN_COMPONENT]
     mining = mineable_relationships(source, run["source_commit"], terrain_records) if terrain_records else {}
     return objects, hashes, mining
@@ -354,7 +371,38 @@ def _check_loot_eligibility(row, objects):
     return 1
 
 
-def _check_serialized_facts(row, raw, mining, derived_gaps, derived_contracts):
+def _merchant_owners(raw):
+    return sorted(ref["target"] for ref in raw.get("references", [])
+                  if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved" and "target" in ref)
+
+
+def _merchant_manager_facts(row, raw, objects):
+    """Derive the active flag and exact evidence from the pinned owner join."""
+    owners = _merchant_owners(raw)
+    if row.get("game_objects", []) != owners:
+        raise ValueError(f"Merchant manager owner differs: {row['source_id']}")
+    managers = []
+    for identity in sorted(set(owners)):
+        owner = objects.get(identity, {})
+        fields = owner.get("fields", {}) if owner.get("type") == "GameObject" else {}
+        if fields.get("m_Name") == "Merchant_Mgr" and type(fields.get("m_IsActive")) is bool:
+            managers.append((identity, fields["m_IsActive"]))
+    expected, evidence = {}, []
+    if len(managers) == 1:
+        identity, active = managers[0]
+        expected = {"manager_object": "Merchant_Mgr", "manager_active": active}
+        path = "Catalog/objects/" + identity.rsplit("#", 1)[0].replace("::", "/") + ".jsonl"
+        evidence = [{"path": path, "object": identity, "fields": ["/m_Name", "/m_IsActive"]}]
+    if {key for key in row["facts"] if key.startswith("manager_")} != expected.keys():
+        raise ValueError(f"Merchant manager facts differ: {row['source_id']}")
+    actual = [{key: value for key, value in locator.items() if key != "record_sha256"}
+              for locator in row["evidence"][1:] if "object" in locator]
+    if actual != evidence:
+        raise ValueError(f"Merchant manager evidence differs: {row['source_id']}")
+    return expected
+
+
+def _check_serialized_facts(row, raw, mining, derived_gaps, derived_contracts, objects):
     checks = 0
     if row["kind"] == "loot-table" and "component" not in row:
         if raw["fields"]["_LootSpawnRates"] != row["facts"]["rates"]:
@@ -405,6 +453,9 @@ def _check_serialized_facts(row, raw, mining, derived_gaps, derived_contracts):
                     expected[field] = scene_prop_counts(raw["fields"][field], raw["fields"][table])
                     if "/" + field not in row["evidence"][0]["fields"]:
                         raise ValueError("Composition count lacks its source-array evidence")
+        if component == MERCHANT_COMPONENT and not row.get("source_field_base"):
+            expected = {**expected, **_merchant_manager_facts(row, raw, objects)}
+            checks += 2
         checks += compare_selected(expected, row["facts"], row["source_id"])
     return checks
 
@@ -466,7 +517,7 @@ def _build_sample_checks(sample, objects, hashes, mining):
             checks += _check_loot_eligibility(row, objects)
             continue
         raw = objects[row["evidence"][0]["object"]]
-        checks += _check_serialized_facts(row, raw, mining, derived_gaps, derived_contracts)
+        checks += _check_serialized_facts(row, raw, mining, derived_gaps, derived_contracts, objects)
         checks += _check_row_evidence(row, raw, hashes)
         checks += _check_row_names(row, objects)
     return checks, derived_gaps, derived_contracts

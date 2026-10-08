@@ -100,12 +100,12 @@ These are captured inputs, not nine game versions.
 | 25606549 | 0.8.316 | [build-25606549-f1e8b4a4a8b8](../snapshots/build-25606549-f1e8b4a4a8b8.json) |
 | 25675256 | 0.8.318 | [build-25675256-8764ea7be0f8](../snapshots/build-25675256-8764ea7be0f8.json) |
 
-[releases/latest.json](../releases/latest.json) selects release
+At that checkpoint, [releases/latest.json](../releases/latest.json) selected release
 `cd0a533da3419bc83656c4e016f2733ab49757fe7952e88568d516425e5adb07`.
 Its [manifest](../releases/cd0a533da3419bc83656c4e016f2733ab49757fe7952e88568d516425e5adb07.json)
 records all four builds in `versions`, with snapshot IDs, observation counts and
 identity-run IDs. Distinct real builds have therefore been normalized and retained.
-[publications/latest.json](../publications/latest.json) selects the same release.
+[publications/latest.json](../publications/latest.json) selected the same release at that checkpoint.
 Its [publication receipt](../publications/cd0a533da3419bc83656c4e016f2733ab49757fe7952e88568d516425e5adb07.json)
 records `status: published` and verified outputs for all thirteen logical sites.
 This is saved publication evidence, not a fresh live-availability check.
