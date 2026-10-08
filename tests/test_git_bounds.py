@@ -21,7 +21,8 @@ class GitBoundsTests(unittest.TestCase):
         revisions = [f"{number:040x}" for number in range(1, 5)]
         lookups, pins, timeouts = [], [], []
         elapsed = 0
-        started = time.monotonic()
+        # Keep the virtual deadline arithmetic exact, independent of host uptime.
+        started = 100.0
         clock = SimpleNamespace(monotonic=lambda: started + elapsed, sleep=time.sleep)
 
         def command(argv, **options):
