@@ -31,6 +31,12 @@ or generate new public commits. The operator report lists any cleanup issues
 after the wiki content report. `.local/releases/retention/report.json` retains
 their current reasons separately from content exceptions.
 
+Completed release stages created before `attempt.json` are retained without an
+ownership warning only when their journal, immutable release and compaction
+receipt agree, and their inventory contains only known recovery metadata and
+emptied payload directories. This creates no ownership record and permits no
+deletion. Unknown entries or mismatched completion evidence remain reported.
+
 ## Failed staging attempts
 
 `wikibuild/staging.py` owns attempt records and retirement. Release, reader,

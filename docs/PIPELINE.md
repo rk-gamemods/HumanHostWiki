@@ -119,10 +119,12 @@ and wiki wall stages only, divided by capture total plus wiki wall time.
 `update --capture-timing <path>` validates `humanhost.capture-timing.v1` before
 embedding the summary. Required fields are `schema`, `started_at`, `finished_at`,
 `seconds`, `outcome`, `error`, `output_path`, `output_commit`, `game`, `phases`
-and `assemblies`. Timestamps are strings with timezones; path and game are
-strings; error and commit are strings or null; durations are finite,
+and `assemblies`. Timestamps are strings with timezones; path is a string.
+Game is a version/build object with string or null fields, or null before identity
+is available; legacy game strings remain accepted. Error and commit are strings or null; durations are finite,
 nonnegative numbers, excluding booleans. Outcomes are `succeeded`, `failed`
-or `reused`. Both arrays contain `{name: string, seconds: number, outcome}`.
+or `reused`. Both arrays contain `{name: string, seconds: number, outcome}`, accepting
+`succeeded`, `failed`, `reused` and `skipped` work.
 Unknown fields are ignored. A missing or invalid receipt emits one warning;
 the wiki continues without capture timing.
 

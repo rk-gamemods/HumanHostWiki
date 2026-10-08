@@ -1,0 +1,327 @@
+{
+  "cache_base": "507e47bf01df30e9390c289fdd9fb86035f8480f446a510708370c5db53c1a0b",
+  "catalog": {
+    "inventory_complete": true,
+    "inventory_count": 64,
+    "inventory_sha256": "5aa1aa13fb1ca37b5111f59a5a7d2817bbb333f3a2ab51e4b84898ae50117a8e",
+    "pages": {
+      "Human Host:Content/Game Content/Armors": {
+        "content_sha256": "a6f8691867431b952d41f4dac3f636b38f8da1fbb8f682bb8b1b015721b29760",
+        "metadata": {
+          "bytes": 2454,
+          "content_model": "wikitext",
+          "page_id": 82,
+          "redirect": false,
+          "revision": 569,
+          "title": "Human Host:Content/Game Content/Armors"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Armors/Bone Armor": {
+        "content_sha256": "f4c99b7ae3b140d47d8b3569d0e4cb98bfc9c6d1a16d43a315438f7dd4b41422",
+        "metadata": {
+          "bytes": 1286,
+          "content_model": "wikitext",
+          "page_id": 110,
+          "redirect": false,
+          "revision": 389,
+          "title": "Human Host:Content/Game Content/Armors/Bone Armor"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Armors/Car Door Shields": {
+        "content_sha256": "624b3a0e31f58ae1659829f2daaefa8c763592b0d58fe872a9503550d0a55b58",
+        "metadata": {
+          "bytes": 549,
+          "content_model": "wikitext",
+          "page_id": 138,
+          "redirect": false,
+          "revision": 393,
+          "title": "Human Host:Content/Game Content/Armors/Car Door Shields"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Armors/Scrap Armor": {
+        "content_sha256": "65b3244c1d5c9f18e0e03f5ff607f223773185d0d8290e796f3983243fde76de",
+        "metadata": {
+          "bytes": 1174,
+          "content_model": "wikitext",
+          "page_id": 137,
+          "redirect": false,
+          "revision": 392,
+          "title": "Human Host:Content/Game Content/Armors/Scrap Armor"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Armors/Wooden Armor": {
+        "content_sha256": "2acca4415cfe5282d7374bdaee6056713211665c4401231c3098f3d6b35499ce",
+        "metadata": {
+          "bytes": 1190,
+          "content_model": "wikitext",
+          "page_id": 136,
+          "redirect": false,
+          "revision": 391,
+          "title": "Human Host:Content/Game Content/Armors/Wooden Armor"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Biomes": {
+        "content_sha256": "e604a2d66913da2939768c542cbbf8fe1dc7b71b9fc07b3ea8817bf50f5bac0b",
+        "metadata": {
+          "bytes": 4338,
+          "content_model": "wikitext",
+          "page_id": 65,
+          "redirect": false,
+          "revision": 267,
+          "title": "Human Host:Content/Game Content/Biomes"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Crafting Recipes": {
+        "content_sha256": "d51aeae01074bc3cffb8b70acbb6e84e090f9fb4aa52a3150915fa9092311f11",
+        "metadata": {
+          "bytes": 1192,
+          "content_model": "wikitext",
+          "page_id": 103,
+          "redirect": false,
+          "revision": 271,
+          "title": "Human Host:Content/Game Content/Crafting Recipes"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Crafting Recipes/Handmade": {
+        "content_sha256": "4e4b8de1628943424b2f4e02540e940d0461a5e356ccdacb47c79aae4d37f036",
+        "metadata": {
+          "bytes": 9733,
+          "content_model": "wikitext",
+          "page_id": 104,
+          "redirect": false,
+          "revision": 566,
+          "title": "Human Host:Content/Game Content/Crafting Recipes/Handmade"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Crafting Recipes/Handmade/Crude Stone Pickaxe": {
+        "content_sha256": "640a72b4dbda8c891642a7836732d6e0f0ac64bbaec1879daa7b61a5e49cd86f",
+        "destination": "Human Host:Content/Game Content/Weapons/Crude Stone Pickaxe",
+        "metadata": {
+          "bytes": 73,
+          "content_model": "wikitext",
+          "page_id": 109,
+          "redirect": true,
+          "revision": 287,
+          "title": "Human Host:Content/Game Content/Crafting Recipes/Handmade/Crude Stone Pickaxe"
+        },
+        "reason": "redirect-populated",
+        "redirect_target": "Human Host:Content/Game Content/Weapons/Crude Stone Pickaxe",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Crafting Recipes/Handmade/Stone Axe": {
+        "content_sha256": "d2963bb5c14322e72897f6e0ccd1386fbb420b8355ddeafa44912b3cd0a034a7",
+        "destination": "Human Host:Content/Game Content/Weapons/Stone Axe",
+        "metadata": {
+          "bytes": 63,
+          "content_model": "wikitext",
+          "page_id": 108,
+          "redirect": true,
+          "revision": 282,
+          "title": "Human Host:Content/Game Content/Crafting Recipes/Handmade/Stone Axe"
+        },
+        "reason": "redirect-populated",
+        "redirect_target": "Human Host:Content/Game Content/Weapons/Stone Axe",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Perks": {
+        "content_sha256": "cdb1333305c0f50a689f3484d86fefe63351bbe80ed01b720d684f8691f1e738",
+        "metadata": {
+          "bytes": 604,
+          "content_model": "wikitext",
+          "page_id": 74,
+          "redirect": false,
+          "revision": 225,
+          "title": "Human Host:Content/Game Content/Perks"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Perks/Combat Perks": {
+        "content_sha256": "0dbbfa2e1dcfb946506e6dc3c15546de4d4baf7b689926b555cfd708051082de",
+        "metadata": {
+          "bytes": 5215,
+          "content_model": "wikitext",
+          "page_id": 75,
+          "redirect": false,
+          "revision": 432,
+          "title": "Human Host:Content/Game Content/Perks/Combat Perks"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Perks/Craft Perks": {
+        "content_sha256": "17ac2f78da76c7bf52925f839764237bb25b54488876be61fa7361ba01140723",
+        "metadata": {
+          "bytes": 4613,
+          "content_model": "wikitext",
+          "page_id": 77,
+          "redirect": false,
+          "revision": 572,
+          "title": "Human Host:Content/Game Content/Perks/Craft Perks"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Perks/Survival Perks": {
+        "content_sha256": "bab687c36b7311eec461257aa874337b3af60236fb0916a15f1305920408479b",
+        "metadata": {
+          "bytes": 13177,
+          "content_model": "wikitext",
+          "page_id": 76,
+          "redirect": false,
+          "revision": 559,
+          "title": "Human Host:Content/Game Content/Perks/Survival Perks"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Weapons": {
+        "content_sha256": "10ddbd10bb1b8d9ceb7f381d1ecf8867d74620d25ed33414d1bee9ce325fa86a",
+        "metadata": {
+          "bytes": 576,
+          "content_model": "wikitext",
+          "page_id": 107,
+          "redirect": false,
+          "revision": 318,
+          "title": "Human Host:Content/Game Content/Weapons"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Weapons/Crude Stone Pickaxe": {
+        "content_sha256": "4ddc807283d8ac9c142531b242aeaee7182722541063dd4e5decc7a1b6935297",
+        "metadata": {
+          "bytes": 869,
+          "content_model": "wikitext",
+          "page_id": 106,
+          "redirect": false,
+          "revision": 319,
+          "title": "Human Host:Content/Game Content/Weapons/Crude Stone Pickaxe"
+        },
+        "reason": "literal-property",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Weapons/Stone Axe": {
+        "content_sha256": "ea28820c62a9422d6f4f41a78eaac6b4424dfaa15776ef9cb3cdf5644660cbe4",
+        "metadata": {
+          "bytes": 673,
+          "content_model": "wikitext",
+          "page_id": 105,
+          "redirect": false,
+          "revision": 313,
+          "title": "Human Host:Content/Game Content/Weapons/Stone Axe"
+        },
+        "reason": "literal-property",
+        "status": "populated"
+      },
+      "Human Host:Content/Game Content/Zombies": {
+        "content_sha256": "223a98af4f87845d8e6f485b6a4b079a1bd46359c494f28c0f879c9ef64bd3dd",
+        "metadata": {
+          "bytes": 1105,
+          "content_model": "wikitext",
+          "page_id": 79,
+          "redirect": false,
+          "revision": 439,
+          "title": "Human Host:Content/Game Content/Zombies"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Getting Started": {
+        "content_sha256": "d2faab89490cbd2329bf19fda1aa2925bf520a6060a6904e2344662970bd54f5",
+        "metadata": {
+          "bytes": 1084,
+          "content_model": "wikitext",
+          "page_id": 23,
+          "redirect": false,
+          "revision": 470,
+          "title": "Human Host:Getting Started"
+        },
+        "reason": "literal-property",
+        "status": "populated"
+      },
+      "Human Host:Guides/Elites": {
+        "content_sha256": "47f1bf8c10241645f5aa1fe5a4c63195c73974bdbda924ceb69eb04f291c5e3c",
+        "metadata": {
+          "bytes": 703,
+          "content_model": "wikitext",
+          "page_id": 170,
+          "redirect": false,
+          "revision": 446,
+          "title": "Human Host:Guides/Elites"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Guides/Modding/Game Structure": {
+        "content_sha256": "c027fc2b7470bca3e308d1b96906d5811dcf5dd911ec9a8b5ed06aeb73791408",
+        "metadata": {
+          "bytes": 8267,
+          "content_model": "wikitext",
+          "page_id": 179,
+          "redirect": false,
+          "revision": 539,
+          "title": "Human Host:Guides/Modding/Game Structure"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      },
+      "Human Host:Guides/Vehicle Building": {
+        "content_sha256": "eb56937256f864bf0420b0e2e7d62d7ef20c6c34b9c518362ebf0028f85a2f81",
+        "metadata": {
+          "bytes": 6407,
+          "content_model": "wikitext",
+          "page_id": 171,
+          "redirect": false,
+          "revision": 544,
+          "title": "Human Host:Guides/Vehicle Building"
+        },
+        "reason": "literal-prose",
+        "status": "populated"
+      }
+    }
+  },
+  "checked_at": "2026-10-08T03:11:09+00:00",
+  "contract": {
+    "external_links.py": "dc1140a6344d75611e7505b6521ac011c2c877172c8689b4a8de2757dd61ec09",
+    "mediawiki.py": "4bfe3514589db7da24b59ab2412a02678ab93c1f077a103189ed6dc19e50dabb"
+  },
+  "retryable": false,
+  "schema_version": 1,
+  "source": {
+    "api_url": "https://wiki.nerdwerx.io/api.php",
+    "namespace": 3000,
+    "namespace_name": "Human Host",
+    "prefixes": [
+      "Human Host:Content/Game Content/Weapons",
+      "Human Host:Content/Game Content/Armors",
+      "Human Host:Content/Game Content/Crafting Recipes",
+      "Human Host:Content/Game Content/Perks",
+      "Human Host:Content/Game Content/Biomes",
+      "Human Host:Content/Game Content/Zombies"
+    ],
+    "titles": [
+      "Human Host:Getting Started",
+      "Human Host:Guides/Base Building",
+      "Human Host:Guides/Elites",
+      "Human Host:Guides/Vehicle Building",
+      "Human Host:Guides/Modding/Game Structure"
+    ]
+  }
+}

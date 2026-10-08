@@ -101,6 +101,126 @@ class RetentionTests(unittest.TestCase):
     def save_plan(self):
         (self.stage / "plan.json").write_bytes(json_bytes(self.plan))
 
+    def legacy_completed(self):
+        self.assertEqual(release_retention.run(self.root)["retained"], [])
+        (self.stage / staging.OWNER).unlink()
+        for name in ("commit.index", "commit.paths"):
+            (self.stage / "topic" / name).write_bytes(b"retained preparation metadata")
+
+    def test_completed_legacy_metadata_is_preserved_without_warning_or_fabricated_owner(self):
+        self.legacy_completed()
+        before = {path.relative_to(self.stage): (path.read_bytes(), path.stat().st_mtime_ns)
+                  for path in self.stage.rglob("*") if path.is_file()}
+        for _ in range(2):
+            result = release_retention.run(self.root)
+            self.assertEqual(result["retained"], [])
+            self.assertTrue(result["reused"])
+            self.assertEqual(result["removed_files"], 0)
+            self.assertFalse((self.stage / staging.OWNER).exists())
+            self.assertEqual(before, {path.relative_to(self.stage): (path.read_bytes(), path.stat().st_mtime_ns)
+                                      for path in self.stage.rglob("*") if path.is_file()})
+
+    def test_new_release_attempt_preserves_validated_legacy_completion(self):
+        self.legacy_completed()
+        before = {path: path.read_bytes() for path in self.stage.rglob("*") if path.is_file()}
+        callback = lambda path: release_retention.completed_legacy(self.root, path)
+        with staging.attempt(self.stage.parent, "release", short=True, retained_completed=callback) as current:
+            self.assertTrue((current / staging.OWNER).is_file())
+            report = json.loads(self.stage.parent.with_name("rs-retention.json").read_bytes())
+            self.assertEqual(report["retained"], [])
+        self.assertEqual(json.loads(self.stage.parent.with_name("rs-retention.json").read_bytes())["retained"], [])
+        self.assertEqual(before, {path: path.read_bytes() for path in self.stage.rglob("*") if path.is_file()})
+        self.assertFalse((self.stage / staging.OWNER).exists())
+
+    def test_legacy_completion_planning_does_not_stat_absent_payloads(self):
+        self.legacy_completed()
+        original = Path.lstat
+        missing = {self.stage / "topic" / name for name in self.payloads}
+        def metadata_only(path, *args, **kwargs):
+            if path in missing:
+                raise AssertionError("Deleted payload must not be statted during metadata planning")
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "lstat", new=metadata_only):
+            self.assertTrue(release_retention.completed_legacy(self.root, self.stage))
+
+    def test_rehashed_legacy_plan_cannot_add_escaping_payload_paths(self):
+        self.legacy_completed()
+        marker = self.root / ".local/releases/retention" / (self.stage.name + ".json")
+        original = dict(self.plan["plans"]["topic"]["git"]["files"])
+        for name in ("../../outside", "/absolute", "site\\outside", "C:/outside"):
+            with self.subTest(name=name):
+                self.plan["plans"]["topic"]["git"]["files"] = {**original, name: {"old": None, "new": "x", "bytes": 1}}
+                self.save_plan()
+                receipt = json.loads(marker.read_bytes())
+                receipt["plan_sha256"] = digest((self.stage / "plan.json").read_bytes())
+                marker.write_bytes(json_bytes(receipt))
+                with self.assertRaisesRegex(ContractError, "Invalid staging path"):
+                    release_retention.completed_legacy(self.root, self.stage)
+
+    def test_legacy_completion_rejects_redirected_existing_directory(self):
+        self.legacy_completed()
+        redirect = self.stage / "topic/site"
+        redirect.rmdir()
+        investigation = self.root / "investigation"
+        investigation.mkdir()
+        (investigation / "notes.txt").write_text("preserve external investigation")
+        if os.name == "nt":
+            created = subprocess.run(["cmd", "/d", "/c", "mklink", "/J", str(redirect), str(investigation)], capture_output=True)
+            self.assertEqual(created.returncode, 0, created.stderr.decode(errors="replace"))
+        else:
+            redirect.symlink_to(investigation, target_is_directory=True)
+        try:
+            with self.assertRaisesRegex(ContractError, "Redirected staging path"):
+                release_retention.completed_legacy(self.root, self.stage)
+            self.assertEqual((investigation / "notes.txt").read_text(), "preserve external investigation")
+        finally:
+            if os.name == "nt":
+                redirect.rmdir()
+            else:
+                redirect.unlink()
+
+    def test_legacy_journal_receipt_and_stage_mismatches_remain_warned_and_preserved(self):
+        self.legacy_completed()
+        journal = self.stage / "plan.json"
+        marker = self.root / ".local/releases/retention" / (self.stage.name + ".json")
+        receipt = self.root / "releases" / (self.plan["result"]["release_id"] + ".json")
+        originals = {path: path.read_bytes() for path in (journal, marker, receipt)}
+        cases = [(journal, {**self.plan, "unknown": "changed journal"}),
+                 (journal, {**self.plan, "stage": ".local/rs/ffffffffffff"}),
+                 (marker, {**json.loads(originals[marker]), "release_id": "f" * 64}),
+                 (receipt, {**self.plan["result"], "manifest_sha256": "f" * 64})]
+        for changed, value in cases:
+            with self.subTest(path=changed.name, value=value):
+                for path, original in originals.items():
+                    path.write_bytes(original)
+                changed.write_bytes(json_bytes(value))
+                before = {path: path.read_bytes() for path in self.stage.rglob("*") if path.is_file()}
+                result = release_retention.run(self.root)
+                self.assertTrue(result["retained"])
+                self.assertEqual(result["removed_files"], 0)
+                self.assertEqual(before, {path: path.read_bytes() for path in self.stage.rglob("*") if path.is_file()})
+
+    def test_uncompleted_legacy_and_unknown_stages_keep_their_warnings(self):
+        self.legacy_completed()
+        receipt = self.root / "releases" / (self.plan["result"]["release_id"] + ".json")
+        receipt.unlink()
+        unknown = self.stage.with_name("ffffffffffff")
+        unknown.mkdir()
+        (unknown / "operator-notes.txt").write_text("preserve ambiguous work")
+        result = release_retention.run(self.root)
+        self.assertEqual({row["stage"] for row in result["retained"]}, {self.stage.name, unknown.name})
+        self.assertEqual(result["removed_files"], 0)
+        self.assertEqual((unknown / "operator-notes.txt").read_text(), "preserve ambiguous work")
+
+    def test_extra_legacy_files_cannot_be_hidden_by_completed_journal_evidence(self):
+        self.legacy_completed()
+        unknown = self.stage / "topic/operator-notes.txt"
+        unknown.write_text("preserve ambiguous work")
+        result = release_retention.run(self.root)
+        self.assertTrue(result["retained"])
+        self.assertEqual(result["removed_files"], 0)
+        self.assertEqual(unknown.read_text(), "preserve ambiguous work")
+
     def test_committed_payloads_removed_unknown_and_diagnostics_preserved_repeat_has_no_git_reads(self):
         unknown = self.stage / "topic/notes.txt"
         unknown.write_text("User investigation")

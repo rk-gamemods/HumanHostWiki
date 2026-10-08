@@ -352,8 +352,8 @@ def remove(path, stage, expected_owner, *, folder, expected_identity=None):
     _forget_recovery(receipt, path.parent, receipt_signature)
 
 
-def retire(folder, stage, current=None):
-    """Only valid records of this stage authorize retirement; report everything else."""
+def retire(folder, stage, current=None, *, retained_completed=None):
+    """Only ownership authorizes retirement; a caller may prove retained completion."""
     folder = Path(folder).absolute()
     summary = {"removed": [], "retained": []}
     attempts = []
@@ -369,6 +369,9 @@ def retire(folder, stage, current=None):
                     raise ContractError("Staging inventory exceeds its entry bound")
                 path = Path(entry.path)
                 try:
+                    if (retained_completed is not None and not regular(path / OWNER).exists()
+                            and retained_completed(child(folder, path))):
+                        continue  # Completion proof permits preservation only, never deletion.
                     value, created = record(path, stage, folder=folder)
                     attempts.append((path, value, created))
                 except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -402,9 +405,10 @@ def retire(folder, stage, current=None):
 
 
 @contextmanager
-def attempt(folder, stage, *, short=False, deferred=False):
+def attempt(folder, stage, *, short=False, deferred=False, retained_completed=None):
     """Ordinary failures abandon; process interruptions leave materializing evidence."""
-    retire(folder, stage)
+    completion = {} if retained_completed is None else {"retained_completed": retained_completed}
+    retire(folder, stage, **completion)
     folder = regular(folder)
     identity = uuid.uuid4().hex[:12] if short else uuid.uuid4().hex
     path = child(folder, folder / identity)
@@ -431,4 +435,4 @@ def attempt(folder, stage, *, short=False, deferred=False):
         if not deferred:
             finish(path, stage, "completed")
     finally:
-        retire(folder, stage, current=path)
+        retire(folder, stage, current=path, **completion)

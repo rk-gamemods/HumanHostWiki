@@ -2,8 +2,10 @@
 
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import subprocess
 
 from . import bounded, git_transaction, release, staging
@@ -14,11 +16,17 @@ def contract():
     return digest(Path(__file__).read_bytes().replace(b"\r\n", b"\n"))
 
 
-def regular(root, name):
-    """Reject redirects, including directory junctions, before reading or unlinking."""
+def relative_path(name):
+    """Validate lexical containment, including Windows separators and drive syntax."""
     relative = PurePosixPath(name)
     if relative.is_absolute() or ".." in relative.parts or "\\" in name or ":" in name:
         raise ContractError(f"Invalid staging path: {name}")
+    return relative
+
+
+def regular(root, name):
+    """Reject redirects, including directory junctions, before reading or unlinking."""
+    relative = relative_path(name)
     literal = staging.regular(Path(root) / relative)
     resolved = within(root, name)
     if literal != resolved or literal.is_symlink():
@@ -26,8 +34,8 @@ def regular(root, name):
     return literal
 
 
-def compact(root, stage, summary):
-    """Caller holds writer_lock. Validate every payload before deleting any of them."""
+def completed_journal(root, stage):
+    """Bind a completed journal to its immutable release and compaction receipt."""
     relative = stage.relative_to(root).as_posix()
     plan_path = regular(root, relative + "/plan.json")
     if not plan_path.is_file():
@@ -42,6 +50,54 @@ def compact(root, stage, summary):
     receipt = {"schema_version": 1, "stage": relative, "plan_sha256": digest(data),
                "release_id": result["release_id"]}
     marker = regular(root, ".local/releases/retention/" + stage.name + ".json")
+    for identity, item in journal["plans"].items():
+        saved, plan = result["repositories"][identity], item["git"]
+        if (item["path"] != saved["path"] or plan["commit"] != saved["commit"]
+                or plan["tree"] != saved["tree"]):
+            raise ContractError("Staging destination differs from the committed release")
+    return journal, result, receipt, marker
+
+
+def completed_legacy(root, stage):
+    """Retain proven pre-ownership metadata without inventing attempt ownership."""
+    root = Path(root).resolve()
+    stage = staging.child(root / ".local/rs", stage)
+    if not re.fullmatch(r"[0-9a-f]{12}", stage.name) or regular(stage, staging.OWNER).exists():
+        return False
+    marker = regular(root, ".local/releases/retention/" + stage.name + ".json")
+    if not marker.is_file():
+        return False
+    journal, _, receipt, marker = completed_journal(root, stage)
+    if json.loads(marker.read_bytes()) != receipt:
+        raise ContractError("Staging retention receipt differs")
+    allowed_files = {"plan.json"}
+    allowed_folders = {"."}
+    for identity, item in journal["plans"].items():
+        prefix = relative_path(identity)
+        allowed_files.update((prefix / name).as_posix() for name in ("commit.index", "commit.paths"))
+        for name in ["commit.index", "commit.paths", *item["git"]["files"]]:
+            path = prefix / relative_path(name)
+            allowed_folders.update(parent.as_posix() for parent in path.parents)
+    pending, count = [stage], 0
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                count += 1
+                if count > staging.MAX_ENTRIES:
+                    raise ContractError("Legacy staging inventory exceeds its entry bound")
+                path = staging.regular(Path(entry.path))
+                name, mode = path.relative_to(stage).as_posix(), path.lstat().st_mode
+                if stat.S_ISDIR(mode) and name in allowed_folders:
+                    pending.append(path)
+                elif not stat.S_ISREG(mode) or name not in allowed_files:
+                    raise ContractError(f"Unrecognized legacy staging metadata: {name}")
+    return True
+
+
+def compact(root, stage, summary):
+    """Caller holds writer_lock. Validate every payload before deleting any of them."""
+    relative = stage.relative_to(root).as_posix()
+    journal, result, receipt, marker = completed_journal(root, stage)
     if marker.exists():
         if json.loads(marker.read_bytes()) != receipt:
             raise ContractError("Staging retention receipt differs")
@@ -49,11 +105,7 @@ def compact(root, stage, summary):
     summary["reused"] = False
     removals = []
     for identity, item in journal["plans"].items():
-        saved = result["repositories"][identity]
         plan = item["git"]
-        if (item["path"] != saved["path"] or plan["commit"] != saved["commit"]
-                or plan["tree"] != saved["tree"]):
-            raise ContractError("Staging destination differs from the committed release")
         repository = regular(root, item["path"])
         # One tree read per repository. Stream local payloads in bounded chunks;
         # matching Git blob IDs independently proves the committed copy exists.
@@ -125,7 +177,7 @@ def run(root):
         # release receipt was saved immediately before an interruption.
         if pending and pending.get("complete") is not True:
             raise ContractError("Release transaction remains pending; staging retained")
-        retired = staging.retire(folder, "release")
+        retired = staging.retire(folder, "release", retained_completed=lambda stage: completed_legacy(root, stage))
         summary["retained"].extend(retired["retained"])
         if retired["removed"]:
             summary["reused"] = False

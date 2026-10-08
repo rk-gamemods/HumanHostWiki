@@ -17,6 +17,7 @@ from wikibuild.storage import within
 def handler(root, manifest):
     routes = {repo['github_name']: root / repo['path'] / 'site' for repo in manifest['repositories'].values()}
     hub = urlsplit(manifest['routes']['hub'])
+    hub_name = hub.path.strip('/')
     origin = hub.scheme + '://' + hub.netloc
     injection = ('<script>globalThis.humanHostPreviewOrigin=' + json.dumps(origin) + ';</script>').encode()
 
@@ -37,7 +38,8 @@ def handler(root, manifest):
                 return
             status = 200
             if not path.is_file():
-                if name.startswith(('entry/', 'groups/')) and name.endswith('index.html'):
+                shell_routes = ('entry/', 'groups/') + (('search/', 'guide/') if parts[0] == hub_name else ())
+                if name.startswith(shell_routes) and name.endswith('index.html'):
                     path, status = base / '404.html', 404
                 else:
                     self.send_error(404)

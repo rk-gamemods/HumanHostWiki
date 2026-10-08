@@ -262,7 +262,7 @@ a.brow:hover, a.brow:focus-visible { background: var(--soft); }
 .relations .field { display: block; font: .7rem var(--mono); color: var(--muted); }
 .stamps { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .15rem 1rem; font: .78rem var(--sans); margin: 0; }
 .stamps dt { color: var(--muted); }
-.stamps dd { margin: 0; }
+.stamps dd { margin: 0; overflow-wrap: anywhere; }
 .badge { display: inline-block; font: 600 .7rem var(--sans); border: 1px solid var(--ink); padding: 0 .4rem; }
 
 /* ---------- Index ---------- */

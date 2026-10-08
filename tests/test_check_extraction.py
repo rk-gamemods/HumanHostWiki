@@ -148,6 +148,127 @@ class CheckExtractionTests(unittest.TestCase):
         self.assertEqual(first, self.check())
         self.assertEqual("passed", self.check(complete=False)["status"])
 
+    def add_manager_fixture(self):
+        component = {"assembly": "Merchant", "class": "Merchant_Mgr"}
+        raw = {"id": "fixture#6", "script": {**component, "namespace": ""},
+               "fields": {"_RefreshIntervalMinutes": 15},
+               "references": [{"field": "/m_GameObject", "status": "resolved", "target": "manager#20"}]}
+        self.raw.append(raw)
+        self.supporting = {"Catalog/objects/manager.jsonl": [
+            {"id": "manager#20", "type": "GameObject", "fields": {"m_Name": "Merchant_Mgr", "m_IsActive": False}},
+            {"id": "manager#21", "type": "GameObject", "fields": {"m_Name": "Merchant_Mgr", "m_IsActive": True}}]}
+        owner = self.supporting["Catalog/objects/manager.jsonl"][0]
+        self.rows.append({"source_id": raw["id"], "kind": "loot-source", "component": component,
+                          "fact_scope": "serialized-component-configuration", "name_status": "internal",
+                          "facts": {"_RefreshIntervalMinutes": 15, "manager_object": "Merchant_Mgr", "manager_active": False},
+                          "game_objects": ["manager#20"], "relationships": [],
+                          "evidence": [{"path": OBJECT_PATH, "object": raw["id"], "fields": ["/_RefreshIntervalMinutes"]},
+                                       {"path": "Catalog/objects/manager.jsonl", "object": owner["id"],
+                                        "fields": ["/m_Name", "/m_IsActive"],
+                                        "record_sha256": hashlib.sha256(encoded(owner) + b"\n").hexdigest()}]})
+        self.pin()
+
+    def test_pinned_merchant_manager_active_and_inactive_game_objects_pass(self):
+        self.add_manager_fixture()
+        for active in (False, True):
+            with self.subTest(active=active):
+                if active:
+                    owner = self.supporting["Catalog/objects/manager.jsonl"][0]
+                    owner["fields"]["m_IsActive"] = active
+                    self.rows[-1]["facts"]["manager_active"] = active
+                    self.rows[-1]["evidence"][1]["record_sha256"] = hashlib.sha256(encoded(owner) + b"\n").hexdigest()
+                    self.pin()
+                first = self.check()
+                self.assertEqual("passed", first["status"])
+                self.put(self.source, "Catalog/objects/manager.jsonl", b"dirty working copy is not evidence\n")
+                self.assertEqual(first, self.check())
+
+    def test_changed_missing_and_extra_merchant_manager_facts_are_rejected(self):
+        self.add_manager_fixture()
+        original = copy.deepcopy(self.rows[-1]["facts"])
+        alternatives = [
+            {key: value for key, value in original.items() if key != "manager_active"},
+            {key: value for key, value in original.items() if key != "manager_object"},
+            {"_RefreshIntervalMinutes": 15},
+            {**original, "manager_active": True}, {**original, "manager_active": 0},
+            {**original, "manager_object": "Invented"}, {**original, "manager_probability": 1}]
+        for facts in alternatives:
+            with self.subTest(facts=facts):
+                self.rows[-1]["facts"] = facts
+                with self.assertRaisesRegex(ValueError, "Merchant manager facts differ|Fact differs"):
+                    self.check()
+        self.rows[-1]["facts"] = {"_RefreshIntervalMinutes": 15}
+        self.rows[-1]["evidence"] = self.rows[-1]["evidence"][:1]
+        with self.assertRaisesRegex(ValueError, "Merchant manager facts differ"):
+            self.check()
+
+    def test_rehashed_merchant_manager_evidence_cannot_change_the_owner(self):
+        self.add_manager_fixture()
+        original = copy.deepcopy(self.rows[-1])
+        other = self.supporting["Catalog/objects/manager.jsonl"][1]
+        wrong_owner = {"path": "Catalog/objects/manager.jsonl", "object": other["id"],
+                       "fields": ["/m_Name", "/m_IsActive"],
+                       "record_sha256": hashlib.sha256(encoded(other) + b"\n").hexdigest()}
+        proofs = [[], [wrong_owner], [{**original["evidence"][1], "fields": ["/m_Name"]}],
+                  [{**original["evidence"][1], "path": OBJECT_PATH}],
+                  [original["evidence"][1], original["evidence"][1]]]
+        for proof in proofs:
+            with self.subTest(proof=proof):
+                self.rows[-1] = copy.deepcopy(original)
+                self.rows[-1]["evidence"] = [original["evidence"][0], *proof]
+                with self.assertRaisesRegex(ValueError, "Merchant manager evidence differs"):
+                    self.check()
+        self.rows[-1] = copy.deepcopy(original)
+        self.rows[-1]["evidence"][1] = wrong_owner
+        self.rows[-1]["facts"]["manager_active"] = True
+        self.rows[-1]["game_objects"] = [other["id"]]
+        with self.assertRaisesRegex(ValueError, "Merchant manager owner differs"):
+            self.check()
+        self.rows[-1] = copy.deepcopy(original)
+        self.rows[-1]["evidence"][1]["record_sha256"] = "wrong"
+        with self.assertRaisesRegex(ValueError, "Record hash differs"):
+            self.check()
+
+    def test_changed_pinned_merchant_owner_and_active_flag_reject_stale_facts(self):
+        self.add_manager_fixture()
+        original = copy.deepcopy(self.supporting)
+        for field, value in (("m_IsActive", True), ("m_IsActive", 0), ("m_Name", "Other manager")):
+            with self.subTest(field=field, value=value):
+                self.supporting = copy.deepcopy(original)
+                self.supporting["Catalog/objects/manager.jsonl"][0]["fields"][field] = value
+                self.pin()
+                with self.assertRaisesRegex(ValueError, "Merchant manager facts differ|Fact differs"):
+                    self.check()
+
+    def test_merchant_configuration_without_a_valid_named_owner_has_no_derived_facts(self):
+        self.add_manager_fixture()
+        self.supporting["Catalog/objects/manager.jsonl"][0]["fields"]["m_Name"] = "Other manager"
+        self.rows[-1]["facts"] = {"_RefreshIntervalMinutes": 15}
+        self.rows[-1]["evidence"] = self.rows[-1]["evidence"][:1]
+        self.pin()
+        self.assertEqual("passed", self.check()["status"])
+
+    def test_merchant_stock_child_checks_nested_facts_without_parent_owner_projection(self):
+        self.add_manager_fixture()
+        stock = {"BiomeName": "Forest", "Items": [], "MerchantPrefabs": []}
+        self.raw[-1]["fields"]["_BiomeItemSet"] = [stock]
+        self.pin()
+        parent = self.rows[-1]
+        prefix = "/_BiomeItemSet/0"
+        self.rows.append({"source_id": parent["source_id"] + prefix, "kind": "loot-table",
+                          "component": dict(parent["component"]), "name_status": "internal",
+                          "fact_scope": "serialized-definition", "parent_source_id": parent["source_id"],
+                          "source_field_base": prefix, "facts": copy.deepcopy(stock),
+                          "relationships": [{"predicate": "defined-by", "target_source_id": parent["source_id"],
+                                             "source_field": prefix}],
+                          "evidence": [{"path": OBJECT_PATH, "object": parent["source_id"],
+                                        "fields": [prefix + "/" + field for field in stock],
+                                        "record_sha256": parent["evidence"][0]["record_sha256"]}]})
+        self.assertEqual("passed", self.check()["status"])
+        self.rows[-1]["facts"]["BiomeName"] = "Invented biome"
+        with self.assertRaisesRegex(ValueError, "Fact differs"):
+            self.check()
+
     def audit_fixture(self):
         self.raw += [
             {"id": "fixture#6", "script": {"assembly": "UI", "class": "Loot_Mgr"},
