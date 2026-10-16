@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 import time
 
-from . import bounded, publication_evidence
+from . import bounded
 from .git_transaction import command
 from .storage import ContractError, digest, git, git_records, json_bytes, within
 
@@ -257,10 +257,7 @@ def publication_provenance(root):
                 commits.setdefault(key, set()).update(qualified)
         except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.TimeoutExpired) as exc:
             errors.append({"path": path.relative_to(root).as_posix(), "error": str(exc)})
-    confirmations, confirmation_errors = publication_evidence.confirmations(root)
-    for key, revisions in confirmations.items():
-        commits.setdefault(key, set()).update(revisions)
-    return commits, errors + confirmation_errors
+    return commits, errors
 
 
 def _pin_refs(common):

@@ -23,7 +23,7 @@ def contract():
     return {name: digest((folder / name).read_bytes().replace(b"\r\n", b"\n"))
             for name in ("release.py", "release_prepare.py", "entrypoints.py", "release_content.py", "release_output.py", "ownership.py", "release_partitions.py",
                          "capacity.py", "capacity_inventory.py", "capacity_projection.py", "shard_index.py", "capture_catalog.py", "physical.py",
-                         "git_transaction.py", "publication_git.py", "publication_evidence.py", "release_bootstrap.js", "workspace.py")}
+                         "git_transaction.py", "publication_git.py", "release_bootstrap.js", "workspace.py")}
 
 
 def bases(project):

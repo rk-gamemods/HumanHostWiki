@@ -366,14 +366,12 @@
       "description": "GitHub Pages provisioning, publication gates and topic-first deployment.",
       "paths": [
         "wikibuild/publication*.py",
-        "wikibuild/topic_confirmation.py",
         "wikibuild/publish_gate.py",
         "wikibuild/github_pages.py",
         "tools/rehearse_publication.py"
       ],
       "tests": [
         "tests/test_publication*.py",
-        "tests/test_topic_confirmation.py",
         "tests/test_publish_gate.py",
         "tests/test_rehearsal.py",
         "tests/test_github_pages.py"

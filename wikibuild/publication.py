@@ -15,7 +15,7 @@ from .storage import ContractError, digest, git, json_bytes, within, write_chang
 
 def contract():
     modules = {name: digest((Path(__file__).parent / name).read_bytes().replace(b"\r\n", b"\n"))
-            for name in ("publication.py", "publication_git.py", "publication_evidence.py", "topic_confirmation.py", "github_pages.py", "ownership.py", "entrypoints.py", "physical.py", "publish_gate.py")}
+            for name in ("publication.py", "publication_git.py", "github_pages.py", "ownership.py", "entrypoints.py", "physical.py", "publish_gate.py")}
     runner = Path(__file__).resolve().parents[1] / "tools/rehearse_publication.py"
     modules["tools/rehearse_publication.py"] = digest(runner.read_bytes().replace(b"\r\n", b"\n"))
     return modules
