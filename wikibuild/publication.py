@@ -317,7 +317,7 @@ def prepare(root, project, manifest, host, refs, validation=None, pin_source_roo
             raise ContractError(f"Unexpected remote main: {name}")
         # The selected release already owns its exact prepared Pages commit,
         # just as it owns record["commit"] on main. No journal is needed.
-        if old_pages not in {prior["pages"] if prior else None, record.get("pages")} and not (
+        if old_pages not in {prior["pages"] if prior else None, record.get("pages", "")} and not (
                 publication_git.owned_lineage(path, prior["pages"] if prior else None, old_pages,
                     provenance=provenance.get((topic, record["path"], name), set()))):
             raise ContractError(f"Unexpected remote Pages branch: {name}")
