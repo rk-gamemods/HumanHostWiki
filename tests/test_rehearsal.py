@@ -728,7 +728,7 @@ class RehearsalTests(unittest.TestCase):
         self.assertTrue(all(ref["commit"] is None for ref in receipt["remote_refs"]))
         self.assertTrue(receipt["created_utc"].endswith("+00:00"))
 
-    def test_interrupted_receipt_promotion_archive_does_not_qualify_for_fresh_rehearsal(self):
+    def test_interrupted_receipt_promotion_requires_fresh_rehearsal_of_selected_pages(self):
         self.existing_release()
         self.rehearse()
         pointer = self.root / "publications/latest.json"
@@ -757,8 +757,7 @@ class RehearsalTests(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "rehearsal receipt is missing"):
                 self.fixture.run_publish()
         refs = dict(self.fixture.host.refs)
-        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
-            self.rehearse()
+        self.rehearse()
         self.assertEqual(self.fixture.host.refs, refs)
         self.assertFalse(receipt.exists())
         self.assertEqual((pointer.read_bytes(), history.read_bytes()), before)

@@ -315,13 +315,15 @@ def prepare(root, project, manifest, host, refs, validation=None, pin_source_roo
         abandoned_main = publication_git.released_lineage(path, prior["main"] if prior else None, old_main, record["commit"])
         if old_main not in {None, record["commit"], prior["main"] if prior else None} and not abandoned_main:
             raise ContractError(f"Unexpected remote main: {name}")
-        if old_pages != (prior["pages"] if prior else None) and not (
+        # The selected release already owns its exact prepared Pages commit,
+        # just as it owns record["commit"] on main. No journal is needed.
+        if old_pages not in {prior["pages"] if prior else None, record.get("pages", "")} and not (
                 publication_git.owned_lineage(path, prior["pages"] if prior else None, old_pages,
                     provenance=provenance.get((topic, record["path"], name), set()))):
             raise ContractError(f"Unexpected remote Pages branch: {name}")
         tree = git(path, "rev-parse", record["commit"] + ":site")
         if "pages" in record:
-            if record["pages_parent"] == old_pages:
+            if old_pages == record["pages"] or record["pages_parent"] == old_pages:
                 target = record["pages"]
             else:
                 # A scrapped publication may have advanced the rehearsed parent.

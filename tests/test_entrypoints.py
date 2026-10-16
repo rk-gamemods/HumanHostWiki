@@ -109,11 +109,7 @@ class EntrypointReleaseTests(unittest.TestCase):
         self.assertEqual(self.host.ref("Wiki-hub", "gh-pages"), published["repositories"]["hub"]["pages"])
         self.assertEqual(self.host.ref("Wiki-items", "gh-pages"), published["repositories"]["items"]["pages"])
         publication.abandon(self.root)
-        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
-            publication.run(self.root, self.project, second, host=self.host)
-        # Later failure scenarios start from the confirmed fake remote state.
-        # Abandonment itself never restores or adopts unconfirmed history.
-        self.host.refs = dict(confirmed_refs)
+        # A fresh run reuses selected replacement fronts after abandonment.
         self.host.fail_name = "Wiki-hub"
         with self.assertRaisesRegex(ContractError, "Injected public"):
             publication.run(self.root, self.project, second, host=self.host)

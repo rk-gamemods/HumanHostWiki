@@ -191,7 +191,12 @@ Corrupt or non-object journals are archived under an `unknown` release label.
 Because their attempt cannot be identified, all rehearsal receipts are invalidated;
 completed publication history is preserved. The next publication starts fresh after a new rehearsal
 against current refs; preparation may adopt this workspace's previously published
-lineage, but only when it matches the rehearsed refs. Before the first completed
+lineage or the exact Pages commit pinned by the selected local release, but only
+when it matches the rehearsed refs. An already selected Pages commit is reused
+without creating or pushing a redundant successor. Its site tree and direct pin
+still pass the normal checks, and the fresh invocation verifies its build and
+public bytes before hub promotion. No abandoned journal establishes ownership.
+Before the first completed
 publication, Pages lineage must start at a locally pinned publication root with
 durable publication provenance; main must be an ancestor of the selected release.
 If the Pages parent changed, its exact history is checked again.

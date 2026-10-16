@@ -435,6 +435,17 @@ class PublicationPinTests(unittest.TestCase):
         self.assertEqual(state["repositories"]["hub"]["old_pages"], first)
         self.assertEqual(state["repositories"]["hub"]["pages"], target)
         host.push.assert_not_called()
+        # A legacy manifest without a prepared Pages SHA cannot authorize a
+        # missing remote branch after a completed publication.
+        legacy = {**manifest, "repositories": {"hub": {"path": self.repo["path"], "commit": main}}}
+        missing = publication.RehearsedRefs([
+            {"repository": self.repo["github_name"], "branch": branch, "commit": value}
+            for branch, value in (("main", main), ("gh-pages", None))])
+        host.ref.side_effect = lambda name, branch: main if branch == "main" else None
+        with patch.object(publication, "published", return_value={"repositories": {"hub": {"main": main, "pages": first}}}), \
+                patch.object(publication, "provision", return_value={"hub": 1}):
+            with self.assertRaisesRegex(publication.ContractError, "Unexpected remote Pages branch"):
+                publication.prepare(self.root, project, legacy, host, missing)
 
     def test_exact_destination_commits_in_each_receipt_field_qualify(self):
         first = self.page("Published")
