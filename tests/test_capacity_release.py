@@ -153,9 +153,10 @@ class CapacityReleaseTests(unittest.TestCase):
             publication.run(self.root, self.project, result, host=self.host)
         publication.abandon(self.root)
         refs = dict(self.host.refs)
-        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
-            publication.run(self.root, self.project, result, host=self.host)
-        self.assertEqual(self.host.refs, refs)
+        public, _ = publication.run(self.root, self.project, result, host=self.host)
+        self.assertEqual(public["status"], "published")
+        self.assertTrue(all(self.host.refs[key] == value for key, value in refs.items()))
+        self.assertTrue(all(row["verified"] for row in public["repositories"].values()))
 
     def test_next_release_preserves_historical_partition_bytes_and_lock_membership(self):
         first, _ = self.run_release()

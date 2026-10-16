@@ -560,21 +560,19 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(pending["repositories"]["hub"]["verified"])
         self.assertEqual(publication.published(self.root), first)
         publication.abandon(self.root)
-        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
-            self.run_publish()
+        self.assertEqual(self.run_publish()[0]["status"], "published")
         self.assertEqual(self.host.ref("Wiki-hub", "gh-pages"), hub_commit)
         self.assertEqual(sum(e[:3] == ("push", "Wiki-hub", "gh-pages") and e[3] == hub_commit
                              for e in self.host.events), 1)
 
-    def test_interrupted_push_requires_abandonment_and_keeps_unconfirmed_history_refused(self):
+    def test_interrupted_push_requires_abandonment_then_reuses_selected_commit(self):
         self.host.interrupt_name = "Wiki-items"
         with self.assertRaises(KeyboardInterrupt):
             self.run_publish()
         target = self.host.ref("Wiki-items", "gh-pages")
         self.assertIsNone(publication.published(self.root))
         publication.abandon(self.root)
-        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
-            self.run_publish()
+        self.assertEqual(self.run_publish()[0]["status"], "published")
         self.assertEqual(self.host.ref("Wiki-items", "gh-pages"), target)
         self.assertEqual(sum(e[:3] == ("push", "Wiki-items", "gh-pages") for e in self.host.events), 1)
 
