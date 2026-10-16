@@ -97,6 +97,7 @@ bounded API adapter and authentication. No new credentials or dependencies are u
 | `wikibuild/publish_gate.py` | Clean merged commit, exact-commit CI and rehearsal/live-ref preflight |
 | `wikibuild/publication.py` | Provisioning identity receipts, prepared plans, topic verification, hub promotion, rollback and local abandonment |
 | `wikibuild/publication_git.py` | Public history audit and Pages commit trees without another checkout |
+| `wikibuild/publication_evidence.py`, `wikibuild/topic_confirmation.py` | Reviewed topic ownership evidence and independent read-only remote confirmation |
 | `wikibuild/github_pages.py` | GitHub CLI/API calls, fast-forward pushes, build observation and public HTTP hashes |
 | `wikibuild/release_bootstrap.js` | Resolve a requested release or follow the hub's coordinated selection |
 
@@ -202,6 +203,8 @@ refs with a null commit and their symbolic target. Ownership requires a hash-val
 completed publication receipt in `publications/*.json` whose bytes match the blob
 at `HEAD:publications/<id>.json`, naming that destination and commit, including
 adopted `old_pages` and recovery; saved or abandoned journals never qualify.
+An independent topic confirmation described below can qualify its exact Pages
+commit. It never qualifies the hub or claims a coordinated publication.
 Committed receipts are trusted as reviewed history; the residual risk of someone
 committing a simulated receipt is accepted and must be caught in review.
 After reviewing and confirming a pin is
@@ -233,6 +236,46 @@ unchanged run verifies current remote refs and small reader pointers or storage
 landing pages, reusing prior
 immutable-file checks. A changed release downloads only new/changed files and the
 entry shells; unchanged packs retain their earlier verification evidence.
+
+## Independently confirm advanced topics
+
+A failed invocation can leave valid topic sites ahead of the selected hub. After
+abandonment, journal evidence alone cannot establish ownership. If fresh
+preparation refuses those Pages branches, run:
+
+```powershell
+py -3 wiki.py confirm-topics --release <id>
+```
+
+This command holds the writer lock and makes remote reads only. It checks every
+advanced topic's repository identity, Pages settings, exact selected main commit,
+direct local publication pin, direct parent at the last reviewed published Pages
+commit (or no parent for a new destination), and exact selected site tree. It
+requires the latest Pages build to report `built` for that exact commit. All
+metadata checks precede downloads. It verifies changed public files plus entry
+shells against the selected ownership record, reusing unchanged files' completed
+publication evidence, then rechecks refs and settings before writing any proof.
+Unknown history, mismatched bytes, failed builds and observation drift leave no
+proof. The hub and all hub partitions are excluded. The command never creates a
+repository, enables Pages, pushes, requests a build or changes publication state.
+
+`topic-confirmations/<content-hash>.json` binds the committed release file,
+workspace ancestor, owner, destination IDs, refs, parent, tree, completed build
+and public-check digests/counts. Review the independent observations and commit
+the proof through the normal PR process. Only exact proof bytes at `HEAD`, bound
+to the exact committed release and configured destination, qualify that Pages
+commit for the existing lineage check. Uncommitted, staged or modified proof has
+no authority. An unchanged repeat rechecks remote evidence and preserves the
+proof's bytes and modification time, including after its review commit.
+
+After the PR merges and exact-main CI passes, rehearse current live state and
+start a new publication. The failed invocation stays abandoned. No previous
+journal is resumed, no failed receipt becomes completed, and no branch history
+is rewritten. On 2026-10-16 GitHub returned both failed and successful Pages
+builds for the same Crafting commit; publication stopped at the observed failure,
+leaving the hub unchanged. Independent confirmation covers that later successful
+build without weakening the publisher's error gate. This recovery path adds no
+network calls to normal game-update prechecks or successful publications.
 
 ## Commands and tests
 

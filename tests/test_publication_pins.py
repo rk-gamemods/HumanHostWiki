@@ -110,6 +110,39 @@ class PublicationPinTests(unittest.TestCase):
                 self.evidence(first, **({"gate": gate} if gate else {}))
                 self.assertTrue(self.owned(None, first))
 
+    def test_independent_topic_confirmation_qualifies_only_after_its_review_commit(self):
+        first = self.page('Confirmed baseline')
+        self.evidence(first)
+        selected = self.page('Selected topic bytes', first)
+        release_id = 'b' * 64
+        manifest = {'release_id': release_id, 'repositories': {'loot': {
+            'path': self.repo['path'], 'github_name': self.repo['github_name'], 'commit': selected}}}
+        manifest_path = self.root / 'releases' / (release_id + '.json')
+        manifest_path.parent.mkdir()
+        manifest_path.write_bytes(json_bytes(manifest))
+        (self.root / 'project.json').write_bytes(json_bytes({'github_owner': 'fixture', 'repositories': [
+            {**self.repo, 'role': 'topic'}]}))
+        git(self.root, 'add', 'releases', 'project.json')
+        git(self.root, 'commit', '-qm', 'Reviewed selected release')
+        payload = {'schema_version': 1, 'kind': 'topic-publication-confirmation', 'status': 'verified',
+                   'owner': 'fixture', 'release_id': release_id,
+                   'release_file_sha256': digest(manifest_path.read_bytes()),
+                   'workspace_commit': git(self.root, 'rev-parse', 'HEAD'),
+                   'repositories': {'loot': {'path': self.repo['path'], 'name': self.repo['github_name'],
+                       'repository_id': 1, 'role': 'topic', 'main': selected, 'pages': selected,
+                       'base_pages': first, 'tree': git(self.path, 'rev-parse', selected + '^{tree}'),
+                       'build_commit': selected, 'build_status': 'built',
+                       'build_url': 'https://api.github.com/repos/fixture/Wiki-loot/pages/builds/1',
+                       'files_sha256': 'c' * 64, 'checks_sha256': 'd' * 64, 'checked_files': 1}}}
+        identity = digest(json_bytes(payload))
+        path = self.root / 'topic-confirmations' / (identity + '.json')
+        publication.save(path, payload)
+        self.assertFalse(self.owned(first, selected))
+        self.commit_evidence(path)
+        self.assertTrue(self.owned(first, selected))
+        # Ownership confirmation never selects or claims a coordinated publication.
+        self.assertFalse((self.root / 'publications/latest.json').exists())
+
     def test_receipt_bytes_must_match_head_without_line_ending_normalization(self):
         first = self.page("Reviewed publication")
         path = self.evidence(first)

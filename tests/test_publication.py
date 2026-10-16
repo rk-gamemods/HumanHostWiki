@@ -15,6 +15,7 @@ import test_release
 from tests._support import fixture_dir
 from tests.test_github_pages import Clock
 from wikibuild import github_pages, publication, publication_git, reader, release, workspace
+from wikibuild import topic_confirmation
 from wikibuild.storage import ContractError, git, json_bytes
 
 
@@ -458,6 +459,37 @@ class PublicationTests(unittest.TestCase):
             self.run_publish()
         self.assertEqual((self.host.refs, self.host.events), before)
         self.assertEqual(publication.published(self.root), first)
+
+    def test_abandoned_topics_require_independent_committed_confirmation_before_fresh_publication(self):
+        first = self.abandon_partial_publication()
+        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
+            self.run_publish()
+        # A refused preparation has no effects, but leaves its failed boundary.
+        publication.abandon(self.root)
+        (self.root / "project.json").write_bytes(json_bytes(self.project))
+        git(self.root, "init", "-q")
+        git(self.root, "config", "user.name", "Fixture")
+        git(self.root, "config", "user.email", "fixture@example.invalid")
+        git(self.root, "add", "project.json", "releases", "publications")
+        git(self.root, "commit", "-qm", "Reviewed selected release")
+        real_api = self.host.api
+        def read(method, path, **kwargs):
+            if path.endswith("/pages/builds/latest"):
+                name = path.split("/")[2]
+                return {"commit": self.host.ref(name, "gh-pages"), "status": "built",
+                        "url": f"https://api.github.com/repos/{self.host.owner}/{name}/pages/builds/1"}
+            return real_api(method, path, **kwargs)
+        before = dict(self.host.refs), list(self.host.events)
+        with patch.object(self.host, "api", side_effect=read):
+            proof = topic_confirmation.run(self.root, self.project, self.manifest, host=self.host)
+        self.assertEqual(self.host.refs, before[0])
+        self.assertTrue(all(event[0] == "verified" for event in self.host.events[len(before[1]):]))
+        self.assertEqual(publication.published(self.root), first)
+        git(self.root, "add", proof["receipt"])
+        git(self.root, "commit", "-qm", "Reviewed independently verified topics")
+        result, _ = self.run_publish()
+        self.assertEqual(result["status"], "published")
+        self.assertEqual(result["release_id"], self.manifest["release_id"])
 
     def test_remote_main_is_adopted_only_on_this_workspaces_release_history(self):
         first, _ = self.run_publish()

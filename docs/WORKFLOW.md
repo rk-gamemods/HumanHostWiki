@@ -122,6 +122,12 @@ the selected release is preserved. After repairing the owning rules, run
 `update`; that update reuses the validated extraction and identity artifacts.
 Precheck alone creates no reader or release. See [the runner contract](PIPELINE.md).
 
+If an abandoned publication left topic branches ahead of the hub, use
+`py -3 wiki.py confirm-topics --release <id>` to independently check their live
+ownership and bytes. Review and commit its proof before fresh rehearsal and
+publication; the [publication contract](PUBLICATION.md#independently-confirm-advanced-topics)
+defines the accepted lineage and failure boundaries.
+
 ## Extract selected facts
 
 ```powershell

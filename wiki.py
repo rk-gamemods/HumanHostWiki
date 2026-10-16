@@ -9,6 +9,7 @@ import threading
 import time
 
 from wikibuild import bounded, extraction, history, identity_migration, manifest, navigation, pipeline, publication, reader, release, run_timing, snapshots, storage, workspace
+from wikibuild import topic_confirmation
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 # Backstop for every wait without its own bound. A normal update takes minutes; the
@@ -182,6 +183,9 @@ def _run(root, args, timing=None):
             changed = write_changed(output, data)
         return {"map": str(output), "changed": changed}
     with writer_lock(root):
+        if args.command == "confirm-topics":
+            return topic_confirmation.run(root, project, release.read(root, args.release),
+                progress=lambda message: print(message, file=sys.stderr, flush=True))
         if args.command == "abandon-publication":
             return publication.abandon(root)
         if args.command == "publish":
@@ -229,6 +233,7 @@ def main():
         sub.add_parser(command)
     sub.add_parser("publish", help="Publish a rehearsed release from clean, CI-green main").add_argument("--release", required=True)
     sub.add_parser("abandon-publication", help="Scrap an incomplete publication journal locally; no remote calls")
+    sub.add_parser("confirm-topics", help="Read-only remote confirmation of advanced topics; writes a proof for review, never publishes").add_argument("--release", required=True)
     sub.add_parser("publication-pins", help="Report unprovenanced publication pins and manual retirement commands; read-only")
     sub.add_parser("timing", help="Show saved run timings without changing state").add_argument("--last", type=int, default=1)
     sub.add_parser("map").add_argument("--check", action="store_true")
