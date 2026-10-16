@@ -191,7 +191,7 @@ class PublicationTests(unittest.TestCase):
         baselines = {"test_next_release_refuses_journal_only_abandoned_history",
                      "test_remote_main_is_adopted_only_on_this_workspaces_release_history",
                      "test_foreign_commit_on_a_published_branch_is_still_refused",
-                     "test_topic_failure_preserves_hub_then_refuses_journal_only_lineage",
+                     "test_topic_failure_preserves_hub_then_fresh_run_reuses_selected_pages",
                      "test_failed_hub_restores_previous_tree_without_rewriting_history",
                      "test_unavailable_hub_build_observation_requires_abandonment_before_fresh_run",
                      "test_unchanged_immutable_packs_do_not_download_again"}
@@ -480,7 +480,7 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch: Wiki-loot"):
             self.run_publish()
 
-    def test_topic_failure_preserves_hub_then_refuses_journal_only_lineage(self):
+    def test_topic_failure_preserves_hub_then_fresh_run_reuses_selected_pages(self):
         first, _ = self.run_publish()
         before = (self.root / "publications/latest.json").read_bytes()
         self.next_release()
@@ -495,10 +495,17 @@ class PublicationTests(unittest.TestCase):
             self.run_publish()
         publication.abandon(self.root)
         refs = dict(self.host.refs)
-        with self.assertRaisesRegex(ContractError, "Unexpected remote Pages branch"):
-            self.run_publish()
-        self.assertEqual(self.host.refs, refs)
-        self.assertEqual(before, (self.root / "publications/latest.json").read_bytes())
+        pushes = [event for event in self.host.events if event[0] == "push"]
+        result, _ = self.run_publish()
+        self.assertEqual(result["status"], "published")
+        self.assertEqual(result["release_id"], self.manifest["release_id"])
+        for topic in ("items", "loot"):
+            name = self.manifest["repositories"][topic]["github_name"]
+            self.assertEqual(self.host.ref(name, "gh-pages"), refs[(name, "gh-pages")])
+            self.assertEqual(result["repositories"][topic]["pages"], self.manifest["repositories"][topic]["pages"])
+        new_pushes = [event for event in self.host.events if event[0] == "push"][len(pushes):]
+        self.assertTrue(all(event[1] == "Wiki-hub" for event in new_pushes))
+        self.assertTrue(all(row["verified"] for row in result["repositories"].values()))
 
     def test_failed_hub_restores_previous_tree_without_rewriting_history(self):
         first, _ = self.run_publish()
