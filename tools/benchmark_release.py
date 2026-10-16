@@ -1,5 +1,6 @@
 """Measure a normal unchanged wiki update and verify all committed output is stable."""
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -60,7 +61,8 @@ def observe(root):
     return heads, files
 
 
-def main():
+def main(argv=None):
+    argparse.ArgumentParser(description=__doc__).parse_args(argv)
     root = Path(__file__).resolve().parents[1]
     before = observe(root)
     start = time.perf_counter()

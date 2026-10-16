@@ -30,7 +30,12 @@ class Definitions:
     def parse(self, data, assembly, path):
         from tree_sitter import Language, Parser
         import tree_sitter_c_sharp
-        tree = Parser(Language(tree_sitter_c_sharp.language())).parse(data)
+        # ILSpy can retain PDB closure-local names such as CS$<>8__locals0.
+        # They are invalid C# identifiers and can swallow later declarations in
+        # parser error recovery. A same-width in-memory spelling keeps every
+        # source line/byte locator intact; captured bytes and hashes stay original.
+        syntax = re.sub(rb'\bCS\$<>8__locals\d+\b', lambda match: match[0].replace(b'$<>', b'___'), data)
+        tree = Parser(Language(tree_sitter_c_sharp.language())).parse(syntax)
         self.collect(tree.root_node, assembly, path)
 
     def collect(self, node, assembly, path, prefix=''):

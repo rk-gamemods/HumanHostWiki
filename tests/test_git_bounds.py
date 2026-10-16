@@ -1,6 +1,8 @@
 """Converted callers time out actual owned stand-ins without network or repo writes."""
 
 from pathlib import Path
+import contextlib
+import io
 import subprocess
 import sys
 import threading
@@ -267,6 +269,16 @@ class GitBoundsTests(unittest.TestCase):
         self.assert_bound(benchmark_release, "UPDATE_TIMEOUT", lambda: benchmark_release.run_update(self.root))
         self.assertEqual(self.launches[0][0], sys.executable)
         self.assertEqual(Path(self.launches[0][1]).parent, self.root)
+
+    def test_benchmark_cli_options_never_start_an_update_or_inspect_worktrees(self):
+        for arguments, status in ((['--help'], 0), (['--unknown-option'], 2)):
+            with self.subTest(arguments=arguments), \
+                    patch.object(benchmark_release, 'observe', side_effect=AssertionError('Unexpected repository inspection')), \
+                    patch.object(benchmark_release, 'run_update', side_effect=AssertionError('Unexpected update')), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    benchmark_release.main(arguments)
+                self.assertEqual(raised.exception.code, status)
 
     def test_check_release_blob(self):
         self.assert_bound(check_release, "GIT_TIMEOUT", lambda: check_release.git(self.root, "show", "HEAD:site/index.html"))

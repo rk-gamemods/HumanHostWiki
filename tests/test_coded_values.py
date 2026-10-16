@@ -36,6 +36,25 @@ class CodedValuesTests(unittest.TestCase):
         fields = definitions.types[('Game', 'Horde_Mgr')]['fields']
         self.assertEqual({'count': 'int', 'active': 'bool'}, fields)
 
+    def test_generated_closure_locals_do_not_hide_later_enum_declarations(self):
+        source = '''public class Broken
+{
+ void M() { for (CS$<>8__locals0.index = 0; CS$<>8__locals0.index < items.Count; CS$<>8__locals0.index++) { Call(); } }
+}
+public class Intact
+{
+ public enum Kind { First, Second }
+ public Kind kind;
+ public bool active;
+}
+'''
+        definitions = self.definitions(source)
+        fields = definitions.selected('Game', 'Intact', {'kind': int, 'active': int})
+        self.assertEqual(('Game', 'Intact.Kind'), fields['/kind']['enum'])
+        self.assertEqual({0: 'First', 1: 'Second'}, definitions.enums[('Game', 'Intact.Kind')]['values'])
+        self.assertEqual(source.splitlines().index(' public enum Kind { First, Second }') + 1,
+                         definitions.enums[('Game', 'Intact.Kind')]['evidence']['line'])
+
     def subject(self, declaration='None, Rifle = 5, Shotgun'):
         definitions = self.definitions('class Weapon { public enum Kind { ' + declaration + ' } public Kind type; public bool active; }')
         state = {'definitions': definitions, 'fields': {('Game', 'Weapon'): definitions.selected('Game', 'Weapon', {'type': int, 'active': int})},

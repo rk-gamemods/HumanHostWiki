@@ -20,7 +20,7 @@ and reports unavailable checks separately from content exceptions. See
 
 ## Run timing
 
-Every `update` and `publish` saves a diagnostic record under
+Every `precheck`, `update` and `publish` saves a diagnostic record under
 `.local/runs/wiki-<command>-<UTC>-<8 hex>.json`, including failures and watchdog
 timeouts when the process can still write. `update --operator-report` and
 `publish` end with an aligned timing table. Capture can pass its receipt with
@@ -114,6 +114,13 @@ also invokes wiki processing when capture is unchanged. The wiki commands never
 invoke capture implicitly. To rerun only wiki processing against the existing
 capture, use `py -3 wiki.py update --operator-report`. New captures preserve the
 [application version](GAME_VERSION.md); older captures without evidence remain unknown.
+
+The update checks source contracts and identity before network and reader work.
+Exit 3 means input review is required; the grouped report names the changes and
+the selected release is preserved. After repairing the owning rules, run
+`py -3 wiki.py precheck --operator-report`. An `inputs-ready` result permits
+`update`; that update reuses the validated extraction and identity artifacts.
+Precheck alone creates no reader or release. See [the runner contract](PIPELINE.md).
 
 ## Extract selected facts
 

@@ -1,0 +1,53 @@
+{
+  "change_origin": "extractor-correction",
+  "contract_sha256": "af5dd93152f7bece2fdb734f298a4653424e0e0e2f96830d2fa812bbd3484dfc",
+  "corrections_sha256": "5d62a235dcc2da9cda53d48b721d214c434e54eb8b580e1bd9e4a31852a2c79f",
+  "counts": {
+    "changed": 38,
+    "new": 108,
+    "not-present": 99,
+    "unchanged": 27158
+  },
+  "exceptions": {
+    "group_count": 0,
+    "groups": [],
+    "kind": "unresolved-wiki-content",
+    "next_action": "No unresolved wiki content in the implemented extraction scope.",
+    "occurrences": 0,
+    "schema_version": 1
+  },
+  "extraction_run": "37b1724b46feeebd06b5507377ccf5d4121b549c3588ee2ddbf3347e35fc8970",
+  "input_identity": {
+    "inventory": "f5a8d6571059bbc06ddb90acb60117b348a6d6db",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "25986463",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "4807052833908504609",
+          "size": "54287474899"
+        }
+      }
+    }
+  },
+  "migration_id": "3b4d4222ca568da264ea22dc349f871cd27da95cb1715e4707efb8e133611e3f",
+  "models": {
+    "bytes": 112058320,
+    "path": ".local/history/objects/d419e5df3d2f80b81b60d90e7a5ec548df12e4543c1d3aa46603f45c2e2dd7fa.jsonl",
+    "sha256": "d419e5df3d2f80b81b60d90e7a5ec548df12e4543c1d3aa46603f45c2e2dd7fa"
+  },
+  "parent_run": "a7b3777c43f229a39ea1903ae391531e5f3e5d573818a2e58d6e54d2f7979742",
+  "request_key": "e4220193a293d3ea92feefc8e5f75f14edf6589df77934443109f87a1777f0ef",
+  "run_id": "74943e71c85d02ec8969c6bb7a9fcd2f46dfc03585a15f39c21eb45e39ea9b04",
+  "schema_version": 1,
+  "snapshot_id": "build-25986463-2b4e884f2e32",
+  "source_commit": "2b4e884f2e32821566eb062aba8e7b1522d4a851",
+  "state": {
+    "bytes": 40784074,
+    "path": "identity/states/cd213bf6780696144d1f8f5719f35dd0ea119d0c3c5a15b793ed5bdf9671bd57.jsonl",
+    "sha256": "cd213bf6780696144d1f8f5719f35dd0ea119d0c3c5a15b793ed5bdf9671bd57"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}

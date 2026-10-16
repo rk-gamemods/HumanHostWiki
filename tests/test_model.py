@@ -73,6 +73,21 @@ class ModelTests(unittest.TestCase):
         self.assertEqual("resolved", resolved[0]["status"])
         self.assertEqual(0, issues.report()["group_count"])
 
+    def test_prefab_path_does_not_keep_a_removed_component_present(self):
+        row = observation(source="bundle#1", name="Marker")
+        row.update(kind="world-rule", topic="world-systems",
+                   component={"assembly": "OldMap", "class": "Marker"})
+        path = "Assets/Marker.prefab"
+        old = {"type": "MonoBehaviour", "assembly": "OldMap", "class": "Marker",
+               "name": "Marker", "paths": [path]}
+        state = {"descriptor": identity.describe(row, {"bundle#1": old})}
+        for replacement in ({"type": "GameObject", "name": "Marker", "paths": [path]},
+                            {**old, "assembly": "NativeMap", "class": "NewMarker"}):
+            with self.subTest(replacement=replacement):
+                self.assertEqual("not-present", model.absent_status(state, ["world-rule"], {"bundle#2": replacement}))
+        moved = {**old, "name": "Renamed marker"}
+        self.assertEqual("unresolved", model.absent_status(state, ["world-rule"], {"bundle#2": moved}))
+
     def project(self, row, indexes, metadata=None, blob="a"):
         issues = Exceptions()
         projected = model.project(row, "e-source", (*indexes, {}), metadata or {},

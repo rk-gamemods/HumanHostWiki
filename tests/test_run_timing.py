@@ -414,6 +414,22 @@ class TimingTests(unittest.TestCase):
                     if command == "update":
                         self.assertIn("capture: capture", rendered)
 
+    def test_input_review_has_distinct_exit_status_and_timing_without_a_release(self):
+        for command in ('precheck', 'update'):
+            output = io.TextIOWrapper(io.BytesIO(), encoding='utf-8')
+            with patch.object(wiki.sys, 'argv', ['wiki.py', command, '--operator-report']), \
+                    patch.object(wiki, '__file__', str(self.root / 'wiki.py')), \
+                    patch.object(wiki.sys, 'stdout', output), \
+                    patch.object(wiki, '_run', return_value={'status': 'input-review-required', 'precheck_id': 'fixture'}), \
+                    patch.object(pipeline, 'operator_report', return_value='Input review required\n'):
+                self.assertEqual(wiki.main(), 3)
+            output.flush()
+            self.assertIn('Input review required', output.buffer.getvalue().decode())
+        records = [json.loads(path.read_bytes()) for path in self.records()]
+        self.assertEqual({'precheck', 'update'}, {record['command'] for record in records})
+        self.assertTrue(all(record['outcome'] == 'review-required' and record['release_id'] is None
+                            for record in records))
+
     def test_main_returns_timeout_when_expiry_claim_precedes_completion(self):
         output = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
         def execute(root, args, timing):

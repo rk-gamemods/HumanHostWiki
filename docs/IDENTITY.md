@@ -25,6 +25,9 @@ and candidate links; the process never chooses an arbitrary winner.
 An absent observation is `not-present` only when its source object is absent from
 a complete current catalog and its extraction kind remains supported. A present
 source object without an observation is an unresolved extraction/identity gap.
+A surviving prefab path proves presence only when its engine type, assembly and
+component class match the old anchor. A GameObject or replacement component at
+the same path does not keep a removed component artificially present.
 Missing capture scope is `uncaptured`. Historical states retain their original
 decision, evidence and semantic revision.
 

@@ -4,6 +4,29 @@ from .schema import NUMBER as N, V3, component, numbers
 from .technical import reviewed
 
 SPECS = (
+    component("Map_System_POI", "Map_POI", "world-rule", "world-systems", {
+        **numbers("visibleDistanceOverride visibleMinDistanceOverride visitedDistanceOverride radius"),
+        **dict.fromkeys("visibility titleVisibility canBeVisited hideWhenVisited miniMapVisibility".split(), int),
+    }, """clampPosition iconNonVisited iconScale iconVisited id isVisited minDistanceText
+miniMapClampPosition miniMapIconScale miniMapRotationAngleOffset miniMapShowRotation priority
+showPlayModeGizmo tintColor title""",
+       notes="Native map marker visibility, visit-distance overrides and radius. Positive distance overrides replace compass defaults; zero inherits them. Saved visit state, generated IDs, mutable titles and icon presentation are omitted. This is the replacement component, not an asserted identity merge with the removed CompassPro component."),
+    component("Player", "Map_Compass_Bar", "world-rule", "world-systems",
+              numbers("northDegrees nearDistance visibleDistance visibleMinDistance visitedDistance"),
+              """_barCanvasGroup _barRoot _cardinalTexts _clampedIconPrefab _halfWindImages
+_iconPrefab _ordinalTexts _text _textShadow _title _titleShadow alpha barWidth
+cardinalPointsVerticalOffset cardinalScale endCapsWidth fadeDuration halfWindsHeight
+halfWindsTintColor halfWindsWidth labelHotZone mapIconSize maxIconSize minIconSize ordinalScale
+scaleInDuration showCardinalPoints showDistance showDistanceFormat showHalfWinds showOrdinalPoints""",
+              notes="Native compass heading offset in degrees, marker visibility distances and visit distance defaults. UI layout, icons, labels and fading are omitted."),
+    component("Player", "Map_Fog_Of_War", "world-rule", "world-systems", {
+        "center": V3, "size": V3, "clearCore": N,
+    }, "fogColor textureSize",
+       notes="Map fog template bounds and fully cleared core fraction. World_Map_Mgr changes the bounds at runtime; these do not reveal explored locations. Fog texture resolution, colors and live pixel buffers are omitted."),
+    reviewed("Player", "Map_CompassBar_MeshModifier", "maxSegmentWidth",
+             "Compass-bar mesh segment width controls display curvature, not marker discovery."),
+    reviewed("UI", "Text_UI_Width_Follower", "_Margin _MinWidth _Text _othersRects",
+             "Text-driven rectangle width and layout bindings; no gameplay configuration."),
     component("CompassPro", "CompassNavigatorPro.CompassPro", "world-rule", "world-systems", {
         **numbers("_northDegrees _visibleDistance _visibleMinDistance _nearDistance _visitedDistance _sameAltitudeThreshold _fogOfWarAutoClearRadius _fogOfWarDefaultAlpha _miniMapZoomMin _miniMapZoomMax"),
         **dict.fromkeys("_use3Ddistance _fogOfWarEnabled _fogOfWarAutoClear".split(), int),

@@ -43,6 +43,7 @@ class IndexCounts:
 class Fields:
     selected: dict
     excluded: frozenset = frozenset()
+    alternatives: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -65,9 +66,10 @@ def numbers(names):
     return dict.fromkeys(names.split(), NUMBER)
 
 
-def component(assembly, name, kind, topic, selected, excluded="", **kwargs):
+def component(assembly, name, kind, topic, selected, excluded="", *, alternatives=(), **kwargs):
     return Component(assembly, name, kind, topic,
-                     Fields(selected, frozenset(excluded.split()) | UNITY), **kwargs)
+                     Fields(selected, frozenset(excluded.split()) | UNITY,
+                            tuple(frozenset(names.split()) for names in alternatives)), **kwargs)
 
 
 class Selection:
@@ -151,9 +153,15 @@ class Selection:
             if not isinstance(value, dict):
                 return self.invalid(path)
             result = {}
+            alternative_fields = frozenset().union(*schema.alternatives) if schema.alternatives else ()
+            if schema.alternatives and not any(names <= value.keys() for names in schema.alternatives):
+                self.issue("missing-field-layout", path,
+                           "No reviewed field layout is complete; present known fields were processed.")
             for key, child in schema.selected.items():
                 pointer = path + "/" + key.replace("~", "~0").replace("/", "~1")
                 if key not in value:
+                    if key in alternative_fields:
+                        continue
                     self.issue("missing-field", pointer, "A known field is absent; dependent facts were omitted.")
                     if isinstance(child, EnglishText):
                         result[child.field] = None

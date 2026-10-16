@@ -14,7 +14,7 @@ SLUG = re.compile(r"^[a-z][a-z0-9-]*$")
 # with the runner's enter() calls without importing or executing its stages.
 # Capture is the external handoff; promote is internal receipt bookkeeping.
 UPDATE_STAGE_ORDER = (
-    "register", "availability", "external-articles", "normalize", "identity",
+    "register", "normalize", "identity", "availability", "external-articles",
     "project", "verify", "release", "retention", "reader-retention",
 )
 

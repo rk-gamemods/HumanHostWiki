@@ -169,6 +169,11 @@ def absent_status(state, current_kinds, metadata, captured=True, capture=None):
         if anchor:
             capture = capture if capture is not None else CaptureIndex(metadata)
             # Presence does not require uniqueness; an extant split is a gap.
-            found = fingerprint(anchor) in capture.presence or any(capture.paths.get(path) for path in descriptor["paths"])
+            # A prefab GameObject can survive after its old component is removed.
+            # A path alone must not make that different type count as present.
+            found = fingerprint(anchor) in capture.presence or any(
+                all(not anchor.get(field) or metadata[key].get(column) == anchor[field]
+                    for field, column in (("engine_type", "type"), ("assembly", "assembly"), ("class", "class")))
+                for path in descriptor["paths"] for key in capture.paths.get(path, ()))
             return "unresolved" if found else "not-present"
     return "unresolved" if state["descriptor"]["source_object"] in metadata else "not-present"
