@@ -16,7 +16,7 @@ protects capture; pinned source identity is rechecked before wiki promotion.
 
 `project.json` declares capture as the external prerequisite, then the fixed
 local sequence below. Installed-input detection and capture reuse belong to the
-parent capture command. Steam availability runs after registration.
+parent capture command. Source and identity prechecks precede Steam availability.
 `manifest.stage_order` rejects a missing, extra or reordered stage and requires
 dependencies to enforce each consecutive step. Foundation tests compare the
 fixed order with `pipeline.run`'s stage-entry calls. Final receipt promotion is
@@ -25,15 +25,28 @@ internal bookkeeping after reader retention, not another product stage.
 | Stage | Completion evidence |
 | --- | --- |
 | Register | Clean, pinned source and immutable snapshot receipt |
-| Availability | Timestamped Steam branch observation or explicit unavailable status |
-| External articles | Versioned article observations or explicit provider unavailability |
 | Normalize | Selected observations, coverage, dependency hashes and content exceptions |
 | Identity | Durable identity decisions and normalized models |
+| Availability | Timestamped Steam branch observation or explicit unavailable status |
+| External articles | Versioned article observations or explicit provider unavailability |
 | Project | Validated static reader candidate |
 | Verify | Stage artifact checks, stable source and unchanged rules |
 | Release | Exact child commits, output hashes and immutable coordinated Git manifest |
 | Retention | Remove verified duplicate release staging payloads, preserving committed releases |
 | Reader retention | Share identical immutable reader files, preserving candidate paths |
+
+Unknown source fields, missing contracts or identity gaps stop the normal update
+before network, reader, release and retention work. Source exceptions also skip
+identity work until extraction is reviewed. Exit **3** means input review is
+required, with an immutable grouped report under `.local/pipeline/prechecks/`.
+The selected release and successful pipeline pointer remain unchanged.
+
+Run `py -3 wiki.py precheck --operator-report` after repairing an owning rule.
+It runs the same cached register/normalize/identity prefix and always stops there.
+Exit **0** with `inputs-ready` permits a normal update; it does not verify authored
+articles, links, reader output or publication. Later stages keep their own checks.
+There is no separate extraction implementation or extra parsing pass. The full
+update reuses these stage artifacts after validating their dependencies.
 
 The runner ends after [coordinated Git release](RELEASE.md), release retention and
 reader retention. [Pages publication](PUBLICATION.md) is a separate gated operator
@@ -44,7 +57,7 @@ public availability or gameplay verification. [ACCEPTANCE.md](ACCEPTANCE.md) own
 delivery status and evidence limits.
 
 [Build availability](AVAILABILITY.md) is checked independently after source
-registration. Remote unavailability is reported separately while supported content
+source and identity review. Remote unavailability is reported separately while supported content
 continues. Its immutable observation participates in request and reader identities;
 it cannot change source receipts or grant gameplay verification.
 
@@ -52,8 +65,11 @@ it cannot change source receipts or grant gameplay verification.
 
 Operational receipts live under `.local/pipeline/`:
 
-- `requests/<hash>.json` freezes the inputs and previous successful run before
-  extraction. A retry keeps this baseline even if intermediate stages completed.
+- `prechecks/<hash>.json` records the pinned source, contracts and completed
+  source/identity checks without selecting a release or claiming unrun checks passed.
+- `requests/<hash>.json` freezes full-update inputs and the previous successful
+  run after precheck and network observations. A retry keeps this baseline even
+  if intermediate stages completed.
 - `runs/<hash>.json` records completed stage identities, the source comparison
   baseline, remaining work and the grouped exception list. Contents determine
   the full hash. Timing and reuse metrics stay outside this immutable result.
@@ -88,7 +104,7 @@ awaiting publication retain their manifests, committed objects and reader paths.
 
 ## Run timing schema
 
-`wikibuild/run_timing.py` owns command diagnostics. Each `update` and `publish`
+`wikibuild/run_timing.py` owns command diagnostics. Each `precheck`, `update` and `publish`
 exclusively creates one complete JSON file under
 `.local/runs/wiki-<command>-<UTC>-<8 hex>.json`. A flushed staging file is linked
 atomically to the final name without replacing existing records. Timing is
@@ -98,19 +114,19 @@ Save failures produce a warning without changing the command outcome.
 | Key | Type and meaning |
 | --- | --- |
 | `schema` | String, `humanhost.wiki-timing.v1` |
-| `command` | String, `update` or `publish` |
+| `command` | String, `precheck`, `update` or `publish` |
 | `started_at`, `finished_at` | UTC ISO 8601 strings |
 | `seconds` | Nonnegative wiki wall time from a monotonic clock |
-| `outcome` | `succeeded`, `failed` or `timed-out` |
+| `outcome` | `succeeded`, `review-required`, `failed` or `timed-out` |
 | `release_id` | Release identity string when known, otherwise null |
 | `stages` | Array of `{name, seconds, outcome, basis}` |
 | `capture` | Null, or `{seconds, outcome, phases: [{name, seconds, outcome}]}` |
 
-Update stages follow the pipeline, including partial duration of the active
+Update and precheck stages follow the pipeline, including partial duration of the active
 stage on failure or timeout. Publish stages include gate, preparation, topic
 phases, hub and other observed phases. Each repository also records push
 (`push_main + push_pages`), Pages wait (`pages_build`) and verification seconds,
-including rollback work. Stage outcomes are `succeeded`, `failed`, `timed-out`
+including rollback work. Stage outcomes are `succeeded`, `review-required`, `failed`, `timed-out`
 or `not-run`. `basis` is `wall` for stages/phases and `repository-sum` for
 repository details. Repository sums overlap parallel wall phases; adding all
 rows does not yield elapsed time. The three largest items use capture phases

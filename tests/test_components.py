@@ -94,6 +94,26 @@ class ComponentTests(unittest.TestCase):
                 self.assertEqual([("new-field", "Sound_Mgr/newMaterialField")],
                                  [(group["code"], group["pattern"]) for group in issues.report()["groups"]])
 
+    def test_sound_manager_accepts_only_reviewed_layouts_and_validates_present_fields(self):
+        spec = components.BY_CLASS[("Sound_FX", "Sound_Mgr")]
+        for values, expected in (
+                ({"_FallbackFootSFX": "Rock"}, []),
+                ({}, ["missing-field-layout"]),
+                ({"_SFE_SoundMatName": ""}, ["missing-field-layout"]),
+                ({"_FallbackFootSFX": 7}, ["unsupported-field-type"]),
+                ({"_FallbackFootSFX": "Rock", "_Layer0SoundMatName": 7}, ["unsupported-field-type"]),
+                ({"_FallbackFootSFX": "Rock", "future": 1}, ["new-field"])):
+            with self.subTest(values=values):
+                issues = Exceptions()
+                selector = Selection({"id": "fixture#1"}, spec, issues)
+                facts = selector.select({"_All_Sound_Mats": [], **values}, spec.fields)
+                self.assertEqual(expected, [group["code"] for group in issues.report()["groups"]])
+                if isinstance(values.get("_FallbackFootSFX"), str):
+                    self.assertEqual(values["_FallbackFootSFX"], facts["_FallbackFootSFX"])
+                else:
+                    self.assertNotIn("_FallbackFootSFX", facts)
+                self.assertNotIn("future", facts)
+
     def test_item_slot_manager_omits_only_reviewed_pickup_event(self):
         spec = components.BY_CLASS[("UI", "Item_Slot_Mgr")]
         data = {name: [] if isinstance(schema, list) else 2 for name, schema in spec.fields.selected.items()}

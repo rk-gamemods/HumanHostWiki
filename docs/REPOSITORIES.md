@@ -79,14 +79,14 @@ flowchart LR
   capture["capture: external-existing"]
   register["register: implemented"]
   capture --> register
-  availability["availability: implemented"]
-  register --> availability
-  external-articles["external-articles: implemented"]
-  availability --> external-articles
   normalize["normalize: implemented"]
-  external-articles --> normalize
+  register --> normalize
   identity["identity: implemented"]
   normalize --> identity
+  availability["availability: implemented"]
+  identity --> availability
+  external-articles["external-articles: implemented"]
+  availability --> external-articles
   project["project: implemented"]
   identity --> project
   external-articles --> project
@@ -104,10 +104,10 @@ flowchart LR
 | --- | --- | --- |
 | capture | HumanHostMods/tools/Decompile-GameCode.ps1; installed-input detection and capture reuse | external-existing |
 | register | wikibuild/snapshots.py | implemented |
+| normalize | wikibuild/extraction.py and topic adapters; source exceptions stop before identity and expensive output stages | implemented |
+| identity | wikibuild/identity.py, model.py and history.py | implemented |
 | availability | wikibuild/availability.py; Steam branch observations are independent of gameplay verification | implemented |
 | external-articles | wikibuild/external_links.py and mediawiki.py; bounded versioned article checks | implemented |
-| normalize | wikibuild/extraction.py and topic adapters | implemented |
-| identity | wikibuild/identity.py, model.py and history.py | implemented |
 | project | wikibuild/reader.py, curation.py, curated_rules.py, external_links.py, packs.py, pages.py and web/ | implemented |
 | verify | reader artifact checks, declared claim checks and independent tools/check_*.py; runtime verification remains explicitly scoped | implemented |
 | release | wikibuild/release.py and git_transaction.py; selected-fact Git releases | implemented |

@@ -118,7 +118,7 @@ class FoundationTests(unittest.TestCase):
                     stages["availability"]["id"] = "detect"
                     stages["external-articles"]["depends_on"] = ["detect"]
                 else:
-                    stages["normalize"]["depends_on"] = ["register"]
+                    stages["normalize"]["depends_on"] = ["capture"]
                 with self.assertRaisesRegex(ContractError, "pipeline.run"):
                     manifest.validate(self.root, project)
 

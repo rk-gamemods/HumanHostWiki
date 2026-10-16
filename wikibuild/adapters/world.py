@@ -50,9 +50,14 @@ preLoadParticles unityVolume wetnessLevel""",
     }, "Mask_13_21 PullBackTheseObjects PullBackTheseObjectsChildren _LD_CornerFadeData _LU_CornerFadeData _RD_CornerFadeData _RU_CornerFadeData _terraWorldSeed neutralizedPlayerMove",
        notes="Serialized terrain-layer order, prefab bindings and streaming dimensions. The check interval is seconds. Player/world seed, live positions, origin-shift bindings and texture blending are omitted."),
     component("Player", "World_Map_Mgr", "world-rule", "world-systems", {
-        **numbers("_ClearRadius _ClearIntervalDis _MaxScaleFactor"), "_timeOffsetMinutes": int,
-    }, "_BlackBG _BuildTooltip _CompassPro _DragSpeedFactor _DragTrans _EnviroSkyVolume _Flag_Custom _Flag_Custom_Top _GameDaysText _GameTimeText _Map_DirectionalLight _MipMapRectTrans _MipMapRoot _OnOpenCloseMap _OpenSFX _PlayerPosText _Volume _inOpenMap _saveID",
-       notes="Map exploration reveal radius/grid spacing, zoom limit and displayed clock offset in minutes. Explored locations, player positions, markers and save identifiers are omitted."),
+        **numbers("_ClearRadius _ClearIntervalDis _MaxScaleFactor _MinScaleFactor _fogMinRefreshScale _zoomSpeed _zoomStepPerNotch _zoomLerpSpeed _dragSpeedFar _dragSpeedNear _mapPhotoWorldSize _fogWindowScale"), "_timeOffsetMinutes": int,
+    }, """_BlackBG _BuildTooltip _CompassPro _DragSpeedFactor _DragTrans _EnviroSkyVolume _Flag_Custom _Flag_Custom_Top _GameDaysText _GameTimeText _Map_DirectionalLight _MipMapRectTrans _MipMapRoot _OnOpenCloseMap _OpenSFX _PlayerPosText _Volume _inOpenMap _saveID
+_CompassBar _Fog _HideObjs _MapOverlay _capAmbientColor _capIndirectDiffuseMultiplier
+_capShadowMaxDistance _capShadowOverrideSplits _captureAllTerrainsTrees _captureCameraMask
+_captureTrees _captureUseVolumeWhitelist _debugHideFogOverlay _mapContrast _mapIconSizeFar
+_mapIconZoomUpScale _mapLabelYOffset _mapPhotoLayer _mapPhotoResolution _mapPostExposure
+_mapSaturation _mapSharpenIntensity _pinCaptureAmbient""",
+       notes="Map reveal radius/grid spacing, zoom and drag settings, fog refresh/window parameters, template map world span and displayed clock offset in minutes. Explored locations, player positions, markers and save identifiers are omitted. Map-photo rendering, lighting, icon appearance and UI bindings are omitted."),
     component("Weather", "Local_Wheather_Zone", "world-rule", "world-systems", {
         "_ZoneSets": Ref("weather-zone-settings"),
     }, "_WeatherChances", notes="Local weather zone's settings reference; runtime chance cache is excluded."),

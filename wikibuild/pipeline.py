@@ -60,7 +60,7 @@ def contracts(root, project):
             "reader": reader.contract(), "release": release.contract()}
 
 
-def run(root, project, source, progress=None, timing_sink=None):
+def run(root, project, source, progress=None, timing_sink=None, precheck_only=False):
     """Caller holds writer_lock. Stage receipts survive a later stage's failure."""
     started = datetime.now(timezone.utc)
     clock = perf_counter()
@@ -87,6 +87,29 @@ def run(root, project, source, progress=None, timing_sink=None):
             progress(stage)
         receipt = snapshots.register(root, project, source)
         completed[stage] = {"snapshot_id": receipt["snapshot_id"], "source_commit": receipt["source_commit"]}
+        pinned_contracts = contracts(root, project)
+        reviewed = history.corrections(root)
+        authored = curation.definition_inputs(curation.definitions(root, project))
+        enter("normalize")
+        if progress:
+            progress(stage)
+        extracted, metrics[stage] = extraction.run(root, project, source, receipt)
+        completed[stage] = {"run_id": extracted["run_id"], "counts": extracted["counts"]}
+        reports[stage] = json.loads(extraction.artifact(root, extracted["exceptions"]).read_text(encoding="utf-8"))
+        if not reports[stage]["group_count"]:
+            enter("identity")
+            if progress:
+                progress(stage)
+            normalized, metrics[stage] = history.run(root, source, receipt, extracted)
+            completed[stage] = {"run_id": normalized["run_id"], "counts": normalized["counts"]}
+            reports[stage] = normalized["exceptions"]
+        if precheck_only or any(value["group_count"] for value in reports.values()):
+            extraction.ensure_source(source, receipt["source_commit"])
+            if pinned_contracts != contracts(root, project) or history.corrections(root) != reviewed:
+                raise ContractError("Precheck inputs changed during processing; prior release preserved")
+            invocation = precheck_result(root, receipt, pinned_contracts, completed, reports, current, metrics, timings)
+            status = invocation["status"]
+            return invocation
         enter("availability")
         observed, metrics[stage] = availability.refresh(root, project, receipt["steam"], progress)
         if observed:
@@ -100,9 +123,6 @@ def run(root, project, source, progress=None, timing_sink=None):
             articles, metrics[stage] = external_links.refresh(root, article_options["source"], progress,
                 cache_seconds=article_options["cache_seconds"], retry_seconds=article_options["retry_seconds"])
             completed[stage] = {"observation_id": digest(json_bytes(articles)), **external_links.summary(articles)}
-        pinned_contracts = contracts(root, project)
-        reviewed = history.corrections(root)
-        authored = curation.definition_inputs(curation.definitions(root, project))
         request_key = digest(json_bytes([receipt, project, pinned_contracts, reviewed, observed, articles, authored]))
         request_path = within(root, f".local/pipeline/requests/{request_key}.json")
         if request_path.exists():
@@ -121,18 +141,6 @@ def run(root, project, source, progress=None, timing_sink=None):
             previous = current
             immutable(request_path, {"request_key": request_key, "previous_run": current["run_id"] if current else None})
 
-        enter("normalize")
-        if progress:
-            progress(stage)
-        extracted, metrics[stage] = extraction.run(root, project, source, receipt)
-        completed[stage] = {"run_id": extracted["run_id"], "counts": extracted["counts"]}
-        reports[stage] = json.loads(extraction.artifact(root, extracted["exceptions"]).read_text(encoding="utf-8"))
-        enter("identity")
-        if progress:
-            progress(stage)
-        normalized, metrics[stage] = history.run(root, source, receipt, extracted)
-        completed[stage] = {"run_id": normalized["run_id"], "counts": normalized["counts"]}
-        reports[stage] = normalized["exceptions"]
         enter("project")
         if progress:
             progress(stage)
@@ -257,7 +265,39 @@ def run(root, project, source, progress=None, timing_sink=None):
                 pass  # Timing is diagnostic; it must never change the run's outcome.
 
 
+def precheck_result(root, receipt, pinned_contracts, completed, reports, current, metrics, timings):
+    # A source-only check cannot claim that an unrun identity stage resolved gaps.
+    baseline = {"groups": [group for group in (current or {}).get("exceptions", {}).get("groups", [])
+                           if group["stage"] in reports]}
+    issues = report(reports, baseline)
+    status = "input-review-required" if issues["group_count"] else "inputs-ready"
+    next_step = ("Review the pinned source and repair the owning rules, then rerun py -3 wiki.py precheck."
+                 if issues["group_count"] else "Continue with py -3 wiki.py update --operator-report.")
+    saved = {"schema_version": 1, "kind": "source-precheck", "status": status,
+             "source_commit": receipt["source_commit"], "snapshot_id": receipt["snapshot_id"],
+             "game_version": receipt.get("game_version"), "contracts": pinned_contracts,
+             "completed": completed, "exceptions": issues, "next_step": next_step}
+    identity = digest(json_bytes(saved))
+    path = within(root, f".local/pipeline/prechecks/{identity}.json")
+    immutable(path, saved)
+    return {"precheck_id": identity, "snapshot_id": receipt["snapshot_id"], "status": status,
+            "report": str(path), "exception_groups": issues["group_count"], "next_step": next_step,
+            "remaining": ["source-review"] if issues["group_count"] else ["update"],
+            "metrics": metrics, "timings": timings}
+
+
 def operator_report(root, result):
+    if "precheck_id" in result:
+        saved = json.loads(within(root, f".local/pipeline/prechecks/{result['precheck_id']}.json").read_text(encoding="utf-8"))
+        if saved.get("kind") != "source-precheck" or digest(json_bytes(saved)) != result["precheck_id"]:
+            raise ContractError("Precheck report identity differs")
+        lines = [f"Wiki input precheck for {saved['snapshot_id']}.", f"Status: {saved['status']}.",
+                 f"Application version: {saved['game_version'] or 'unknown'}.", f"Report: {result['report']}",
+                 "Reader, release, publication and retention stages were not run.",
+                 f"Unresolved content: {saved['exceptions']['group_count']} groups, {saved['exceptions']['occurrences']} occurrences."]
+        lines.extend(f"- [{group['topic']}/{group['stage']}] {group['code']}: {group['pattern']} ({group['occurrences']})"
+                     for group in saved["exceptions"]["groups"])
+        return "\n".join([*lines, saved["next_step"]]) + "\n"
     saved = read(root, result["run_id"])
     lines = [f"Wiki supported stages completed for {saved['snapshot_id']}.",
              (f"Status: published at {saved['completed']['publish']['hub']}."

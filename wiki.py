@@ -140,14 +140,14 @@ def deadline(seconds, command, stop=os._exit, timing=None, report=False):
 def run(root, args, timing=None):
     if args.command == "timing":
         return run_timing.latest(root, args.last)
-    if args.command not in {"update", "publish"}:
+    if args.command not in {"update", "precheck", "publish"}:
         return _run(root, args)
     timing = timing or run_timing.Recorder(root, args.command, getattr(args, "release", None),
                                          getattr(args, "capture_timing", None))
     outcome, result = "failed", None
     try:
         result = _run(root, args, timing)
-        outcome = "succeeded"
+        outcome = "review-required" if result.get("status") == "input-review-required" else "succeeded"
         return result
     finally:
         timing.finish(outcome, result)
@@ -192,6 +192,10 @@ def _run(root, args, timing=None):
         if args.command == "update":
             source = Path(args.source) if args.source else root / project["source"]["default_path"]
             return pipeline.run(root, project, source, progress=lambda stage: print(f"Wiki: {stage}", file=sys.stderr, flush=True), timing_sink=timing)
+        if args.command == "precheck":
+            source = Path(args.source) if args.source else root / project["source"]["default_path"]
+            return pipeline.run(root, project, source, progress=lambda stage: print(f"Wiki: {stage}", file=sys.stderr, flush=True),
+                                timing_sink=timing, precheck_only=True)
         if args.command == "lock":
             result = workspace.checkout_lock(root, project)
             return {"lock": result["kind"], "repositories": len(result["repositories"])}
@@ -244,11 +248,14 @@ def main():
     update.add_argument("--source", help="Captured local codebase; default from project.json")
     update.add_argument("--operator-report", action="store_true", help="Print the grouped exception list after supported stages finish")
     update.add_argument("--capture-timing", help="Optional humanhost.capture-timing.v1 receipt")
+    precheck = sub.add_parser("precheck", help="Check selected source and identity before network, rendering or release work")
+    precheck.add_argument("--source", help="Captured local codebase; default from project.json")
+    precheck.add_argument("--operator-report", action="store_true", help="Print the grouped source review report")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent
     timing = (run_timing.Recorder(root, args.command, getattr(args, "release", None), getattr(args, "capture_timing", None))
-              if args.command in {"update", "publish"} else None)
-    show_timing = args.command == "publish" or (args.command == "update" and args.operator_report)
+              if args.command in {"update", "precheck", "publish"} else None)
+    show_timing = args.command == "publish" or (args.command in {"update", "precheck"} and args.operator_report)
     watchdog = deadline(UPDATE_DEADLINE, args.command, timing=timing, report=show_timing) if timing else None
     def timed_out():
         return timing is not None and (timing.outcome == "timed-out" or watchdog.expired.is_set())
@@ -260,7 +267,7 @@ def main():
             watchdog.join(CLEANUP_GRACE + 2)
         if timed_out():
             return 124
-        if args.command == "update" and args.operator_report:
+        if args.command in {"update", "precheck"} and args.operator_report:
             # The command table replaces the legacy stage-only Time section.
             report_result = {key: value for key, value in result.items() if key != "timings"}
             sys.stdout.buffer.write(pipeline.operator_report(root, report_result).encode("utf-8"))
@@ -281,7 +288,7 @@ def main():
                 sys.stdout.buffer.write(run_timing.table(timing.record).encode("utf-8"))
             except (Exception, KeyboardInterrupt) as exc:
                 run_timing.warning(f"Wiki timing could not be printed: {exc}")
-    return 0
+    return 3 if isinstance(result, dict) and result.get("status") == "input-review-required" else 0
 
 
 if __name__ == "__main__":

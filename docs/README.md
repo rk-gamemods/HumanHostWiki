@@ -44,6 +44,7 @@ or contents.
 | [WORKFLOW.md](WORKFLOW.md) | Operator setup, commands and recovery steps | Operator procedure | `wiki.py`, `tools/` | Command owners' suites; `test_foundation.py` checks links |
 | [HumanHostMods game-update runbook](../../docs/RUNBOOK-game-update.md) | End-to-end operator procedure for a game update | Operator procedure, parent repository | Parent capture entrypoint; `wiki.py`, `pipeline.py` own the wiki handoff | HumanHostMods PR #13, reported by the coordinator; `test_pipeline.py`, `test_cli_publication.py` cover the local wiki boundary |
 | [REPOSITORIES.md](REPOSITORIES.md) | Derived repository, navigation and stage map | Generated | `project.json`, `manifest.py::repository_map` | `test_foundation.py`; `wiki.py map --check` |
+| [UPDATE_0.8.323.md](UPDATE_0.8.323.md) | Source-review dispositions and measured fast-precheck results for Steam build 25986463 | Dated historical evidence, 2026-10-16 | `adapters/`, `model.py`, `pipeline.py` | Source, history, reader and release audits; precheck timing receipts |
 | [IMPLEMENTATION.md](IMPLEMENTATION.md) | Implementation checkpoint results through 2026-09-27 | Dated historical evidence | Modules named at each checkpoint | Checkpoint logs and audit results |
 | [BASELINE_RECONCILIATION.md](BASELINE_RECONCILIATION.md) | Initial rule-review decisions for build 25548639 | Dated historical evidence, 2026-09-27 | `adapters/`, `exceptions.py` | Recorded source reviews and baseline audits |
 | [BASELINE_INVENTORY.md](BASELINE_INVENTORY.md) | Original exception-to-rule reconciliation | Dated historical evidence, 2026-09-27 | `adapters/components.py`, `adapters/schema.py`, `adapters/catalog_policy.py` | Baseline ledger and recorded source/history audits |
@@ -52,7 +53,8 @@ or contents.
 
 ## Rules of the road
 
-- An update stops at the local release, release retention and reader retention.
+- Source or identity review stops an update at its fast precheck. A clean update
+  continues through local release, release retention and reader retention.
   [PIPELINE.md](PIPELINE.md) owns that boundary.
 - Publish only through the separate operator command and the
   [production gate](PUBLICATION.md#production-gate).

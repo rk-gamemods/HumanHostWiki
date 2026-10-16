@@ -50,7 +50,7 @@ class PipelineTests(unittest.TestCase):
     def test_rule_change_during_run_is_reread_at_verify_and_preserves_success(self):
         first = self.run_pipeline()
         pointer = self.latest().read_bytes()
-        self.modify(_Weight=8)
+        self.modify(MaxStack=19)
         original = pipeline.release_retention.contract()
         pipeline.release.run.reset_mock()
 
@@ -93,7 +93,7 @@ class PipelineTests(unittest.TestCase):
         location = failure["error"]["location"]
         self.assertEqual(failure, {
             "schema_version": 1, "kind": "execution-failure", "request_key": None,
-            "snapshot_id": previous["snapshot_id"], "failed_stage": "external-articles",
+            "snapshot_id": previous["snapshot_id"], "failed_stage": "register",
             "completed": {"register": {"snapshot_id": previous["snapshot_id"],
                                       "source_commit": previous["source_commit"]}},
             "error": {"type": "OSError", "message": "contract fault",
@@ -107,7 +107,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(path.name, pipeline.digest(json_bytes(failure)) + ".json")
         self.assertEqual(str(raised.exception.__cause__), "contract fault")
         self.assertEqual(str(raised.exception),
-                         f"Wiki stage external-articles failed: contract fault. Failure report: {path}")
+                         f"Wiki stage register failed: contract fault. Failure report: {path}")
         self.assertEqual(self.latest().read_bytes(), pointer)
 
     def test_timings_are_append_only_and_do_not_change_run_or_request_identity(self):
@@ -206,19 +206,43 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("parallel phases: 18.00 s wall-clock", text)
         self.assertIn("when parallel workers overlap", text)
 
-    def test_supported_update_completes_with_unknown_content(self):
+    def test_source_precheck_stops_unknown_content_before_network_or_heavy_stages(self):
+        first = self.run_pipeline()
+        baseline = self.latest().read_bytes()
+        pipeline.release.run.reset_mock()
         self.modify(MaxStack=19, NewUnparsedFeature="DO NOT EXPORT")
-        result = self.run_pipeline()
-        saved = pipeline.read(self.root, result["run_id"])
-        self.assertEqual(saved["status"], "git-release-ready")
-        self.assertEqual(saved["completed"]["release"]["publication"], "not-published")
+        with patch.object(pipeline.availability, 'refresh', side_effect=AssertionError('network before source review')), \
+                patch.object(pipeline.history, 'run', side_effect=AssertionError('identity before schema review')), \
+                patch.object(pipeline.reader, 'build', side_effect=AssertionError('heavy reader before source review')):
+            result = self.run_pipeline()
+        saved = json.loads(Path(result['report']).read_text())
+        self.assertEqual(saved["status"], "input-review-required")
+        self.assertEqual(set(saved['completed']), {'register', 'normalize'})
+        self.assertNotIn('release_id', result)
+        self.assertEqual(self.latest().read_bytes(), baseline)
+        pipeline.release.run.assert_not_called()
         self.assertTrue(any(group["code"] == "new-field" for group in saved["exceptions"]["groups"]))
         extracted = extraction.read(self.root, saved["completed"]["normalize"]["run_id"])
         facts = extraction.artifact(self.root, extracted["records"]).read_text(encoding="utf-8")
         self.assertIn('"MaxStack":19', facts)
         self.assertNotIn("DO NOT EXPORT", facts)
         self.assertIn("new-field", pipeline.operator_report(self.root, result))
-        self.assertEqual(result['remaining'], ['content-exceptions', 'publish'])
+        self.assertEqual(result['remaining'], ['source-review'])
+
+    def test_precheck_only_repeats_without_advancing_release_and_update_reuses_it(self):
+        with patch.object(pipeline.availability, 'refresh', side_effect=AssertionError('precheck network')), \
+                patch.object(pipeline.reader, 'build', side_effect=AssertionError('precheck reader')):
+            first = pipeline.run(self.root, test_extraction.PROJECT, self.source, precheck_only=True)
+            second = pipeline.run(self.root, test_extraction.PROJECT, self.source, precheck_only=True)
+        self.assertEqual(first['status'], 'inputs-ready')
+        self.assertEqual(first['precheck_id'], second['precheck_id'])
+        self.assertFalse(self.latest().exists())
+        self.assertTrue(second['metrics']['normalize']['reused'])
+        self.assertTrue(second['metrics']['identity']['reused'])
+        self.assertEqual(sum(row.get('source_bytes_read', 0) for row in second['metrics'].values()), 0)
+        updated = self.run_pipeline()
+        self.assertTrue(updated['metrics']['normalize']['reused'])
+        self.assertTrue(updated['metrics']['identity']['reused'])
 
     def test_repeat_keeps_same_receipt_pointer_and_reuses_all_stages(self):
         first = self.run_pipeline()
@@ -327,8 +351,11 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(retry["metrics"]["identity"]["reused"])
 
     def test_failed_and_skipped_captures_keep_last_successful_diff_base(self):
-        self.modify(NewUnparsedFeature=1)
         first = self.run_pipeline()
+        self.modify(NewUnparsedFeature=1)
+        stopped = self.run_pipeline()
+        self.assertEqual(stopped['status'], 'input-review-required')
+        del self.fixture.item['fields']['NewUnparsedFeature']
         self.modify(MaxStack=19)
         with patch.object(pipeline.reader, "build", side_effect=RuntimeError("reader fault")):
             with self.assertRaises(ContractError):
@@ -336,7 +363,7 @@ class PipelineTests(unittest.TestCase):
         self.modify(MaxStack=20)
         result = pipeline.read(self.root, self.run_pipeline()["run_id"])
         self.assertEqual(result["diff_base"], pipeline.read(self.root, first["run_id"])["source_commit"])
-        self.assertTrue(any(row["change"] == "unchanged" for row in result["exceptions"]["groups"]))
+        self.assertEqual(result['previous_run'], first['run_id'])
 
     def test_failure_at_final_promotion_reuses_prepared_receipt(self):
         first = self.run_pipeline()
@@ -410,7 +437,7 @@ class PipelineTests(unittest.TestCase):
             self.run_pipeline()
         self.assertEqual(before, self.latest().read_bytes())
 
-    def test_full_pipeline_commits_all_topics_despite_content_exceptions(self):
+    def test_full_pipeline_leaves_all_topics_untouched_until_source_review_is_clean(self):
         self.release_patch.stop()
         workspace.initialize(self.root, test_extraction.PROJECT)
         for repo in test_extraction.PROJECT['repositories']:
@@ -426,11 +453,22 @@ class PipelineTests(unittest.TestCase):
         workspace.checkout_lock(self.root, project)
         with patch.object(publication, 'run', side_effect=AssertionError('Unexpected publication')), \
                 patch.object(github_pages, 'GitHubPages', side_effect=AssertionError('Unexpected live host')):
+            heads = {repo['id']: git(self.root / repo['path'], 'rev-parse', 'HEAD')
+                     for repo in project['repositories']}
+            stopped = pipeline.run(self.root, project, self.source)
+            self.assertEqual(stopped['status'], 'input-review-required')
+            self.assertFalse(self.latest().exists())
+            for repo in project['repositories']:
+                path = self.root / repo['path']
+                self.assertEqual(heads[repo['id']], git(path, 'rev-parse', 'HEAD'))
+                self.assertFalse(git(path, 'status', '--porcelain'))
+            del self.fixture.item['fields']['NewUnparsedFeature']
+            self.modify(MaxStack=19)
             result = pipeline.run(self.root, project, self.source)
         saved = pipeline.read(self.root, result['run_id'])
         released = pipeline.release.read(self.root, saved['wiki_release'])
         self.assertEqual(len(released['repositories']), 13)
-        self.assertGreater(result['exception_groups'], 0)
+        self.assertEqual(result['exception_groups'], 0)
         self.assertEqual(result['status'], 'git-release-ready')
         self.assertIsNone(publication.published(self.root))
         self.assertGreater(result['metrics']['retention']['removed_files'], 0)

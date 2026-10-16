@@ -63,7 +63,7 @@ relationships. Raw numbers remain in provenance; no method bodies enter the wiki
 Booleans display Yes/No. The reader humanizes field labels and preserves the
 selected snapshot and release when following a value link.
 
-The current inventory contains 31 enum field contracts. For example, the captured
+The current inventory contains 34 enum field contracts. For example, the captured
 `Weapon_Range.AmmoType` maps 5 to 7.62x54mm. Its named entry links to the factory
 and material ammunition items using the captured Addressables and the game's
 reviewed address-building rule. Those helpers have syntax hashes, so a changed
@@ -75,6 +75,17 @@ Install the pinned source parser once with
 `py -3 -m pip install -r requirements-source.txt`. The source parser versions,
 adapter code, contract and captured input hashes participate in invalidation.
 No LLM, remote classification or package installation occurs during an update.
+
+ILSpy may emit invalid compiler-local names such as `CS$<>8__locals0`. The enum
+reader substitutes only that exact compiler-name pattern in memory before its
+single parse, preserving byte widths, captured bytes and declaration offsets.
+Unknown syntax still produces explicit missing-definition exceptions.
+
+Field-layout alternatives must name complete, reviewed layouts. `Sound_Mgr`
+accepts the older pair of material-name fields or the 0.8.323 fallback-footstep
+label. Present fields still require their declared types, and new fields still
+require review. This preserves historical facts without treating every field
+as optional.
 
 1. Inspect the generated views and selected raw records. Record the assembly,
    component class, field path, type and meaningful relationships.

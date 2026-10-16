@@ -31,10 +31,13 @@ _TreeFallCamShakeIntens _TreeHitGroundSFXs _TreeHitGroundVFX _attctZombies _hitN
        notes="Fracture/support settings, debris lifetime in seconds, falling-tree damage and alert distance, maximum falling-shard damage and log item/prefab bindings. Runtime fracture results and visual debris are omitted."),
     component("Build_System", "TopOnHit", "construction-rule", "construction", {
         "DamageFactor": N, "ImmuneMinDamage": N,
+        **numbers("_CreatureImpact_SlowKmh _CreatureImpact_SlowDmgPerKg _CreatureImpact_FastKmh _CreatureImpact_FastDmgPerKg _Min_Creature_Impact_Speed_Kmh _PreSmash_LookAhead _PreSmash_MinForward _PreSmash_MaxForward _PreSmash_MaxHP _PreSmash_MinSpeed _PreSmash_CacheRefresh"),
+        "_PreSmash_Enable": int,
     }, """Col_topInfo_origin Col_top_Info HitSituation NeedCheckTops OnSmashing Smashed_BIs
 This_topInfo_origin This_top_Info _IsFromPlayer _hitBaIWallInterval _lastHitBaITimeForPushWall
-_lastRuntimeFractureTimeP _lastVeloWhenHitBaI _pressedWS lastOnHitFrame smashPoints""",
-       notes="Collision-damage multiplier and immunity threshold defaults. Final damage also depends on collision speed, mass and hit context; live collision results and participants are omitted."),
+_lastRuntimeFractureTimeP _lastVeloWhenHitBaI _pressedWS lastOnHitFrame smashPoints
+_PreSmash_DebugDraw _PreSmash_DebugDuration""",
+       notes="Serialized collision-damage and creature-impact settings, plus vehicle pre-smash thresholds, look-ahead and cache interval. Kmh fields use km/h; pre-smash speed uses m/s, distance uses meters and intervals use seconds. Final damage depends on collision mass, speed and context. Live participants/results and diagnostic drawing are omitted."),
     component("Terrain", "Terrain_Dig", "construction-rule", "construction", {
         "_fallenDis": int, "addPull": N, "digPush": N, "_BlockModelRef": Ref("terrain-block-prefab"),
     }, "On_Digger_TreeFall UI_Canvas _EnableDebug _FixTesseSeamPrefab _InLoadingData _TerraBlockDropMesh _cachedGridMover diggerBufferSize diggerMaster diggerMasterRuntime saveDataManagerObj testConnectCube testEmptyCube testSupportCube",
@@ -60,7 +63,8 @@ repairedBIsSibling sysHouseTopSibiling""",
     }, "_TexSoundMatsRuntime _terrain _terrainCol",
        notes="Terrain material-table and terrain-data bindings. The live material array is rebuilt by Sound_Terrain.Start and is omitted."),
     component("Sound_FX", "Sound_Mgr", "construction-rule", "construction", {
-        "_All_Sound_Mats": [Ref("material")], "_SFE_SoundMatName": str, "_Layer0SoundMatName": str,
+        "_All_Sound_Mats": [Ref("material")], "_FallbackFootSFX": str,
+        "_SFE_SoundMatName": str, "_Layer0SoundMatName": str,
     }, """_AudioSourcePrefab _BossFootAFXs _ChaseBGMs _ChaseBGMs_Volume _ClosePack_Audio
 _CombatBGM_Source _Common_UI_Sounds _Decompose_Audio _Dismantle_Audio _EmoBGM_Source
 _Footstep_Library _GunAttachClose_SFX _GunAttachOpen_SFX _JumpLand_Library _MusicVolume
@@ -68,7 +72,8 @@ _OpenPack_Audio _PlayerFrictionGroundSFXs _PlayerFrictionGroundVolume _PlayerGea
 _Repair_Audio _ShieldOnSFXs _Slot_Drag_Audios _Slot_Drop_Audios _SoundVolume
 _emoBgmIntervalRange _inCombatBGM _inLerpBioEmoBGM _indoorRate _lastEmoBgmEndTime
 _nextEmoBgmInterval""",
-       notes="Shared material registry, underground material lookup key and layer-zero ground material lookup key. Empty keys remain empty. Audio playback libraries, music and runtime state are omitted."),
+       alternatives=("_FallbackFootSFX", "_SFE_SoundMatName _Layer0SoundMatName"),
+       notes="Shared material registry and fallback footstep routing label. The former underground and layer-zero material-name fields are absent in 0.8.323; historical facts remain in their captured versions. Audio playback libraries, music and runtime state are omitted."),
     component("Build_System", "Build_Info", "building-piece", "construction", {
         **numbers("CanBeRepair MaxSize NoRotate Shards_HP_All _AlignToSurface _Build_Mass _Ground_Debris_Type _IsFurniBI _ItemType _NoRuntimeSmash _Type _interactType _isBigProp _isDynamicBI _origBaI_HP _origHP_All"),
         "Size": V3, "ItemInfo": Ref("item-component"), "_soundObj": Ref("material-binding"),
