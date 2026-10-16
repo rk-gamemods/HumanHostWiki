@@ -1,0 +1,73 @@
+{
+  "change_origin": "game-input-change",
+  "contract_sha256": "f53c75cad1ed83724cb2ca250aa5da65083c9d488f8c6242572e26ab9eab7d77",
+  "corrections_sha256": "5d62a235dcc2da9cda53d48b721d214c434e54eb8b580e1bd9e4a31852a2c79f",
+  "counts": {
+    "changed": 62,
+    "new": 32,
+    "not-present": 22,
+    "unchanged": 27100,
+    "unresolved": 99
+  },
+  "exceptions": {
+    "group_count": 1,
+    "groups": [
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/mt_forest_assets_all.bundle::serialized-0#-357356821455443390",
+          "bundles/mt_forest_assets_all.bundle::serialized-0#-3916304265073430812",
+          "bundles/mt_forest_assets_all.bundle::serialized-0#6650339496725594244",
+          "bundles/mt_mountain_assets_all.bundle::serialized-0#-6725096461339991211",
+          "bundles/mt_mountain_assets_all.bundle::serialized-0#5525630831576948592",
+          "bundles/mt_mountain_assets_all.bundle::serialized-0#7583022700339249457",
+          "bundles/player_character_assets_all.bundle::serialized-0#-6789773124279629574",
+          "bundles/player_character_assets_all.bundle::serialized-0#1637973180008309167"
+        ],
+        "id": "76929e74db1852805f95d649",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 99,
+        "pattern": "world-rule",
+        "topic": "world-systems"
+      }
+    ],
+    "kind": "unresolved-wiki-content",
+    "next_action": "Ask the user how to handle these exceptions after supported work completes.",
+    "occurrences": 99,
+    "schema_version": 1
+  },
+  "extraction_run": "218b6ea1db6eaf1eb10b86582e007a2a93dcf94724c09f9112d5b9d4a6510ed5",
+  "input_identity": {
+    "inventory": "f5a8d6571059bbc06ddb90acb60117b348a6d6db",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "25986463",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "4807052833908504609",
+          "size": "54287474899"
+        }
+      }
+    }
+  },
+  "migration_id": "3b4d4222ca568da264ea22dc349f871cd27da95cb1715e4707efb8e133611e3f",
+  "models": {
+    "bytes": 110737500,
+    "path": ".local/history/objects/3da021156098c5f9dd8afbddf2417b17d86522775507c6853da87dbea47c061f.jsonl",
+    "sha256": "3da021156098c5f9dd8afbddf2417b17d86522775507c6853da87dbea47c061f"
+  },
+  "parent_run": "cdcbb8d5cd79aaf590c28e3e33a7d3656ab1be7d2a717b4607a69cdb762967bd",
+  "request_key": "3486fa65e7257e8c563581c926e44e70424f0ced6a21927a3e03bfc79d6c08ac",
+  "run_id": "a7b3777c43f229a39ea1903ae391531e5f3e5d573818a2e58d6e54d2f7979742",
+  "schema_version": 1,
+  "snapshot_id": "build-25986463-2b4e884f2e32",
+  "source_commit": "2b4e884f2e32821566eb062aba8e7b1522d4a851",
+  "state": {
+    "bytes": 39888940,
+    "path": "identity/states/973f1defd6871f1c2ef19631e734e4649a705c3a62801cf39445c399ae6c6729.jsonl",
+    "sha256": "973f1defd6871f1c2ef19631e734e4649a705c3a62801cf39445c399ae6c6729"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}
