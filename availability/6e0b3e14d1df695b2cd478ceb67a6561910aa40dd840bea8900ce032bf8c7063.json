@@ -1,0 +1,24 @@
+{
+  "app_id": "2393970",
+  "branch": "public",
+  "checked_at": "2026-10-24T15:43:27+00:00",
+  "contract": {
+    "availability.py": "cca4d1f8edcf6962eda0c13fe98a7bec7bfba950aed4a7bde7dd7f0513776d06",
+    "steam_build.py": "9ff63f3a47073903723f6af5006c199450733fc0a7e6e09064173a83b4b75d1e"
+  },
+  "observation": {
+    "app_id": "2393970",
+    "branch": "public",
+    "branch_updated_at_unix": 1792839690,
+    "build_id": "26180432",
+    "client_sha256": "7baf77927639793e11b2a02ec2fd6d9114c95432be2f23a3225e274732255cf4",
+    "depot_manifests": {
+      "2393972": "8153456422855210349"
+    },
+    "response_sha256": "04013d9e23af31f690bd3f4c37909f368f76be470f6d5fced8d81f1c1a9ad373",
+    "source": "steamcmd-app-info",
+    "source_url": "https://partner.steamgames.com/doc/sdk/api/debugging#console_commands"
+  },
+  "schema_version": 1,
+  "status": "observed"
+}

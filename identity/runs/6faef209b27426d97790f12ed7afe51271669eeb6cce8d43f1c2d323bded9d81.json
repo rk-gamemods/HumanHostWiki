@@ -1,0 +1,53 @@
+{
+  "change_origin": "game-input-change",
+  "contract_sha256": "af5dd93152f7bece2fdb734f298a4653424e0e0e2f96830d2fa812bbd3484dfc",
+  "corrections_sha256": "5d62a235dcc2da9cda53d48b721d214c434e54eb8b580e1bd9e4a31852a2c79f",
+  "counts": {
+    "changed": 36,
+    "new": 35,
+    "not-present": 1,
+    "unchanged": 27267
+  },
+  "exceptions": {
+    "group_count": 0,
+    "groups": [],
+    "kind": "unresolved-wiki-content",
+    "next_action": "No unresolved wiki content in the implemented extraction scope.",
+    "occurrences": 0,
+    "schema_version": 1
+  },
+  "extraction_run": "bd550edec25f297e0a7e9bc2d02ad0d4526e99b768ae337d22ff8967c512e316",
+  "input_identity": {
+    "inventory": "10779b93cd51fc3709aa4c7bebdda3ce451d7214",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "26180432",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "8153456422855210349",
+          "size": "56293538870"
+        }
+      }
+    }
+  },
+  "migration_id": "3b4d4222ca568da264ea22dc349f871cd27da95cb1715e4707efb8e133611e3f",
+  "models": {
+    "bytes": 111405129,
+    "path": ".local/history/objects/71865c25cb0693ed122e5784d5c2142884161fc8fd07a5efd3df7b5c4a72bb3a.jsonl",
+    "sha256": "71865c25cb0693ed122e5784d5c2142884161fc8fd07a5efd3df7b5c4a72bb3a"
+  },
+  "parent_run": "74943e71c85d02ec8969c6bb7a9fcd2f46dfc03585a15f39c21eb45e39ea9b04",
+  "request_key": "4d79b2e053922c7baff708dbb53f4af736f25ca159c5825dd864522dcba5970c",
+  "run_id": "6faef209b27426d97790f12ed7afe51271669eeb6cce8d43f1c2d323bded9d81",
+  "schema_version": 1,
+  "snapshot_id": "build-26180432-202c27fe16cb",
+  "source_commit": "202c27fe16cb9d771121eb8d6081b975047795ee",
+  "state": {
+    "bytes": 40100234,
+    "path": "identity/states/6be4dfe15bb281dd0601e85dd721ed9a60b1b27caade351bf5a5c413b0e64891.jsonl",
+    "sha256": "6be4dfe15bb281dd0601e85dd721ed9a60b1b27caade351bf5a5c413b0e64891"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}
