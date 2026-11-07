@@ -346,7 +346,7 @@ class CurationTests(unittest.TestCase):
     def test_markdown_renders_authored_text_literally_and_json_pointer_handles_escapes(self):
         result, _ = self.run_checks()
         text = pages.markdown('item', [{'entity_key': self.fixture.a, 'name': 'Item', 'status': 'present',
-                                       'explanations': [self.note(result)]}], self.fixture.new['snapshot_id'], 'r', '/items/').decode()
+                                       'explanations': [self.note(result)]}], '/items/').decode()
         self.assertIn('&lt;script&gt;literal&lt;/script&gt;', text)
         self.assertNotIn('<script>literal', text)
         self.assertEqual(curated_rules.pointer({'a/b': {'~key': [7]}}, '/a~1b/~0key/0'), 7)
