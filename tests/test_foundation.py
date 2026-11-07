@@ -94,25 +94,6 @@ class FoundationTests(unittest.TestCase):
         manifest.validate(self.root, self.project)  # Validation is read-only and repeatable.
         self.assertEqual([], list(self.root.iterdir()))
 
-    def test_ci_data_filter_matches_the_publish_gate(self):
-        from wikibuild import publish_gate
-        workflow = (PROJECT_ROOT / publish_gate.CI_PATH).read_text(encoding="utf-8")
-        events = re.findall(r"^  (pull_request|push):\n(?:    branches: \[main\]\n)?    paths:\n((?:      - .+\n)+)",
-                            workflow, re.MULTILINE)
-        # Main pushes are not re-tested; the gate uses the PR run of the identical tree.
-        self.assertEqual(["pull_request"], [name for name, _ in events])
-        self.assertNotRegex(workflow, r"(?m)^  push:")
-        expected = {prefix + "**" for prefix in publish_gate.DATA_PREFIXES} | publish_gate.DATA_FILES
-        for name, block in events:
-            patterns = re.findall(r'      - "([^"]+)"', block)
-            self.assertEqual("**", patterns[0], name)
-            self.assertEqual("**.md", patterns[-1], name)  # Markdown is tested; it never skips CI.
-            self.assertEqual(expected, {pattern[1:] for pattern in patterns[1:-1] if pattern.startswith("!")}, name)
-        for path in ("releases/x.json", "identity/states/y.jsonl", "workspace.lock.json"):
-            self.assertTrue(publish_gate.is_data(path), path)
-        for path in ("releases/README.md", "identity/corrections.json", "project.json", "wikibuild/pipeline.py"):
-            self.assertFalse(publish_gate.is_data(path), path)
-
     def test_committed_checkout_lock_pins_this_registry(self):
         # Editing project.json without `wiki.py lock` makes the next update fail at release.
         lock = json.loads((PROJECT_ROOT / "workspace.lock.json").read_text(encoding="utf-8"))

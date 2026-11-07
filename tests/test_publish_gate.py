@@ -1,6 +1,8 @@
 """Production boundaries with synthetic Git/API responses and owned local fixtures."""
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import re
 import subprocess
 import unittest
 from unittest.mock import Mock, patch
@@ -173,6 +175,24 @@ class PublishGateTests(unittest.TestCase):
         self.ancestors = []
         with self.assertRaisesRegex(ContractError, "CI is missing"):
             self.check()
+
+    def test_ci_data_filter_matches_the_publish_gate(self):
+        workflow = (Path(__file__).resolve().parents[1] / publish_gate.CI_PATH).read_text(encoding="utf-8")
+        events = re.findall(r"^  (pull_request|push):\n(?:    branches: \[main\]\n)?    paths:\n((?:      - .+\n)+)",
+                            workflow, re.MULTILINE)
+        # Main pushes are not re-tested; the gate uses the PR run of the identical tree.
+        self.assertEqual(["pull_request"], [name for name, _ in events])
+        self.assertNotRegex(workflow, r"(?m)^  push:")
+        expected = {prefix + "**" for prefix in publish_gate.DATA_PREFIXES} | publish_gate.DATA_FILES
+        for name, block in events:
+            patterns = re.findall(r'      - "([^"]+)"', block)
+            self.assertEqual("**", patterns[0], name)
+            self.assertEqual("**.md", patterns[-1], name)  # Markdown is tested; it never skips CI.
+            self.assertEqual(expected, {pattern[1:] for pattern in patterns[1:-1] if pattern.startswith("!")}, name)
+        for path in ("releases/x.json", "identity/states/y.jsonl", "workspace.lock.json"):
+            self.assertTrue(publish_gate.is_data(path), path)
+        for path in ("releases/README.md", "identity/corrections.json", "project.json", "wikibuild/pipeline.py"):
+            self.assertFalse(publish_gate.is_data(path), path)
 
     def test_merge_with_the_pr_heads_exact_tree_uses_the_pr_run(self):
         base, head = "3" * 40, "4" * 40
