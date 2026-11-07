@@ -78,7 +78,7 @@ class CapacityReleaseTests(unittest.TestCase):
         self.assertTrue(result["capacity"]["new_repositories"])
         self.assertGreater(len(result["repositories"]), len(self.project["repositories"]))
         audit = check(self.root)
-        self.assertEqual(audit["historical_configs"], len(self.project["repositories"]))
+        self.assertEqual(audit["release_configs"], len(self.project["repositories"]))
         workspace.checkout_lock(self.root, self.project, check=True)
         inventory = release.inventory(self.root, self.project)
         self.assertEqual(len(inventory.partitions), len(result["repositories"]))
@@ -120,26 +120,6 @@ class CapacityReleaseTests(unittest.TestCase):
         self.assertEqual(expected, {key: value["commit"] for key, value in result["repositories"].items()})
         check(self.root)
 
-    def test_paged_captures_commit_publish_and_remain_reachable_after_replay(self):
-        self.enterContext(patch.object(shard_index, "PAGE_BYTES", 2048))
-        runs = [self.fixture.fixture.make_run(str(build), []) for build in reversed(range(1000, 1008))]
-        self.candidate = reader.build(self.root, self.project, runs, bases=release.bases(self.project))
-        result, _ = self.run_release()
-        inventory = release.inventory(self.root, self.project)
-        catalogs = []
-        for item in inventory.stored:
-            if item.artifact.path.startswith("site/releases/"):
-                path = self.root / result["repositories"][item.partition]["path"] / item.artifact.path
-                catalogs.append(json.loads(path.read_bytes()))
-        self.assertEqual(len(catalogs), 3)
-        self.assertTrue(all("capture_catalog" in value for value in catalogs))
-        self.assertEqual(check(self.root)["historical_configs"], 3)
-        self.assertEqual(publication.run(self.root, self.project, result, host=self.host)[0]["status"], "published")
-        before = {identity: value["commit"] for identity, value in result["repositories"].items()}
-        repeated, stats = self.run_release()
-        self.assertTrue(stats["reused"])
-        self.assertEqual(before, {identity: value["commit"] for identity, value in repeated["repositories"].items()})
-
     def test_storage_failure_keeps_all_fronts_unpublished_then_requires_abandonment(self):
         result, _ = self.run_release()
         identity = next(repo["id"] for repo in physical.repositories(self.project, result["physical"])
@@ -158,7 +138,7 @@ class CapacityReleaseTests(unittest.TestCase):
         self.assertTrue(all(self.host.refs[key] == value for key, value in refs.items()))
         self.assertTrue(all(row["verified"] for row in public["repositories"].values()))
 
-    def test_next_release_preserves_historical_partition_bytes_and_lock_membership(self):
+    def test_next_release_keeps_reused_partition_bytes_and_drops_old_configurations(self):
         first, _ = self.run_release()
         publication.run(self.root, self.project, first, host=self.host)
         stored = release.inventory(self.root, self.project).stored
@@ -168,9 +148,14 @@ class CapacityReleaseTests(unittest.TestCase):
         workspace.checkout_lock(self.root, self.project)
         self.candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
         second, _ = self.run_release()
-        self.assertEqual(check(self.root)["historical_configs"], 2 * len(self.project["repositories"]))
+        self.assertEqual(check(self.root)["release_configs"], len(self.project["repositories"]))
         for (identity, name), data in before.items():
-            self.assertEqual((self.root / second["repositories"][identity]["path"] / name).read_bytes(), data)
+            path = self.root / second["repositories"][identity]["path"] / name
+            if name.startswith("site/releases/"):
+                # The earlier release configuration leaves the tree with that release.
+                self.assertFalse(path.exists())
+            else:
+                self.assertEqual(path.read_bytes(), data)
         workspace.checkout_lock(self.root, self.project, check=True)
         publication.run(self.root, self.project, second, host=self.host)
         for identity in first["capacity"]["new_repositories"]:
@@ -192,7 +177,7 @@ class CapacityReleaseTests(unittest.TestCase):
             self.candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
             second, _ = self.run_release()
             self.assertGreater(check(self.root)["ownership_pages"], 0)
-            self.assertEqual(check(self.root)["historical_configs"], 6)
+            self.assertEqual(check(self.root)["release_configs"], 3)
             for topic, record in first["repositories"].items():
                 self.assertEqual(publication.site_files(self.root, record), prior_sites[topic])
             self.assertEqual(publication.run(self.root, self.project, second, host=self.host)[0]["status"], "published")

@@ -1,10 +1,16 @@
-"""Own generated paths and stage only changed release bytes."""
+"""Own generated paths and stage only changed release bytes.
+
+Each release's tree holds exactly the generated files that release writes or keeps.
+Earlier site and reference files it neither writes nor keeps are removed through
+the normal commit; Git history may still contain them.
+"""
 
 from . import capacity, extraction, ownership, workspace
 from .storage import ContractError, digest, json_bytes, within
 
 OWNER_FILE = ownership.OWNER_FILE
 IMMUTABLE = ("site/data/", "site/objects/", "site/releases/", "site/runtime/", "site/fonts/")
+GENERATED = ("site/", "reference/")
 HUB_ATTRIBUTES = b"* text=auto eol=lf\n/.github/ISSUE_TEMPLATE/*.yml -text\n"
 
 
@@ -38,15 +44,18 @@ class Writer:
         receipt = ownership.checkout(destination)
         self.previous = owned(destination, receipt)
         self.marker = destination / OWNER_FILE
-        old, self.pages = receipt
-        self.allocated = set(old["capacity_objects"])
+        _, self.pages = receipt
+        # Allocation membership is rebuilt from this release's add and keep calls.
+        self.allocated = set()
         readme = destination / "README.md"
         if repo["role"] != "partition" and "README.md" not in self.previous and readme.is_file() and readme.read_bytes() == workspace.seed_readme(repo):
             self.previous["README.md"] = {"sha256": extraction.file_hash(readme), "bytes": readme.stat().st_size}
         attributes = destination / ".gitattributes"
         if repo["role"] == "hub" and ".gitattributes" not in self.previous and attributes.is_file() and attributes.read_bytes() == b"* text=auto eol=lf\n":
             self.previous[".gitattributes"] = {"sha256": extraction.file_hash(attributes), "bytes": attributes.stat().st_size}
-        self.output, self.changes = dict(self.previous), {}
+        # Generated site and reference files exist only when this release writes or keeps them.
+        self.output = {name: meta for name, meta in self.previous.items() if not name.startswith(GENERATED)}
+        self.changes = {}
 
     def add(self, name, data, *, allocated=False):
         record = {"sha256": digest(data), "bytes": len(data)}
@@ -68,12 +77,24 @@ class Writer:
         staged.write_bytes(data)
         self.changes[name] = {"old": prior["sha256"] if prior else None, "new": record["sha256"], "bytes": len(data)}
 
+    def keep(self, name, *, allocated=False):
+        """Retain an unchanged owned file, such as a reused allocated object."""
+        if name not in self.previous:
+            raise ContractError(f"Cannot keep an unowned generated file: {name}")
+        self.output[name] = self.previous[name]
+        if allocated:
+            if capacity.OBJECT.fullmatch(name) is None:
+                raise ContractError("Allocated object has an unsupported path")
+            self.allocated.add(name)
+
     def remove(self, name):
-        prior = self.previous[name]
-        self.output.pop(name)
-        self.changes[name] = {"old": prior["sha256"], "new": None, "bytes": 0}
+        if name not in self.previous:
+            raise ContractError(f"Cannot remove an unowned generated file: {name}")
+        self.output.pop(name, None)
 
     def finish(self, file_limit=capacity.Budgets().file_bytes):
+        for name in sorted(self.previous.keys() - self.output.keys()):
+            self.changes[name] = {"old": self.previous[name]["sha256"], "new": None, "bytes": 0}
         if self.changes or not self.marker.exists():
             def emit(name, data):
                 prior = self.pages.get(name)

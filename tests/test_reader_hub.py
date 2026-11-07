@@ -47,7 +47,7 @@ class HubProjectionTests(unittest.TestCase):
     def test_hub_contract_guides_errors_drops_and_markdown(self):
         with patch.object(guide_queries, "build_context", wraps=guide_queries.build_context) as spy:
             site, _ = self.build()
-        self.assertEqual(spy.call_count, 2)
+        self.assertEqual(spy.call_count, 1)
         config = json.loads((site / "hub/reader.json").read_bytes())
         self.assertEqual(config["site"], self.site)
         self.assertEqual(config["relationships"], self.project["relationships"])
@@ -86,7 +86,8 @@ class HubProjectionTests(unittest.TestCase):
         self.assertEqual(newest["topic_counts"], {"hub": {"total": 0, "kinds": {}},
             "items": {"total": 1, "kinds": {"item": 1}}, "loot": {"total": 1, "kinds": {"loot-source": 1}}})
         markdown = (site / "hub/reference/guides/second.md").read_text()
-        self.assertIn("/loot/entry/" + self.fixture.c + "/?snapshot=" + self.fixture.new["snapshot_id"], markdown)
+        self.assertIn("/loot/entry/" + self.fixture.c + "/)", markdown)
+        self.assertNotIn("snapshot=", markdown)
         self.assertIn("Unavailable source", markdown)
         self.assertNotIn(self.dangling, markdown)
         self.assertFalse((site / "hub/reference/guides/broken.md").exists())
@@ -110,132 +111,69 @@ class HubProjectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "membership differs"):
             reader.load_maps(site / "hub", index["search"])
 
-    def test_history_existing_packs_and_repeat_identity(self):
-        # History rows need a recorded game version; unversioned captures are left out.
-        for run, version in ((self.fixture.old, "0.8.315"), (self.fixture.new, "0.8.316")):
-            path = self.root / "snapshots" / (run["snapshot_id"] + ".json")
-            receipt = json.loads(path.read_bytes())
-            receipt["game_version"] = version
-            path.write_bytes(json_bytes(receipt))
-        self.fixture.runs = [self.fixture.old]
-        old_site, _ = self.build()
-        old_index = self.index(old_site, self.fixture.old)
-        self.assertEqual(len(old_index["history"]), 1)
-        self.assertIsNone(old_index["history"][0]["changes"])
-        self.fixture.runs = [self.fixture.new, self.fixture.old]
+    def set_version(self, run, version):
+        path = self.root / "snapshots" / (run["snapshot_id"] + ".json")
+        receipt = json.loads(path.read_bytes())
+        receipt["game_version"] = version
+        path.write_bytes(json_bytes(receipt))
+
+    def entry(self, snapshot, version, build, count=1, previous=None, added=0, changed=0, removed=0, captured=None):
+        row = lambda number: {"entity_key": f"e-{number:032x}", "name": "Row", "kind": "item"}
+        return {"snapshot_id": snapshot, "game_version": version, "build_id": str(build), "count": count,
+                **({"captured": captured} if captured else {}), "previous": previous,
+                **({"added": [row(n) for n in range(added)], "changed": [row(n) for n in range(changed)],
+                    "removed": [{**row(n), "status": "not-present"} for n in range(removed)]} if previous else {})}
+
+    def write_logs(self, logs):
+        folder = self.root / "changes"
+        folder.mkdir(exist_ok=True)
+        for topic, versions in logs.items():
+            (folder / (topic + ".json")).write_bytes(json_bytes({"schema_version": 1, "topic": topic, "versions": versions}))
+
+    def test_history_comes_from_change_logs_and_repeats_identically(self):
+        self.set_version(self.fixture.new, "0.8.316")
+        previous = {"snapshot_id": self.fixture.old["snapshot_id"], "game_version": "0.8.315", "build_id": "100"}
+        self.write_logs({"items": [self.entry(self.fixture.new["snapshot_id"], "0.8.316", 200, previous=previous, changed=1, removed=1),
+                                   self.entry(self.fixture.old["snapshot_id"], "0.8.315", 100, count=2)]})
         site, result = self.build()
-        self.assertEqual(old_index, self.index(site, self.fixture.old))
-        for topic in ("hub", "items", "loot"):
-            old = self.fixture.index(old_site, topic, self.fixture.old)
-            new = self.fixture.index(site, topic, self.fixture.old)
-            for kind in ("entries", "semantics", "provenance", "cards", "player", "backlinks", "search"):
-                self.assertEqual(old[kind], new[kind])
-                for ref in old[kind]:
-                    self.assertEqual((old_site / topic / ref["path"]).read_bytes(), (site / topic / ref["path"]).read_bytes())
+        index = self.index(site, self.fixture.new)
+        self.assertEqual(["200", "100"], [row["build_id"] for row in index["history"]])
+        # The current row counts its own state, not the logged count.
+        self.assertEqual(2, index["history"][0]["total"])
+        self.assertEqual({"new": 0, "changed": 1, "removed": 1},
+                         {field: index["history"][0]["changes"][field] for field in ("new", "changed", "removed")})
+        self.assertEqual({"hub": 0, "items": 2, "loot": 0}, index["history"][1]["topics"])
+        self.assertIsNone(index["history"][1]["changes"])
+        self.assertFalse(any("history" in self.fixture.index(site, topic, self.fixture.new) for topic in ("items", "loot")))
         before = {path.relative_to(site): path.read_bytes() for path in site.rglob("*") if path.is_file()}
         repeated, again = self.build()
         self.assertTrue(again["reused"])
         self.assertEqual(result["candidate_id"], again["candidate_id"])
         self.assertEqual(before, {path.relative_to(repeated): path.read_bytes() for path in repeated.rglob("*") if path.is_file()})
 
-    def test_multiversion_hub_index_repeats_identically(self):
-        runs = []
-        for build in (100, 110, 200, 210, 300, 310, 400, 410):
-            run = self.fixture.make_run(str(build), [self.fixture.observation(self.fixture.a, "Item")])
-            path = self.root / "snapshots" / (run["snapshot_id"] + ".json")
-            receipt = json.loads(path.read_bytes())
-            receipt["game_version"] = f"0.8.{310 + build // 100}"
-            path.write_bytes(json_bytes(receipt))
-            runs.append(run)
-        self.fixture.runs = list(reversed(runs))
-        site, first = self.build()
-        index = self.index(site, runs[-1])
-        self.assertEqual([row["build_id"] for row in index["history"]], ["410", "310", "210", "110"])
-        self.assertTrue(all(row["changes"] == {"new": 0, "changed": 0, "removed": 0,
-            "topics": {"hub": {"new": 0, "changed": 0, "removed": 0},
-                       "items": {"new": 0, "changed": 0, "removed": 0},
-                       "loot": {"new": 0, "changed": 0, "removed": 0}}}
-            for row in index["history"][:-1]))
-        self.assertIsNone(index["history"][-1]["changes"])
-        self.assertFalse(any("history" in self.fixture.index(site, topic, runs[-1])
-                             for topic in ("items", "loot")))
-        index_bytes = (site / "hub/snapshots" / (runs[-1]["snapshot_id"] + ".json")).read_bytes()
-        self.assertLess(len(index_bytes), reader.DEFAULT_PACK_BYTES)
-        without_charts = {key: value for key, value in index.items() if key not in {"history", "biomes"}}
-        self.assertLess(len(index_bytes) - len(packs.compact(without_charts)), 4096)
-        before = {path.relative_to(site): path.read_bytes() for path in site.rglob("*") if path.is_file()}
-        repeated, second = self.build()
-        self.assertTrue(second["reused"])
-        self.assertEqual(first["candidate_id"], second["candidate_id"])
-        self.assertEqual(before, {path.relative_to(repeated): path.read_bytes() for path in repeated.rglob("*") if path.is_file()})
+    def test_four_version_history_keeps_newest_capture_per_version_and_skips_unversioned(self):
+        self.set_version(self.fixture.new, "0.8.320")
+        entries, previous = [], None
+        for build in (10, 11, 12, 20, 21, 30, 31, 40, 41):
+            snapshot = f"build-{build}-{'b' * 12}"
+            version = None if build == 12 else f"0.8.{310 + build // 10}"
+            entries.insert(0, self.entry(snapshot, version, build, previous=previous, added=1,
+                                         captured="2026-09-0" + str(build // 10)))
+            previous = {"snapshot_id": snapshot, "game_version": version, "build_id": str(build)}
+        self.write_logs({"items": entries, "loot": [dict(entries[0], count=4)]})
+        site, _ = self.build()
+        history_rows = self.index(site, self.fixture.new)["history"]
+        self.assertEqual(["200", "41", "31", "21"], [row["build_id"] for row in history_rows])
+        self.assertEqual([None, "2026-09-04", "2026-09-03", "2026-09-02"], [row["captured"] for row in history_rows])
+        self.assertEqual({"hub": 0, "items": 1, "loot": 4}, history_rows[1]["topics"])
+        self.assertEqual({"new": 2, "changed": 0, "removed": 0}, {field: history_rows[1]["changes"][field]
+                                                                 for field in ("new", "changed", "removed")})
+        self.assertIsNone(history_rows[0]["changes"])
 
-    def test_history_skips_captures_without_a_game_version(self):
-        receipts = {"new": {"game_version": "0.8.316", "steam": {"build_id": "300"}},
-                    "unknown": {"game_version": None, "steam": {"build_id": "200"}},
-                    "old": {"game_version": "0.8.315", "steam": {"build_id": "200"}}}
-        runs = [{"snapshot_id": name} for name in ("new", "unknown", "old")]
-        state = {"e-" + "a" * 32: {"status": "present", "descriptor": {"topic": "items"}, "revision_id": "r"}}
-        with patch.object(reader.snapshots, "read", side_effect=lambda root, key: receipts[key]),                 patch.object(reader.history, "load_state", side_effect=lambda root, run: state):
-            rows = reader.history_rows(self.root, runs, state, ("items",))
-        self.assertEqual([row["snapshot_id"] for row in rows], ["new", "old"])
-
-    def test_history_does_not_count_a_record_that_only_moved_to_a_new_key(self):
-        receipts = {"new": {"game_version": "0.8.316", "steam": {"build_id": "300"}},
-                    "old": {"game_version": "0.8.315", "steam": {"build_id": "200"}}}
-        row = lambda revision: {"status": "present", "descriptor": {"topic": "items"}, "revision_id": revision}
-        states = {"old": {"e-" + "a" * 32: row("same"), "e-" + "b" * 32: row("gone")},
-                  "new": {"e-" + "c" * 32: row("same"), "e-" + "d" * 32: row("fresh")}}
-        runs = [{"snapshot_id": "new"}, {"snapshot_id": "old"}]
-        with patch.object(reader.snapshots, "read", side_effect=lambda root, key: receipts[key]),                 patch.object(reader.history, "load_state", side_effect=lambda root, run: states[run["snapshot_id"]]):
-            rows = reader.history_rows(self.root, runs, states["new"], ("items",))
-        # a -> c kept its content under a new key: neither new nor removed.
-        self.assertEqual(rows[0]["changes"], {"new": 1, "changed": 0, "removed": 1,
-                                              "topics": {"items": {"new": 1, "changed": 0, "removed": 1}}})
-
-    def test_four_version_history_uses_latest_build_then_capture_order(self):
-        keys = {letter: "e-" + letter * 32 for letter in "abcdef"}
-        captures = [
-            ("v0-a", "0.8.310", 10, None, None), ("v0-b", "0.8.310", 11, None, None),
-            ("v1-a", "0.8.311", 100, None, None),
-            ("v1-b", "0.8.311", 110, "2026-09-01", {"a": ("items", "a1"), "b": ("items", "b1"), "c": ("loot", "c1")}),
-            ("v2-a", "0.8.312", 200, None, None),
-            ("v2-b", "0.8.312", 210, None, {"a": ("items", "a2"), "c": ("loot", "c1"), "d": ("loot", "d1")}),
-            ("v3-a", "0.8.313", 300, None, None),
-            ("v3-b", "0.8.313", 310, "2026-09-03T14:00:00Z", {"a": ("items", "a2"), "d": ("loot", "d2"), "e": ("items", "e1")}),
-            ("v4-a", "0.8.314", 400, None, None),
-            ("v4-b", "0.8.314", 410, None, None),
-            ("v4-c", "0.8.314", 410, "2026-09-04", {"a": ("items", "a3"), "e": ("items", "e1"), "f": ("loot", "f1")}),
-        ]
-        runs = [{"snapshot_id": name} for name, *_ in reversed(captures)]
-        receipts, states = {}, {}
-        for name, version, build, captured, present in captures:
-            receipts[name] = {"game_version": version, "steam": {"build_id": str(build)}}
-            if captured:
-                receipts[name]["captured_at" if name == "v3-b" else "captured"] = captured
-            states[name] = {keys[key]: {"status": "present", "descriptor": {"topic": topic}, "revision_id": revision}
-                            for key, (topic, revision) in (present or {"b": ("items", "decoy")}).items()}
-            states[name]["e-" + "0" * 32] = {"status": "not-present", "descriptor": {"topic": "items"}, "revision_id": "old"}
-        with patch.object(reader.snapshots, "read", side_effect=lambda root, key: receipts[key]), \
-                patch.object(reader.history, "load_state", side_effect=lambda root, run: states[run["snapshot_id"]]):
-            rows = reader.history_rows(self.root, runs, states[runs[0]["snapshot_id"]], ("items", "loot"))
-            older_rows = reader.history_rows(self.root, runs[3:], states[runs[3]["snapshot_id"]], ("items", "loot"))
-        self.assertEqual([row["snapshot_id"] for row in rows], ["v4-c", "v3-b", "v2-b", "v1-b"])
-        self.assertEqual([row["snapshot_id"] for row in older_rows], ["v3-b", "v2-b", "v1-b", "v0-b"])
-        self.assertEqual([row["captured"] for row in rows], ["2026-09-04", "2026-09-03", None, "2026-09-01"])
-        self.assertEqual([row["total"] for row in rows], [3, 3, 3, 3])
-        self.assertEqual([row["topics"] for row in rows], [
-            {"items": 2, "loot": 1}, {"items": 2, "loot": 1},
-            {"items": 1, "loot": 2}, {"items": 2, "loot": 1}])
-        self.assertEqual([row["changes"] for row in rows], [
-            {"new": 1, "changed": 1, "removed": 1, "topics": {
-                "items": {"new": 0, "changed": 1, "removed": 0},
-                "loot": {"new": 1, "changed": 0, "removed": 1}}},
-            {"new": 1, "changed": 1, "removed": 1, "topics": {
-                "items": {"new": 1, "changed": 0, "removed": 0},
-                "loot": {"new": 0, "changed": 1, "removed": 1}}},
-            {"new": 1, "changed": 1, "removed": 1, "topics": {
-                "items": {"new": 0, "changed": 1, "removed": 1},
-                "loot": {"new": 1, "changed": 0, "removed": 0}}}, None])
+    def test_unversioned_current_capture_is_left_out_of_history(self):
+        self.write_logs({"items": [self.entry("build-50-" + "c" * 12, "0.8.300", 50)]})
+        site, _ = self.build()
+        self.assertEqual(["50"], [row["build_id"] for row in self.index(site, self.fixture.new)["history"]])
 
     def test_biome_counts_match_complete_progression_queries(self):
         context = test_guide_queries.context()

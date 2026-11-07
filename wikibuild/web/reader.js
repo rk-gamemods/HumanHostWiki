@@ -469,7 +469,7 @@ async function showEntry(key) {
     show(el("article", {class: "entry"}, body));
     return;
   }
-  if (record.decision.status === "ambiguous") body.push(notice("This may be the same thing as another entry from an older version. The wiki keeps them apart until that is settled."));
+  if (record.ambiguous) body.push(notice("This may be the same thing as another entry from an older version. The wiki keeps them apart until that is settled."));
   // A feature the game ships switched off (merchants in 0.8.316) is in the files but not in play.
   if (player?.unreleased) {
     const feature = String(player.unreleased).replace(/-/g, " ");
@@ -497,7 +497,7 @@ async function technicalReference(record, semantic, card) {
   const facts = Object.keys(semantic.facts).length;
   box.append(el("summary", {}, "Game file details", el("small", {}, `${count(facts)} game fields, links and sources`)));
   const stamps = el("dl", {class: "stamps"});
-  for (const [label, value] of [["Wiki key", key], ["Game file name", record.name], ["Captured version", snapshot], ["Status", record.status], ["Last substantive change", record.last_changed], ["Last data check", record.last_data_checked], ["Checked in play", record.last_verified || "Not yet"], ["Evidence", semantic.evidence_level]]) {
+  for (const [label, value] of [["Wiki key", key], ["Game file name", record.name], ["Captured version", snapshot], ["Status", record.status], ["Evidence", semantic.evidence_level]]) {
     stamps.append(el("dt", {}, label), el("dd", {}, value || "Not recorded"));
   }
   box.append(stamps);
@@ -518,21 +518,24 @@ async function technicalReference(record, semantic, card) {
   }
   if (semantic.relationships.length) box.append(el("h3", {}, "Links in the game files"), relationships);
   if (record.backlink_count) box.append(backlinks(key, record.backlink_count));
-  const evidence = el("details", {}, el("summary", {}, "Source evidence and identity decision"));
-  evidence.addEventListener("toggle", async () => {
-    if (!evidence.open || evidence.dataset.loaded) return;
-    evidence.dataset.loaded = "true";
+  // The site holds only the current version. Earlier versions survive as the topic's compact change log.
+  const changes = el("details", {}, el("summary", {}, "Changes in recorded game versions")), changeList = el("ul");
+  changes.append(changeList);
+  changes.addEventListener("toggle", async () => {
+    if (!changes.open || changes.dataset.loaded) return;
+    changes.dataset.loaded = "true";
     try {
-      const provenance = await keyed(index.provenance, record.provenance_id);
-      evidence.append(factsTable({wiki_key: key, semantic_revision: record.revision_id, source_commit: index.source_commit, ...provenance, identity_decision: record.decision}));
-    } catch (error) {evidence.append(notice(error.message)); delete evidence.dataset.loaded;}
+      const ref = index.changes?.[0], log = ref ? await json(ref.path, ref) : {versions: []};
+      for (const version of log.versions) {
+        for (const [label, rows] of [["added", version.added], ["removed", version.removed], ["changed", version.changed]]) {
+          const row = (rows || []).find(item => item.entity_key === key);
+          if (row) changeList.append(el("li", {}, `${versionLabel(version)}: ${label}`, row.fields ? ` (${Object.keys(row.fields).map(field => field.slice(1)).join(", ")})` : ""));
+        }
+      }
+      if (!changeList.children.length) changeList.append(el("li", {}, "No change recorded for this entry."));
+    } catch (error) {changes.append(notice(error.message)); delete changes.dataset.loaded;}
   });
-  box.append(el("h3", {}, "Sources"), evidence);
-  const history = el("details", {}, el("summary", {}, "Open this entry in another captured version")), historyList = el("ul");
-  const appendHistory = version => historyList.append(el("li", {}, link(versionLabel(version), url(record.topic, key, version.snapshot_id))));
-  history.append(historyList);
-  if (config.capture_catalog) history.append(capturePager(appendHistory)); else config.versions.forEach(appendHistory);
-  box.append(el("h3", {}, "Other versions"), history);
+  box.append(el("h3", {}, "Changes"), changes);
   return box;
 }
 

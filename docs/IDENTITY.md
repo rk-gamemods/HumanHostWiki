@@ -60,7 +60,11 @@ included in the exception report even when all current relationships resolve.
 Required proof covers unchanged repeats, source-ID changes, renames, reused IDs,
 additions/removals, ambiguous splits/merges, extraction corrections, missing capture
 scope, reviewed mappings, writer exclusion, modified outputs and interruption
-before promotion. Full public history/navigation remains a later delivery gate.
+before promotion. Public sites hold only the current capture; `wikibuild/changes.py`
+compares each new capture's revisions with the newest earlier capture and appends
+the result to `changes/<topic>.json`
+([ADR-0001 amendment](adr/0001-versioned-public-wiki.md#amendment-2026-11-07-current-version-plus-a-change-log)).
+Only the latest state and models are needed for the next run.
 
 ## One-time baseline migration
 

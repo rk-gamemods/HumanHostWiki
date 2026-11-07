@@ -29,11 +29,14 @@ for entry/provenance lookup and loads search directories sequentially. It contin
 to read flat indexes from earlier releases. Directory support is declared in the
 candidate's reader features so new metadata cannot be paired with an older runtime.
 
-Release configurations also page large capture lists through the
-[capture catalog contract](CAPACITY.md). The default capture remains inline.
-Opening an older snapshot reads its exact catalog record; the version selector
-and entry history load additional choices only when requested. A failed history
-batch can retry from the same position without changing the selected snapshot.
+A candidate projects only the newest identity run
+([ADR-0001 amendment](adr/0001-versioned-public-wiki.md#amendment-2026-11-07-current-version-plus-a-change-log)).
+Each topic index references its change log, a copy of the committed
+`changes/<topic>.json`, and the topic writes `reference/changes.md`. Entry pages
+list that entry's change-log rows on request; the hub chart summarizes the newest
+capture of up to four game versions from the logs. Public entries, search rows
+and packs carry no provenance, source ids or per-run bookkeeping, so a capture
+with unchanged facts rewrites only `reader.json` and the snapshot index.
 
 The renderer uses standard-library Python and native browser APIs. It adds no
 framework dependency or server/database requirement. Diagnostic links carry snapshot
@@ -49,7 +52,7 @@ The last-success pointer changes only after output manifests, semantic hashes,
 snapshot membership and link targets pass. Existing candidate files must match
 their recorded hashes exactly. Unknown files are refused, never overwritten.
 The caller holds the shared writer lock. Interrupted staging is ignored; complete
-candidates can be validated and reused. Nothing here deletes historical output.
+candidates can be validated and reused. `wiki.py prune` removes older candidates.
 The configuration pins [Steam availability evidence](AVAILABILITY.md) separately
 from snapshot facts. A change only to this evidence reuses validated immutable
 packs through hard links and skips model projection. Shared files are never edited

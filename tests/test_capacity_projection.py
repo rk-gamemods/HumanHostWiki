@@ -78,10 +78,10 @@ class CapacityProjectionTests(unittest.TestCase):
             for snapshot, ref in config["snapshots"].items():
                 index = fetch(ref)
                 before = json.loads((self.path / topic / "snapshots" / (snapshot + ".json")).read_bytes())
-                for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player", "guides"):
+                for kind in ("entries", "semantics", "search", "backlinks", "cards", "player", "guides", "changes"):
                     if kind not in before:
                         continue
-                    if kind != "guides":
+                    if kind not in {"guides", "changes"}:
                         index[kind] = list(leaves(index[kind], fetch))
                     self.assertEqual(len(index[kind]), len(before[kind]))
                     for actual, expected in zip(index[kind], before[kind]):
@@ -123,7 +123,7 @@ class CapacityProjectionTests(unittest.TestCase):
         output = self.fixture.root / "physical-sites"
         self.assertEqual(self.materialize(result, output), len(result.placements))
         checked = self.inspect(result, output)
-        self.assertEqual(checked["snapshots"], 6)
+        self.assertEqual(checked["snapshots"], 3)
         self.assertGreater(checked["relocated"], 0)
         self.assertEqual(checked["packs"], checked["relocated"])
         before = {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in output.rglob("*") if p.is_file()}
@@ -200,14 +200,14 @@ class CapacityProjectionTests(unittest.TestCase):
     def test_oversized_real_reader_index_splits_replays_and_loads_on_demand(self):
         # Scale the index with the larger file budget required by real fonts.
         keys = ["e-" + f"{number:032x}" for number in range(160)]
-        # Internal names also force nontrivial, distinct player packs to page.
+        # Internal names give each item a distinct player payload.
         observations = [self.fixture.observation(key, "Item_Internal " + key) for key in keys]
         for number, observation in enumerate(observations):
-            # Cards are content-addressed, so each item needs its own player stat for cards to page too.
+            # Distinct weights give each item its own content-addressed card.
             observation["semantic"]["facts"]["weight"] = number + 1
             observation["revision_id"] = digest(json_bytes(observation["semantic"]))
         run = self.fixture.make_run("300", observations)
-        candidate = reader.build(self.fixture.root, self.project, [run, *self.fixture.runs],
+        candidate = reader.build(self.fixture.root, self.project, [run],
                                  bases=self.bases, max_pack_bytes=1024)
         self.path = Path(candidate["path"])
         original_index = self.path / "items/snapshots" / (run["snapshot_id"] + ".json")
@@ -222,7 +222,7 @@ class CapacityProjectionTests(unittest.TestCase):
         audit(self.path, result, "wiki-fixture")
         output = self.fixture.root / "split-sites"
         self.materialize(result, output)
-        self.assertEqual(self.inspect(result, output)["snapshots"], 9)
+        self.assertEqual(self.inspect(result, output)["snapshots"], 3)
         replay = self.build(result.partitions, result.placements, budgets=limits)
         self.assertFalse(replay.created)
         self.assertEqual(list(replay.writes()), [])
@@ -269,45 +269,6 @@ class CapacityProjectionTests(unittest.TestCase):
         key = "items/site/objects/" + digest(data) + ".json"
         self.assertEqual(sum(item.artifact.key == key for item, _ in result.writes()), 1)
         self.assertNotIn(key, result.reused)
-
-    def test_capture_catalog_preserves_physical_history_and_browser_selection(self):
-        # Force metadata paging independently of the real font/runtime budget.
-        self.enterContext(patch.object(shard_index, "PAGE_BYTES", 4096))
-        runs = [self.fixture.make_run(str(build), []) for build in reversed(range(1000, 1012))]
-        self.path = Path(reader.build(self.fixture.root, self.project, runs, bases=self.bases)["path"])
-        limits = capacity.Budgets(file_bytes=150_000, site_bytes=501_000, history_bytes=601_000,
-                                  site_reserve_bytes=1000, history_reserve_bytes=1000)
-        result = self.build(tuple(replace(part, sealed=True) for part in self.originals), budgets=limits)
-        output = self.fixture.root / "capture-sites"
-        self.materialize(result, output)
-        snapshots = len(runs) * len(self.topics)
-        self.assertEqual(audit(self.path, result, "wiki-fixture")["snapshots"], snapshots)
-        self.assertEqual(self.inspect(result, output)["snapshots"], snapshots)
-        self.assertTrue(all(item.artifact.bytes <= limits.file_bytes for item in result.payloads.values()))
-        self.assertTrue(all("capture_catalog" in json.loads(result.payloads[topic.id + f"/site/releases/{self.release_id}.json"].read())
-                            for topic in self.topics))
-        node = shutil.which("node")
-        if node:
-            control = self.fixture.root / "capture-reader.json"
-            control.write_text(json.dumps({"root": str(output), "base": self.bases["items"],
-                "configuration": result.configurations["items"], "selected": runs[-3]["snapshot_id"],
-                "expected": [run["snapshot_id"] for run in runs]}))
-            checked = subprocess.run([node, str(Path(__file__).with_name("reader_captures.test.js")), str(control)],
-                                     capture_output=True, text=True)
-            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
-        replay = self.build(result.partitions, result.placements, budgets=limits)
-        self.assertEqual(list(replay.writes()), [])
-        self.assertEqual(replay.configurations, result.configurations)
-        before = {path: path.read_bytes() for path in output.rglob("*") if path.is_file()}
-        self.release_id = "b" * 64
-        newer = self.fixture.make_run("1400", [])
-        self.path = Path(reader.build(self.fixture.root, self.project, [newer, *runs], bases=self.bases)["path"])
-        later = self.build(tuple(replace(part, sealed=True) for part in result.partitions), result.placements, budgets=limits)
-        self.materialize(later, output)
-        self.assertEqual(self.inspect(later, output)["snapshots"], snapshots + len(self.topics))
-        self.assertTrue(all(path.read_bytes() == data for path, data in before.items()))
-        old_objects = {key for key in result.payloads if "/objects/" in key}
-        self.assertGreater(len(old_objects & set(later.reused)), snapshots)
 
     def test_independent_auditor_rejects_changed_snapshot_membership(self):
         self.check_changed_snapshot_membership("entries")
@@ -384,7 +345,7 @@ class ReferenceTransformTests(unittest.TestCase):
         relocated = json.loads(release_content.snapshot(before, lambda path, *_: "https://example.invalid/" + path))
         self.assertNotIn("cards", relocated)
         self.assertEqual(relocated["entries"], [{**pack, "path": "https://example.invalid/" + pack["path"]}])
-        for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+        for kind in ("entries", "semantics", "search", "backlinks"):
             with self.subTest(missing=kind), self.assertRaises(KeyError):
                 release_content.snapshot(json_bytes({key: val for key, val in value.items() if key != kind}),
                                          lambda path, *_: path)

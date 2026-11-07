@@ -1,11 +1,14 @@
 """Pure reader shells and bounded, readable Git reference pages."""
 
 from html import escape
-from urllib.parse import urlencode, quote
+from urllib.parse import quote
 
 
-def entry(base, entity, snapshot, candidate):
-    return f"{base}entry/{quote(entity, safe='')}/?{urlencode({'snapshot': snapshot, 'release': candidate})}"
+def entry(base, entity):
+    """Current-version link. It carries no snapshot or release, so a page whose
+    facts did not change keeps identical bytes across updates; the reader opens
+    the selected current release by default."""
+    return f"{base}entry/{quote(entity, safe='')}/"
 
 
 def shell(title, base, project_name="Unofficial game reference", fonts_base=None):
@@ -33,13 +36,13 @@ def shell(title, base, project_name="Unofficial game reference", fonts_base=None
             'remain available in each topic repository.</noscript></body></html>\n').encode("utf-8")
 
 
-def markdown(kind, entries, snapshot, candidate, base):
+def markdown(kind, entries, base):
     # HTML-escaped labels remain literal even when game text contains Markdown.
-    lines = [f"# {escape(kind.replace('-', ' ').title())}", "", f"Snapshot: `{snapshot}`.", "",
-             "Extracted reference. Gameplay verification has not been performed.", ""]
+    lines = [f"# {escape(kind.replace('-', ' ').title())}", "",
+             "Extracted reference for the current game version. Gameplay verification has not been performed.", ""]
     for row in entries:
         name = escape(row["name"])
-        href = escape(entry(base, row["entity_key"], snapshot, candidate), quote=True)
+        href = escape(entry(base, row["entity_key"]), quote=True)
         lines += [f'<h2><a href="{href}">{name}</a></h2>', "", f'Wiki key: `{row["entity_key"]}`. Status: {row["status"]}.', ""]
         for note in row.get("explanations", []):
             lines += [f'<h3>{escape(note["title"])}</h3>', ""]

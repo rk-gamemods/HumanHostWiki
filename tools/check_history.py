@@ -115,9 +115,24 @@ def check(root, source):
             assertions += 1
     if technical:
         raise ValueError("A technical target is missing from the pinned catalog")
+    # A logged entry for this capture must count exactly its present records.
+    present = {}
+    for state in states.values():
+        if state["status"] == "present":
+            present[state["descriptor"]["topic"]] = present.get(state["descriptor"]["topic"], 0) + 1
+    logs = sorted((root / "changes").glob("*.json")) if (root / "changes").is_dir() else []
+    for path in logs:
+        log = json.loads(path.read_text(encoding="utf-8"))
+        if log.get("schema_version") != 1 or log.get("topic") != path.stem:
+            raise ValueError("Change log schema or topic differs")
+        for entry in log["versions"]:
+            if entry["snapshot_id"] == run["snapshot_id"] and entry["count"] != present.get(path.stem, 0):
+                raise ValueError("Change log count differs from the current identity state")
+        assertions += 1
     return {"run_id": run["run_id"], "snapshot_id": run["snapshot_id"], "observations_checked": len(seen),
             "assertions": assertions, "status": "passed",
-            "scope": "All selected observations, semantic hashes, canonical edge targets and provenance; not runtime verification"}
+            "change_logs_checked": len(logs),
+            "scope": "All selected observations, semantic hashes, canonical edge targets, provenance and change-log counts; not runtime verification"}
 
 
 if __name__ == "__main__":

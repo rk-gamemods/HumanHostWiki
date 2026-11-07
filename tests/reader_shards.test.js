@@ -96,8 +96,6 @@ function fixture() {
     const config = JSON.parse(disk(new URL(input.configuration.path, input.base).href));
     const index = JSON.parse(disk(new URL(config.snapshots[input.snapshot].path, input.base).href));
     assert.ok(index.entries.some(ref => ref.kind === "wiki-shard-directory"));
-    assert.ok(index.cards.some(ref => ref.kind === "wiki-shard-directory"));
-    assert.ok(index.player.some(ref => ref.kind === "wiki-shard-directory"));
     const record = await subject.context.keyed(index.entries, input.key);
     assert.equal(record.entity_key, input.key);
     const semantics = await subject.context.keyed(index.semantics, record.revision_id);

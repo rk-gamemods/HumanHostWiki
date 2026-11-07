@@ -22,6 +22,15 @@ The production checks then run in this order:
    finds workflow `CI` at `.github/workflows/ci.yml`, triggered by `push` on `main`,
    completed with conclusion `success` for that exact commit.
    The newest matching run/attempt must succeed; absent or unfinished CI is refused.
+   Main pushes are not re-tested. A merge commit whose tree equals its PR head's
+   tree (second parent) uses that head's completed, successful `pull_request` run:
+   the merge added nothing, so the PR run tested the code being published. If main
+   moved under the PR, the trees differ and this rule does not apply.
+   CI also skips pull requests that change only generated data (`DATA_PREFIXES` and
+   `DATA_FILES` in `publish_gate.py`, never Markdown). For such a commit the gate
+   walks first parents, at most 20, while every path changed since the ancestor is
+   data, and applies the same rules to the first ancestor that has CI. A code
+   change on the way refuses as missing CI.
 5. GraphQL `associatedPullRequests` for this commit returns a merged PR whose
    `mergeCommit.oid` is this exact commit. REST API version 2026-03-10 returns
    `merge_commit_sha` as null, so the gate no longer reads it. A direct push
@@ -224,7 +233,8 @@ never enters preparation, so rehearsal checks no source pins.
 The hub remains at its
 previous release until every topic verifies. Direct topic landing pages consult
 the hub's selection, so preparing a newer topic does not advertise an incomplete
-release. Explicit historical release links continue to load their pinned content.
+release. Sites hold only the current release, so a link pinned to an earlier
+release fails explicitly instead of loading substitute content.
 
 If the new hub fails verification, a new commit restores the previous validated
 tree at that selection point. On the first publication, the fallback is an explicit unavailable page.

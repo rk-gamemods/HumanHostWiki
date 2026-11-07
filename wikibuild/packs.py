@@ -1,7 +1,6 @@
 """Bounded immutable JSON maps, shared by snapshot indexes and browser lookup."""
 
 import json
-from bisect import bisect_right
 
 from .storage import ContractError, digest
 
@@ -42,13 +41,3 @@ def write(records, limit, output):
         shards.append({"path": path, "sha256": sha, "bytes": len(data),
                        "first": rows[0][0], "last": rows[-1][0], "count": len(rows)})
     return shards
-
-
-def reuse(records, known, limit, output):
-    """Append only previously unseen revisions; retain earlier immutable packs."""
-    fresh = {key: value for key, value in records.items() if key not in known}
-    added = write(fresh, limit, output)
-    starts = [shard["first"] for shard in added]
-    for key in fresh:
-        known[key] = added[bisect_right(starts, key) - 1]
-    return sorted({known[key]["path"]: known[key] for key in records}.values(), key=lambda shard: (shard["first"], shard["path"]))

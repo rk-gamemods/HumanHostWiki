@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 
-from wikibuild import bounded, extraction, history, identity_migration, manifest, navigation, pipeline, publication, reader, release, run_timing, snapshots, storage, workspace
+from wikibuild import bounded, changes, extraction, history, identity_migration, manifest, navigation, pipeline, prune, publication, reader, release, run_timing, snapshots, storage, workspace
 from wikibuild.storage import ContractError, json_bytes, within, writer_lock, write_changed
 
 # Backstop for every wait without its own bound. A normal update takes minutes; the
@@ -181,6 +181,9 @@ def _run(root, args, timing=None):
         with writer_lock(root):
             changed = write_changed(output, data)
         return {"map": str(output), "changed": changed}
+    if args.command == "prune":
+        # Prune takes the writer lock itself and refuses while another writer holds it.
+        return prune.run(root, dry_run=args.dry_run)
     with writer_lock(root):
         if args.command == "abandon-publication":
             return publication.abandon(root)
@@ -209,6 +212,7 @@ def _run(root, args, timing=None):
                 result, metrics = extraction.run(root, project, source, receipt)
                 if args.command == "normalize":
                     normalized, history_metrics = history.run(root, source, receipt, result)
+                    history_metrics["changes"] = changes.record(root, normalized)
                     return {"identity": normalized, "metrics": history_metrics,
                             "extraction": {"run_id": result["run_id"], "exceptions": result["exceptions"], "metrics": metrics}}
                 return {**result, "metrics": metrics}
@@ -231,6 +235,8 @@ def main():
     sub.add_parser("abandon-publication", help="Scrap an incomplete publication journal locally; no remote calls")
     sub.add_parser("publication-pins", help="Report unprovenanced publication pins and manual retirement commands; read-only")
     sub.add_parser("timing", help="Show saved run timings without changing state").add_argument("--last", type=int, default=1)
+    sub.add_parser("prune", help="Delete local identity, extraction, reader and release staging except the latest; "
+                   "refuses while another writer runs").add_argument("--dry-run", action="store_true")
     sub.add_parser("map").add_argument("--check", action="store_true")
     refresh = sub.add_parser("refresh", help="Register the current local catalog input; does not re-extract game data")
     refresh.add_argument("--source", help="Existing local codebase repository; default from project.json")

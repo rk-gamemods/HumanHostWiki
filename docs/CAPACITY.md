@@ -1,8 +1,9 @@
 # Capacity allocation
 
 The [ADR](adr/0001-versioned-public-wiki.md#5-storage-and-presentation) requires
-automatic file, site and history budgets while preserving logical topic ownership
-and historical URLs. This contract defines allocation, committed-input measurement,
+automatic file, site and history budgets while preserving logical topic ownership.
+Since the [2026-11-07 amendment](adr/0001-versioned-public-wiki.md#amendment-2026-11-07-current-version-plus-a-change-log)
+sites hold only the current release, so historical URLs are not preserved. This contract defines allocation, committed-input measurement,
 immutable reference projection, control-metadata splitting and logical entrypoint
 rollover. [ACCEPTANCE.md](ACCEPTANCE.md) owns implementation status and evidence limits.
 
@@ -118,6 +119,20 @@ rebuilds the Pages parent and repeats the history check before pushing. A failed
 budget check leaves the prior release selected and reports an execution failure.
 Configure byte limits and reserves through the optional `project.json.capacity`
 object, using the field names in `capacity.Budgets`.
+
+## Current-only releases
+
+Each release removes the files it no longer writes or reuses
+([RELEASE.md](RELEASE.md#output-ownership-and-storage)). Allocation still reads
+stored placements from the committed receipt, so an object that this release
+drops is charged to its partition's site bytes during this one allocation and is
+freed at the next. Measured history never shrinks: removed blobs stay reachable
+from earlier commits, and only changed or new content adds to it. A front whose
+history approaches its budget rolls over to a new entrypoint as before. A storage
+partition whose objects are all dropped keeps only its landing page; that is valid
+and is not reused for new objects until it has room. The capture catalog pages
+release capture lists, but a current-only reader produces one capture, so it is
+not exercised by normal releases.
 
 `wikibuild/entrypoints.py` selects one active entrypoint per topic. Ordinal zero
 starts as the active front; later fronts use the same physical naming sequence as

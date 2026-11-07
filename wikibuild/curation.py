@@ -221,10 +221,10 @@ def evaluate(key, item, run, receipt, facts, codes, previous, identity, baseline
 
 
 def previous_check(candidates, order, snapshot):
-    known = [prior for prior in candidates if prior and prior.get("last_verified")
-             and prior["last_verified"]["snapshot_id"] in order
-             and order[prior["last_verified"]["snapshot_id"]] <= order[snapshot]]
-    return max(known, key=lambda prior: order[prior["last_verified"]["snapshot_id"]]) if known else next(
+    # A success from a capture that is no longer projected ranks before every current run.
+    rank = lambda prior: order.get(prior["last_verified"]["snapshot_id"], -1)
+    known = [prior for prior in candidates if prior and prior.get("last_verified") and rank(prior) <= order[snapshot]]
+    return max(known, key=rank) if known else next(
         (prior for prior in candidates if prior and not prior.get("last_verified")), None)
 
 
@@ -248,6 +248,9 @@ def run(root, project, source, runs):
         return result, metrics
     previous = read(root, json.loads(pointer.read_bytes())["run_id"]) if pointer.exists() else None
     order = {run["snapshot_id"]: number for number, run in enumerate(reversed(runs))}
+    # Only the current run is projected. A starting snapshot is known when its
+    # receipt is registered, even though its packs are no longer published.
+    registered = lambda snapshot: snapshot in order or within(root, f"snapshots/{snapshot}.json").is_file()
     source_pin = None
     if any(item["definition"] and item["definition"]["code"] for item in authored.values()):
         source_pin = git(source, "rev-parse", "HEAD")
@@ -255,6 +258,11 @@ def run(root, project, source, runs):
     result = {"schema_version": 1, "run_id": identity, "inputs": inputs, "snapshots": {},
               "snapshot_inputs": {}, "previous_run": previous["run_id"] if previous else None}
     carried = {}
+    # Seed from the newest earlier capture the previous receipt checked, so a
+    # last success survives when only the current run is projected.
+    build = lambda snapshot: int(snapshot.split("-")[1]) if snapshot.split("-")[1:2] and snapshot.split("-")[1].isdigit() else -1
+    for snapshot in sorted((key for key in (previous or {}).get("snapshots", {}) if key not in order), key=lambda key: (build(key), key)):
+        carried.update(previous["snapshots"][snapshot])
     issues = Exceptions()
     for captured in reversed(runs):
         snapshot = captured["snapshot_id"]
@@ -262,7 +270,7 @@ def run(root, project, source, runs):
                   item["definition"]["since"] not in order or order[snapshot] >= order[item["definition"]["since"]]}
         receipt = snapshots.read(root, snapshot)
         signature = digest(json_bytes([captured, receipt, definition_inputs(active), inputs["contract"],
-                                      {key: bool(item["definition"] and item["definition"]["since"] in order)
+                                      {key: bool(item["definition"] and registered(item["definition"]["since"]))
                                        for key, item in active.items()}]))
         result["snapshot_inputs"][snapshot] = signature
         old = (previous or {}).get("snapshots", {}).get(snapshot, {})
@@ -281,7 +289,7 @@ def run(root, project, source, runs):
         records = {}
         for key, item in active.items():
             record = old[key] if reusable else evaluate(key, item, captured, receipt, facts, codes, prior[key], identity,
-                              bool(item["definition"] and item["definition"]["since"] in order))
+                              bool(item["definition"] and registered(item["definition"]["since"])))
             records[key] = carried[key] = record
             if snapshot == runs[0]["snapshot_id"] and record["status"] != "passed":
                 issues.add("curated-check-failed", item["topic"], key,

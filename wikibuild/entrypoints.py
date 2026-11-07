@@ -51,16 +51,21 @@ def retire(writer, project, topic, target, release_id, candidate, *, fonts_base=
     writer.add("site/reader.js", (Path(__file__).parent / "release_bootstrap.js").read_bytes().replace(b"\r\n", b"\n"))
     # A first release can fill the original repository with immutable objects
     # before it ever hosts a front. Its stable URL still needs a bootstrap shell.
+    # Existing shells are kept as they are; output removal applies only to unkept files.
     for name in ("index.html", "404.html", ".nojekyll"):
-        if "site/" + name not in writer.previous:
-            data = (Path(candidate) / topic / name).read_bytes()
-            if fonts_base and name.endswith(".html"):
-                from html import escape
-                import json
-                original = json.loads((Path(candidate) / topic / "reader.json").read_bytes())["fonts"]["base"]
-                data = data.replace(escape(original, quote=True).encode(), escape(fonts_base, quote=True).encode())
-            writer.add("site/" + name, data)
-    if "site/reader.css" not in writer.previous:
+        if "site/" + name in writer.previous:
+            writer.keep("site/" + name)
+            continue
+        data = (Path(candidate) / topic / name).read_bytes()
+        if fonts_base and name.endswith(".html"):
+            from html import escape
+            import json
+            original = json.loads((Path(candidate) / topic / "reader.json").read_bytes())["fonts"]["base"]
+            data = data.replace(escape(original, quote=True).encode(), escape(fonts_base, quote=True).encode())
+        writer.add("site/" + name, data)
+    if "site/reader.css" in writer.previous:
+        writer.keep("site/reader.css")
+    else:
         writer.add("site/reader.css", b"/* The release loader selects the versioned stylesheet. */\n")
 
 

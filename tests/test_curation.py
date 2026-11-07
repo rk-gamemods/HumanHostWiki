@@ -17,6 +17,8 @@ class CurationTests(unittest.TestCase):
         self.fixture.addCleanup = self.addCleanup
         self.fixture.setUp()
         self.root, self.project = self.fixture.root, self.fixture.project
+        # Curation still evaluates any run list; the reader passes only the current run.
+        self.fixture.runs = [self.fixture.new, self.fixture.old]
         self.project['repositories'][1]['path'] = 'repositories/items'
         self.repo = self.root / 'repositories/items'
         self.repo.mkdir(parents=True)
@@ -86,13 +88,13 @@ class CurationTests(unittest.TestCase):
         self.assertEqual(self.note(result, key='items/range')['status'], 'passed')
         self.assertEqual(result['exceptions']['group_count'], 1)
         self.assertIn('above-maximum', failed['reasons'][0])
-        site = Path(reader.build(self.root, self.project, self.fixture.runs)['path'])
+        site = Path(reader.build(self.root, self.project, [self.fixture.new])['path'])
         index = json.loads((site / 'items/snapshots' / (self.fixture.new['snapshot_id'] + '.json')).read_bytes())
         records = reader.load_maps(site / 'items', index['entries'])
         semantics = reader.load_maps(site / 'items', index['semantics'])
         self.assertEqual(semantics[records[self.fixture.a]['revision_id']]['facts']['weight'], 5)
         self.assertEqual(len(records[self.fixture.a]['explanations']), 2)
-        self.assertIsNone(records[self.fixture.a]['last_verified'])
+        self.assertNotIn('last_verified', records[self.fixture.a])
         self.assertEqual({x['status'] for x in records[self.fixture.a]['explanations']}, {'passed', 'unverified'})
         search = reader.load_maps(site / 'items', index['search'])
         self.assertNotIn('explanations', search[self.fixture.a])
@@ -264,6 +266,11 @@ class CurationTests(unittest.TestCase):
         self.assertEqual(result['snapshots'][self.fixture.old['snapshot_id']], {})
         self.assertEqual(self.note(result)['status'], 'passed')
 
+    def test_registered_older_baseline_counts_when_only_the_current_run_is_checked(self):
+        result, _ = curation.run(self.root, self.project, self.root / 'source', [self.fixture.new])
+        self.assertEqual(self.note(result)['status'], 'passed')
+        self.assertNotIn('starting-snapshot-not-captured', self.note(result)['reasons'])
+
     def test_unknown_baseline_is_an_exception_and_never_grants_a_successful_check(self):
         self.definition['since'] = 'build-999-' + 'f' * 12
         self.commit_definition()
@@ -273,9 +280,10 @@ class CurationTests(unittest.TestCase):
         self.assertIn('starting-snapshot-not-captured', self.note(result)['reasons'])
 
     def test_removed_entry_keeps_failed_explanation_out_of_compact_search(self):
+        # The previous update checked the older capture; this update projects only the new one.
+        curation.run(self.root, self.project, self.root / 'source', [self.fixture.old])
         self.fixture.new = self.fixture.make_run('200', [], absent={self.fixture.a: 'not-present'})
-        self.fixture.runs = [self.fixture.new, self.fixture.old]
-        built = reader.build(self.root, self.project, self.fixture.runs)
+        built = reader.build(self.root, self.project, [self.fixture.new])
         site = Path(built['path']) / 'items'
         index = json.loads((site / 'snapshots' / (self.fixture.new['snapshot_id'] + '.json')).read_bytes())
         entry = reader.load_maps(site, index['entries'])[self.fixture.a]
@@ -346,7 +354,7 @@ class CurationTests(unittest.TestCase):
     def test_markdown_renders_authored_text_literally_and_json_pointer_handles_escapes(self):
         result, _ = self.run_checks()
         text = pages.markdown('item', [{'entity_key': self.fixture.a, 'name': 'Item', 'status': 'present',
-                                       'explanations': [self.note(result)]}], self.fixture.new['snapshot_id'], 'r', '/items/').decode()
+                                       'explanations': [self.note(result)]}], '/items/').decode()
         self.assertIn('&lt;script&gt;literal&lt;/script&gt;', text)
         self.assertNotIn('<script>literal', text)
         self.assertEqual(curated_rules.pointer({'a/b': {'~key': [7]}}, '/a~1b/~0key/0'), 7)

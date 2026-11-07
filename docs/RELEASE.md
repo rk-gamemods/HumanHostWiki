@@ -30,18 +30,26 @@ Historical receipts remain readable at their pinned Git commits through one
 `git cat-file --batch` process per receipt. Ownership metadata is excluded from
 Pages output. Unknown or modified metadata pages fail validation and are preserved.
 
-Public site storage retains all releases:
+Public site storage holds the current release only
+([ADR-0001 amendment](adr/0001-versioned-public-wiki.md#amendment-2026-11-07-current-version-plus-a-change-log)):
 
-- `data/<hash>.json` stores a selected data pack once across snapshots/releases.
-- `objects/<hash>.json` stores immutable snapshot indexes.
-- `runtime/<hash>/reader.js` and `.css` preserve each release's reader runtime.
-- `releases/<release-id>.json` pins the topic's indexes, runtime and route map.
+- `data/<hash>.json` stores a selected data pack or the topic change log.
+- `objects/<hash>.json` stores the immutable snapshot index.
+- `runtime/<hash>/reader.js` and `.css` hold the release's reader runtime.
+- `releases/<release-id>.json` pins the topic's index, runtime and route map.
 - `reader.json` selects the latest prepared release. Stable HTML routes load a
   small bootstrap that honors an explicit `release` parameter before loading data.
 
-Generated Markdown remains directly readable in Git. Old release configurations
-and packs are retained when the current reference changes. A missing requested
-release fails explicitly; the reader never silently substitutes current facts.
+`wikibuild/release_output.py` starts each release's `site/` and `reference/` from
+nothing. The release writes new files, keeps reused allocated objects and keeps a
+retired front's successor shell. Every other previously owned file is removed in
+the release commit, and its allocated objects leave `capacity_objects`. Removal
+reaches `gh-pages` through the normal Pages commit; nothing is force-pushed and
+Git history may keep old files. A kept or written content-addressed object must
+still match its earlier bytes. Generated Markdown remains directly readable in Git.
+A link to an earlier release fails explicitly; the reader never silently
+substitutes current facts. `tools/check_release.py` fails if any allocated object
+is unreachable from the current release or an earlier configuration remains.
 Configured URLs are intended deployment destinations until publishing verifies
 them. Local Git completion is not evidence of public availability or gameplay
 verification.
@@ -93,7 +101,8 @@ Operational staging lives under `.local/rs/` for recovery and inspection. After
 the local release completes, the normal update removes staged payloads
 that have independently verified committed copies. Journals and small Git
 preparation files remain local. [RETENTION.md](RETENTION.md) owns these checks,
-retry behavior and retention scope. Historical public records are retained.
+retry behavior and retention scope. `wiki.py prune` keeps only the stage named
+by the completed journal.
 Indivisible over-budget control records fail before promotion under
 [CAPACITY.md](CAPACITY.md). [ACCEPTANCE.md](ACCEPTANCE.md) owns delivery status.
 

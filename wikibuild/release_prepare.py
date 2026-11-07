@@ -4,7 +4,7 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 
-from . import capacity_inventory, capacity_projection, entrypoints, git_transaction, ownership, physical, publication_git, release_content, release_output, release_partitions
+from . import capacity, capacity_inventory, capacity_projection, entrypoints, git_transaction, ownership, physical, publication_git, release_content, release_output, release_partitions
 from . import staging
 from .storage import ContractError, git, within
 
@@ -45,6 +45,11 @@ def prepare(root, project, candidate, release_id, inventory, previous, issue_tem
                 writers[repo["id"]] = release_output.Writer(target, prepared, repo, release_id)
             for placement, data in projection.writes():
                 writers[placement.partition].add(placement.artifact.path, data, allocated=True)
+            # Reused objects stay; every other earlier object leaves this release's tree.
+            reused = set(projection.reused)
+            for placement in projection.placements:
+                if placement.artifact.key in reused:
+                    writers[placement.partition].keep(placement.artifact.path, allocated=True)
             overflow = set()
             for repo in ordered:
                 identity, topic = repo["id"], repo.get("logical_topic", repo["id"])
@@ -57,6 +62,12 @@ def prepare(root, project, candidate, release_id, inventory, previous, issue_tem
                                        fonts_base=config.get("fonts", {}).get("base"))
                 elif repo["role"] == "partition":
                     release_partitions.landing(writer, project, repo)
+                else:
+                    # A former front keeps its successor shell at its stable URL.
+                    # Only objects this release no longer places leave it.
+                    for name in writer.previous:
+                        if name.startswith("site/") and capacity.OBJECT.fullmatch(name) is None:
+                            writer.keep(name)
                 if repo["role"] == "hub":
                     writer.add(".gitattributes", release_output.HUB_ATTRIBUTES)
                     current = {f".github/ISSUE_TEMPLATE/{name}" for name in issue_templates}

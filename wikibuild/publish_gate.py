@@ -11,6 +11,11 @@ from .storage import ContractError, within
 GIT_TIMEOUT = 120
 WORKSPACE_REPOSITORY = "rk-gamemods/HumanHostWiki"
 CI_PATH = ".github/workflows/ci.yml"
+# Must match paths-ignore in .github/workflows/ci.yml (test_foundation checks this).
+DATA_PREFIXES = ("availability/", "curation/runs/", "external-links/", "identity/requests/",
+                 "identity/runs/", "identity/states/", "publications/", "releases/", "snapshots/")
+DATA_FILES = {"curation/latest.json", "identity/latest.json", "workspace.lock.json"}
+DATA_ONLY_DEPTH = 20
 MERGED_PR_QUERY = ("query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) "
                    "{ object(oid: $oid) { ... on Commit { associatedPullRequests(first: 10) { nodes { number merged mergeCommit { oid } } } } } } }")
 
@@ -55,6 +60,58 @@ def ensure_clean(root):
         raise ContractError("Publish gate: workspace must be clean, including non-ignored untracked files")
 
 
+def is_data(path):
+    """Generated wiki data that no test or tool reads as code. Markdown is always code."""
+    return not path.endswith(".md") and (path in DATA_FILES or path.startswith(DATA_PREFIXES))
+
+
+def ci_run(host, commit, event="push"):
+    """Newest CI run of this exact commit for a main push or a pull request, or None."""
+    response = host.api("GET", f"repos/{WORKSPACE_REPOSITORY}/actions/runs?head_sha={commit}")
+    if (not isinstance(response, dict) or not isinstance(response.get("workflow_runs"), list)
+            or any(not isinstance(row, dict) for row in response["workflow_runs"])):
+        raise ContractError("Publish gate: invalid CI response for this exact commit")
+    runs = [row for row in response["workflow_runs"]
+            if row.get("name") == "CI" and row.get("path") == CI_PATH
+            and row.get("event") == event and (event != "push" or row.get("head_branch") == "main")
+            and row.get("head_sha") == commit]
+    if not runs:
+        return None
+    if any(type(row.get("id")) is not int or any(type(row.get(key, 0)) is not int
+               for key in ("run_number", "run_attempt")) for row in runs):
+        raise ContractError("Publish gate: invalid CI run identity for this exact commit")
+    return max(runs, key=lambda row: (row.get("run_number", 0), row.get("run_attempt", 0), row["id"]))
+
+
+def tested_run(root, host, commit):
+    """CI that tested exactly this commit's tree, as (tested commit, run) or None.
+
+    A main push run of the commit counts. So does the pull request run of a merge
+    commit's second parent when both have the same tree: the merge added nothing,
+    so the PR run tested the code being published and main need not test it again.
+    """
+    parents = git(root, "rev-list", "--parents", "-n", "1", commit).split()[1:]
+    if len(parents) == 2 and git(root, "rev-parse", f"{commit}^{{tree}}") == git(root, "rev-parse", f"{parents[1]}^{{tree}}"):
+        latest = ci_run(host, parents[1], "pull_request")
+        if latest is not None and latest.get("status") == "completed" and latest.get("conclusion") == "success":
+            return parents[1], latest
+    latest = ci_run(host, commit)
+    return (commit, latest) if latest is not None else None
+
+
+def data_only_ci(root, host, commit):
+    """Use the newest first-parent ancestor with CI when everything since it is data."""
+    ancestors = git(root, "rev-list", "--first-parent", f"--max-count={DATA_ONLY_DEPTH + 1}", commit).split()
+    for ancestor in ancestors[1:]:
+        changed = git(root, "diff", "--name-only", "--no-renames", ancestor, commit).splitlines()
+        if not all(is_data(path) for path in changed):
+            break
+        found = tested_run(root, host, ancestor)
+        if found is not None:
+            return found
+    raise ContractError("Publish gate: CI is missing for this exact commit")
+
+
 def check(root, project, manifest):
     """Fail on the first failed boundary, before publication touches any journal."""
     from . import publication
@@ -70,20 +127,9 @@ def check(root, project, manifest):
         raise ContractError("Publish gate: HEAD must equal fetched origin/main")
 
     host = github_pages.GitHubPages(project["github_owner"])
-    response = host.api("GET", f"repos/{WORKSPACE_REPOSITORY}/actions/runs?head_sha={commit}")
-    if (not isinstance(response, dict) or not isinstance(response.get("workflow_runs"), list)
-            or any(not isinstance(row, dict) for row in response["workflow_runs"])):
-        raise ContractError("Publish gate: invalid CI response for this exact commit")
-    runs = [row for row in response["workflow_runs"]
-            if row.get("name") == "CI" and row.get("path") == CI_PATH
-            and row.get("event") == "push" and row.get("head_branch") == "main"
-            and row.get("head_sha") == commit]
-    if not runs:
-        raise ContractError("Publish gate: CI is missing for this exact commit")
-    if any(type(row.get("id")) is not int or any(type(row.get(key, 0)) is not int
-               for key in ("run_number", "run_attempt")) for row in runs):
-        raise ContractError("Publish gate: invalid CI run identity for this exact commit")
-    latest = max(runs, key=lambda row: (row.get("run_number", 0), row.get("run_attempt", 0), row["id"]))
+    # CI skips pushes that change only generated data. Such a commit carries the
+    # exact code of a first-parent ancestor, so that ancestor's CI applies.
+    ci_commit, latest = tested_run(root, host, commit) or data_only_ci(root, host, commit)
     if latest.get("status") != "completed":
         raise ContractError("Publish gate: CI has not completed for this exact commit")
     if latest.get("conclusion") != "success":
@@ -151,6 +197,6 @@ def check(root, project, manifest):
         raise
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ContractError(f"Publish gate: invalid rehearsal receipt: {exc}") from None
-    return {"workspace_commit": commit, "origin": origin, "ci_run_id": latest["id"],
+    return {"workspace_commit": commit, "origin": origin, "ci_commit": ci_commit, "ci_run_id": latest["id"],
             "ci_run_attempt": latest.get("run_attempt", 1), "merged_pr": merged.get("number"),
             "checked_utc": datetime.now(timezone.utc).isoformat(), "rehearsal": receipt}
