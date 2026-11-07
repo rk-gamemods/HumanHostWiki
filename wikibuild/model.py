@@ -119,7 +119,9 @@ def relationships(row, indexes, metadata, issues):
         if gaps:
             unresolved = [gap for gap in gaps if gap["status"] != "payload-omitted"]
             if unresolved:
-                issues.add("relationship-gap", row["topic"], predicate,
+                # Extraction marks rows of features the capture ships switched off.
+                sink = issues.for_switched_off(row["switched_off_feature"]) if row.get("switched_off_feature") else issues
+                sink.add("relationship-gap", row["topic"], predicate,
                            "A selected relationship lacks a unique cataloged target; other relationships were retained.", row["source_id"], count=len(unresolved))
         semantic.append({"predicate": predicate, "field": semantic_field, "targets": sorted(set(destinations)),
                          **({"technical_targets": sorted(set(technical))} if technical else {}),

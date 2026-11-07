@@ -32,7 +32,7 @@ _skipReleaseOnNextLoad _slotRootTag""",
         "_EquipUpgradePityFailCounts": [int], "_EquipUpgradeSuccessRates": [N],
         **{name: [N] for name in "_qualityBladeHitFactors _qualityDamageFactors _qualityDuraFactors _qualityHitDownFactors _qualityRandomRates".split()},
     }, """On_Campfire_Enable UI_IconAfterSplit _ArrowIndicator _DecomposeMenu
-_DismantleMenu _DismantleOkMenu _DropItemIndicator _DyToolTipSet _EquipMenu
+_DismantleMenu _DismantleOkMenu _DropItemIndicator _DyToolTipSet _EquipMenu _dropItemOutlineStyle
 _GameSettings _GunAttachMenu _GunAttachSlots _GunAttachWindow _HandCraftBullet
 _IconSplitPrefab _ItemMenuTop _OnPickItem _On_DelOnHandItem _On_GunAttachSlot_Swap
 _On_Gun_Ammo_Unloaded _On_PickBI _On_Pick_EnviroBI _On_Slot_Combined _On_Slot_Swap

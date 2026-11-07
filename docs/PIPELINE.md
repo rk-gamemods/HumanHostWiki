@@ -177,6 +177,18 @@ most eight source examples. Groups are marked new, changed or unchanged relative
 to the previous distinct successful run. Repeating the same run preserves that
 report instead of producing another history entry or re-analyzing exceptions.
 
+A game system the capture ships switched off is not reachable in play, so drift
+inside it does not stop the precheck. `presentation/fields.json` names these
+features. Merchants are the current case: `Merchant_Mgr.My_Start` requires an
+active GameObject, and the shipped `Merchant_Mgr` object has `m_IsActive: false`.
+When the same capture proves that flag false, the component and its expanded rows
+carry `switched_off_feature`. Their extraction and relationship drift goes to a
+separate `switched_off` list that the report prints as not blocking. Links keep
+their unresolved status; no target is invented. If the flag is true or cannot be
+proven, the normal blocking rules apply. Code that activates the object at runtime
+is not detected; the reader's feature switch has the same limit. Identity changes
+for these rows still need reviewed corrections so their history stays continuous.
+
 The command prints stage progress and, after completion, the exception list and
 full receipt path. The operator presents those issues and asks for direction.
 Model-assisted explanation, classification or resolution is not an execution

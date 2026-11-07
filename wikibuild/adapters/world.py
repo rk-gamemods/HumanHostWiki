@@ -45,10 +45,12 @@ preLoadParticles unityVolume wetnessLevel""",
               notes="Tag accepted by the dungeon exit trigger; the trigger opens confirmation UI."),
     component("Terrain", "Terrain_Loader_Manager", "world-rule", "world-systems", {
         **numbers("_BiomesWidthNum BigTerraCountPerAxis BigTerraWidth _TerraSize DisToLoadChildChunk DisToUnLoadChildChunk CheckChunkDisInterval WorldFloatMaxDistance"),
+        **numbers("SmartLoadReleaseInterval TravelIntentSpeedKmh TravelIntentSpeedWindow TravelIntentMinDistance TravelIntentMaxAngleDegrees"),
+        "DisableSmartTerrainSuspension": int,
         "_BaseBigTerrains": {"baseBigTerraTops": [Ref("base-terrain-prefab")], "BigTerraNames": [str]},
         "_BiomesLayers": [{"terrainTops": [Ref("biome-terrain-prefab")], "BigTerraNames": [str]}],
     }, "Mask_13_21 PullBackTheseObjects PullBackTheseObjectsChildren _LD_CornerFadeData _LU_CornerFadeData _RD_CornerFadeData _RU_CornerFadeData _terraWorldSeed neutralizedPlayerMove",
-       notes="Serialized terrain-layer order, prefab bindings and streaming dimensions. The check interval is seconds. Player/world seed, live positions, origin-shift bindings and texture blending are omitted."),
+       notes="Serialized terrain-layer order, prefab bindings and streaming dimensions. The check and smart-load release intervals are seconds. When smart suspension is enabled, travel intent releases suspended terrain loads once the average horizontal speed over the speed window (seconds) reaches the km/h threshold and the player has moved the minimum distance without turning more than the angle limit (degrees). Player/world seed, live positions, origin-shift bindings and texture blending are omitted."),
     component("Player", "World_Map_Mgr", "world-rule", "world-systems", {
         **numbers("_ClearRadius _ClearIntervalDis _MaxScaleFactor _MinScaleFactor _fogMinRefreshScale _zoomSpeed _zoomStepPerNotch _zoomLerpSpeed _dragSpeedFar _dragSpeedNear _mapPhotoWorldSize _fogWindowScale"), "_timeOffsetMinutes": int,
     }, """_BlackBG _BuildTooltip _CompassPro _DragSpeedFactor _DragTrans _EnviroSkyVolume _Flag_Custom _Flag_Custom_Top _GameDaysText _GameTimeText _Map_DirectionalLight _MipMapRectTrans _MipMapRoot _OnOpenCloseMap _OpenSFX _PlayerPosText _Volume _inOpenMap _saveID

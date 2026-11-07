@@ -80,7 +80,8 @@
         "tools/check_extraction.py",
         "tools/check_coded_values.py",
         "tools/benchmark_extraction.py",
-        "tools/audit_capture_catalog.py"
+        "tools/audit_capture_catalog.py",
+        "tools/review_code_dependencies.py"
       ],
       "tests": [
         "tests/test_acquisition.py",
@@ -92,6 +93,7 @@
         "tests/test_components.py",
         "tests/test_extraction.py",
         "tests/test_prefabs.py",
+        "tests/test_review_code_dependencies.py",
         "tests/test_world_configuration.py"
       ],
       "depends_on": [

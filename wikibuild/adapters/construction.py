@@ -8,7 +8,7 @@ SPECS = (
         "MechPlatformRef": Ref("mechanic-platform-prefab"), "_VehicleTopPrefab": Ref("vehicle-top-prefab"),
         "_DoorUpShortCubeBI": Ref("door-support-building"),
     }, """AllowRightClickBuild Build_TopInfo DamagedBIsRender EZ_Outline InRightClickDetectAround
-In_DiggerFallenCheck ItemName OnRoboBISmashFallContactCrane On_RightClickDelete_CarCoreBI
+In_DiggerFallenCheck ItemName OnRoboBISmashFallContactCrane On_RightClickDelete_CarCoreBI _deleteBI_OutlineStyle
 PreviewBlue PreviewBlues PreviewIgnoresOverlap PreviewPrefabBI PreviewRed PreviewReds
 PreviewTransform PreviewWhite PreviewWhites Robops SpriteBlue SpriteRed TireMaterial
 _BeltPutBackSounds _BeltTakeOutSounds _BuildAlignText _BuildIndicatorPrefab _Green

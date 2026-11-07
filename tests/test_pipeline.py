@@ -482,5 +482,28 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue(repeated['metrics']['retention']['reused'])
 
 
+class SwitchedOffReportTests(unittest.TestCase):
+    def test_switched_off_drift_is_listed_but_never_counts_as_input_review(self):
+        from wikibuild.exceptions import Exceptions
+        normalize = Exceptions()
+        normalize.for_switched_off("merchants").add("unresolved-reference", "loot-acquisition", "Merchant_Mgr/x",
+                                                   "A selected relationship could not be resolved.", "a#1", count=3)
+        plain = Exceptions()
+        plain.add("new-field", "combat", "Gun/y", "A new source field needs an extraction decision.", "b#1")
+        merged = pipeline.report({"normalize": normalize.report(), "identity": plain.report()})
+        self.assertEqual(1, merged["group_count"])
+        self.assertEqual([("merchants", "normalize", 3)],
+                         [(row["feature"], row["stage"], row["occurrences"]) for row in merged["switched_off"]])
+        lines = pipeline.switched_off_lines(merged)
+        self.assertIn("not blocking", lines[0])
+        self.assertEqual("- [merchants: loot-acquisition/normalize] unresolved-reference: Merchant_Mgr/x (3)", lines[1])
+        # A run without switched-off drift keeps its previous report shape and identity.
+        clean = pipeline.report({"identity": plain.report()})
+        self.assertNotIn("switched_off", clean)
+        self.assertNotIn("switched_off", plain.report())
+        self.assertEqual([], pipeline.switched_off_lines(clean))
+        self.assertEqual(json_bytes(clean), json_bytes(pipeline.report({"identity": plain.report()})))
+
+
 if __name__ == "__main__":
     unittest.main()
