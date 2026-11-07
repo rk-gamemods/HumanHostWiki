@@ -28,6 +28,8 @@ VIEW_CLASSES = {("Item_Info", "Icon_Info"), ("UI", "Loot_Mgr"), ("UI", "Loot_Rat
                 ("Use_F", "Object_Interact"), ("Language", "Tooltip_Text")}
 PAYLOAD_TYPES = {"Texture2D", "Texture3D", "Cubemap", "Mesh", "AudioClip", "VideoClip", "Shader", "ComputeShader"}
 MERCHANT_MANAGER_OBJECT = "Merchant_Mgr"
+# Matches the switched-off feature name in presentation/fields.json.
+MERCHANT_FEATURE = "merchants"
 
 
 def identity_rule(record):
@@ -42,6 +44,22 @@ def spec_for(row):
     # Older catalog indexes do not carry assembly. Raw records must prove it.
     matches = [spec for spec in SPECS if spec.name == key[1]]
     return matches[0] if len(matches) == 1 else None
+
+
+def merchant_manager(spec, record, source, manager_records):
+    """Return (object id, serialized m_IsActive) for Merchant_Mgr, else (None, None)."""
+    if (spec.assembly, spec.name) != ("Merchant", "Merchant_Mgr"):
+        return None, None
+    objects = {ref["target"] for ref in record.get("references", [])
+               if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved" and "target" in ref}
+    managers = sorted(objects & source.catalog.get("manager_objects", {}).keys())
+    if len(managers) != 1:
+        return None, None
+    manager = manager_records.get(managers[0])
+    fields = manager.get("fields", {}) if manager and manager.get("type") == "GameObject" else {}
+    if fields.get("m_Name") != MERCHANT_MANAGER_OBJECT or type(fields.get("m_IsActive")) is not bool:
+        return None, None
+    return managers[0], fields["m_IsActive"]
 
 
 def prepare(source, issues):
@@ -143,7 +161,12 @@ def extract(source, issues):
             issues.add("component-identity", spec.topic, spec.name,
                        "The decoded component does not match its selected contract; facts were omitted.", identity)
             continue
-        selector = Selection(record, spec, issues)
+        manager_id, manager_active = merchant_manager(spec, record, source, manager_records)
+        # A shipped-inactive manager object never runs (Merchant_Mgr.My_Start
+        # requires activeInHierarchy), so its configuration drift is recorded
+        # without stopping the update. An active or unproven switch stays strict.
+        sink = issues.for_switched_off(MERCHANT_FEATURE) if manager_active is False else issues
+        selector = Selection(record, spec, sink)
         facts = selector.select(record.get("fields"), spec.fields)
         if facts is OMIT:
             facts = {}
@@ -160,19 +183,15 @@ def extract(source, issues):
         # across builds. m_GameObject is an evidenced within-snapshot join key.
         row["game_objects"] = sorted(ref["target"] for ref in record.get("references", [])
                                      if ref.get("field") == "/m_GameObject" and ref.get("status") == "resolved" and "target" in ref)
-        if (spec.assembly, spec.name) == ("Merchant", "Merchant_Mgr"):
-            managers = sorted(set(row["game_objects"]) & source.catalog.get("manager_objects", {}).keys())
-            if len(managers) == 1:
-                manager_id = managers[0]
-                manager = manager_records.get(manager_id)
-                fields = manager.get("fields", {}) if manager and manager.get("type") == "GameObject" else {}
-                if fields.get("m_Name") == MERCHANT_MANAGER_OBJECT and type(fields.get("m_IsActive")) is bool:
-                    row["facts"].update(manager_object=MERCHANT_MANAGER_OBJECT, manager_active=fields["m_IsActive"])
-                    evidence = {"path": source.object_path(manager_id), "object": manager_id,
-                                "fields": ["/m_Name", "/m_IsActive"]}
-                    if manager_id in source.locations:
-                        evidence["record_sha256"] = source.locations[manager_id]["sha256"]
-                    row["evidence"].append(evidence)
+        if manager_active is False:
+            row["switched_off_feature"] = MERCHANT_FEATURE
+        if manager_active is not None:
+            row["facts"].update(manager_object=MERCHANT_MANAGER_OBJECT, manager_active=manager_active)
+            evidence = {"path": source.object_path(manager_id), "object": manager_id,
+                        "fields": ["/m_Name", "/m_IsActive"]}
+            if manager_id in source.locations:
+                evidence["record_sha256"] = source.locations[manager_id]["sha256"]
+            row["evidence"].append(evidence)
         if identity in source.locations:
             row["evidence"][0]["record_sha256"] = source.locations[identity]["sha256"]
         if spec.name == "Terrain_Block_Info":

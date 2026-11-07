@@ -769,6 +769,55 @@
       "supersedes": [
         "e-fce26fd2e765ef4cfada47d3fe83f821"
       ]
+    },
+    {
+      "entity_key": "e-9cdd802f27f9a351e1e4f8cbcbb2d48c",
+      "observation_key": "4567b7490ac56dbe09cd96c167db0833",
+      "reason": "Human Host 0.8.330 review: Mountain_Forest merchant stock at Merchant_Mgr/_BiomeItemSet/0. The matched Merchant_Mgr component moved from scene object #12767 to #12810 in icons_common_scenes_all serialized-1; field path and biome name are unchanged. The only other corroboration, merchant-prefab links, is unresolved because the switched-off merchant bundles are no longer shipped. Same configuration entry, not new content.",
+      "reviewer": "Claude",
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    },
+    {
+      "entity_key": "e-4d73329e5ffb1113805e850efbc952aa",
+      "observation_key": "129faaaf72815eb759531dce7f73feca",
+      "reason": "Human Host 0.8.330 review: Moss_Forest merchant stock at Merchant_Mgr/_BiomeItemSet/1. The matched Merchant_Mgr component moved from scene object #12767 to #12810 in icons_common_scenes_all serialized-1; field path and biome name are unchanged. The only other corroboration, merchant-prefab links, is unresolved because the switched-off merchant bundles are no longer shipped. Same configuration entry, not new content.",
+      "reviewer": "Claude",
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    },
+    {
+      "entity_key": "e-020c8c1d7c15ae16a2f51a45330d6ed9",
+      "observation_key": "326f7ee08cffbe3a03ed68b730eda942",
+      "reason": "Human Host 0.8.330 review: War_Zone merchant stock at Merchant_Mgr/_BiomeItemSet/2. The matched Merchant_Mgr component moved from scene object #12767 to #12810 in icons_common_scenes_all serialized-1; field path and biome name are unchanged. The only other corroboration, merchant-prefab links, is unresolved because the switched-off merchant bundles are no longer shipped. Same configuration entry, not new content.",
+      "reviewer": "Claude",
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    },
+    {
+      "entity_key": "e-67b7402399a274044615b987da268738",
+      "observation_key": "04959f79823a4281a0618aff1a461ae1",
+      "reason": "Human Host 0.8.330 review: Wasteland merchant stock at Merchant_Mgr/_BiomeItemSet/3. The matched Merchant_Mgr component moved from scene object #12767 to #12810 in icons_common_scenes_all serialized-1; field path and biome name are unchanged. The only other corroboration, merchant-prefab links, is unresolved because the switched-off merchant bundles are no longer shipped. Same configuration entry, not new content.",
+      "reviewer": "Claude",
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    },
+    {
+      "entity_key": "e-f6fe2cbb74566f59cfa080e1381f3dc1",
+      "observation_key": "aa059bdf28ca678eafd47ea6df5baf66",
+      "reason": "Human Host 0.8.330 review: Desert merchant stock at Merchant_Mgr/_BiomeItemSet/4. The matched Merchant_Mgr component moved from scene object #12767 to #12810 in icons_common_scenes_all serialized-1; field path and biome name are unchanged. The only other corroboration, merchant-prefab links, is unresolved because the switched-off merchant bundles are no longer shipped. Same configuration entry, not new content.",
+      "reviewer": "Claude",
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    },
+    {
+      "entity_key": "e-6baeda590fd4a53ade1a51f790297525",
+      "observation_key": "2e737771b43fc0204ca6dd95553a3456",
+      "reason": "Human Host 0.8.330 review: Desert_Rocky merchant stock at Merchant_Mgr/_BiomeItemSet/5. The matched Merchant_Mgr component moved from scene object #12767 to #12810 in icons_common_scenes_all serialized-1; field path and biome name are unchanged. The only other corroboration, merchant-prefab links, is unresolved because the switched-off merchant bundles are no longer shipped. Same configuration entry, not new content.",
+      "reviewer": "Claude",
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    },
+    {
+      "entity_key": "e-7790007a135b0922e7d4c71439ac73af",
+      "observation_key": "3c7c1fba4124959882b9dc893abaec88",
+      "reason": "Human Host 0.8.330 review: Tropical_Jungle merchant stock at Merchant_Mgr/_BiomeItemSet/6. The matched Merchant_Mgr component moved from scene object #12767 to #12810 in icons_common_scenes_all serialized-1; field path and biome name are unchanged. The only other corroboration, merchant-prefab links, is unresolved because the switched-off merchant bundles are no longer shipped. Same configuration entry, not new content.",
+      "reviewer": "Claude",
+      "snapshot_id": "build-26507141-c9f85a54326a"
     }
   ],
   "schema_version": 1

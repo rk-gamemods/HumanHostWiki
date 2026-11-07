@@ -130,6 +130,17 @@ class ModelTests(unittest.TestCase):
         self.assertEqual("unresolved", result["semantic"]["relationships"][0]["gaps"][0]["status"])
         self.assertEqual(1, report["occurrences"])
 
+    def test_switched_off_feature_gap_is_kept_but_does_not_block(self):
+        row = observation()
+        row["switched_off_feature"] = "merchants"
+        row["relationships"] = [{"predicate": "merchant-prefab", "source_field": "/prefab", "guid": "unresolved-guid",
+                                 "status": "unresolved_guid", "target_source_ids": []}]
+        result, report = self.project(row, ({}, {}, {}))
+        self.assertEqual("unresolved_guid", result["semantic"]["relationships"][0]["gaps"][0]["status"])
+        self.assertEqual(0, report["group_count"])
+        self.assertEqual([("relationship-gap", "merchants", 1)],
+                         [(g["code"], g["feature"], g["occurrences"]) for g in report["switched_off"]])
+
 
 if __name__ == "__main__":
     unittest.main()

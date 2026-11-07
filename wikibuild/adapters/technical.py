@@ -81,6 +81,7 @@ _Z_Anger_SF _Z_DmgBlock_S _Z_DmgCreature_S _Z_Frenzy_SF _Z_Mutant_S _Z_Respawn_S
     reviewed("Build_System", "Build_Event_Center", """Before_BI_Spawn On_BI_Created
 On_BI_Disabled On_BI_FromPool On_BI_MR_Hide On_BI_MR_Show On_Before_Repair_Deploy
 On_CarBI_HP_Minus On_CarCore_Smashed On_CarHit_BaI On_CarHit_Creature On_CarHit_Scene
+On_PickPropHint_Register On_PickPropHint_Unregister
 On_Car_Active On_Car_BuildMode On_Car_Spawned On_Delete_Build On_Empty_Hands
 On_FinishSavingAllChunkBuildings On_Finish_World_Back On_FinishedFallenCheck
 On_GetOff_MainSeat On_GetOn_MainSeat On_Groups_Fallen On_Hand_Item On_Loaded_Car
@@ -128,7 +129,7 @@ _forceSaveRobo _inAutoOpenCloseDoors _inSavingData chunkPrefab""",
              "Chunk persistence scheduling, per-frame work budget, service bindings and live save queues; no world content definitions."),
     component("SaveData", "SaveDataManager", "configuration", "technical-reference", {
         "_AutoSaveInterval": N, "_AutoSaveIntervalEditor": N,
-    }, "FinishedSaveDiggerVoxel On_Save_BeforeQuit _note lastSaveTimePoint save_playerData save_weatherData",
+    }, "FinishedSaveDiggerVoxel On_Save_After_ItemIcons On_Save_BeforeQuit On_Save_Before_ItemIcons On_Save_Finished _note lastSaveTimePoint save_playerData save_weatherData",
        notes="Autosave interval defaults in seconds; _Start selects the editor interval only when Application.isEditor. Save contents, live progress and timestamps are omitted."),
     component("GameSettings", "GameSettings", "configuration", "technical-reference", {
         "Language": int, "_PlayerHurtEach": int, "_DamageCreatureF": N, "_DamageBlockF": N,
@@ -152,8 +153,8 @@ maxDisUpdateStaticShadow maxShadowDistanceSqt updateShadowCamAngle updateShadowL
              "Vehicle build-mode service bindings; no independent serialized mode limits."),
     reviewed("Car", "Car_Coding", "_carControl _top_Info",
              "Vehicle scripting service bindings; player-authored programs and runtime evaluation are not catalog facts."),
-    reviewed("Car", "Car_Funs", "topInfo",
-             "Vehicle command service binding; behavior is implemented in source rather than serialized settings."),
+    reviewed("Car", "Car_Funs", "_carCoreOutlineStyle topInfo",
+             "Vehicle command service binding and vehicle-core outline style index; behavior is implemented in source rather than serialized settings."),
     reviewed("Car", "Code_Translator", "CtrlZ_Mode InSavingCode Origin_Text RichText TopInfo_SavedCode _inputField scrollBar top_Info",
              "Vehicle code editor widgets, undo/save flags and player-authored source; no program text is exported."),
     reviewed("Car", "Car_Mgr", "_Brakes _Engine_Acce_Loop _Engine_Off _Engine_On _Tire_On_Ground _TrainBrakes _TrainCouple _TrainIcon _Train_On_Tracks",
@@ -181,8 +182,8 @@ _lastFurniPreFallFrame notTriggerOnDestroy""",
     reviewed("Use_F", "Use_F", """CarRepositionArrowPrefab EZ_Outline _AirDropIcon
 _AirDropIconChecked _ButtonCrateLabel_OK _CursorPos _InputFieldCrateLabel
 _InputFieldCrateLabel_Obj _LootBar _LootBarText _LootDeadBodySFX _Pick_Menu
-_SavePlayerDataIns _Tag_Menu carCore_floatText""",
-             "Interaction service UI, audio and save-service bindings; code-defined interaction mechanics are not inferred from these bindings.",
+_SavePlayerDataIns _Tag_Menu _carCoreOutlineStyle _corpseSparkleMaterial _pickMat carCore_floatText""",
+             "Interaction service UI, audio, highlight (outline style and loot-sparkle material) and save-service bindings; code-defined interaction mechanics are not inferred from these bindings.",
              {"_InteractSounds": [fields({}, "interactSFX sounds")]}),
     reviewed("Hand_Tools", "Gun_Light_Curves", "GraphIntensityMultiplier GraphTimeMultiplier LightCurve _LightSource",
              "Muzzle-flash light intensity curve and duration; no shot damage or alert radius."),

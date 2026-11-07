@@ -71,6 +71,16 @@ rule logs an exception instead of guessing that the old join is still valid.
 Unknown enum values, missing declarations and ambiguous mappings also remain
 exceptions. Adding labels cannot turn an unknown code into a supported fact.
 
+Each helper hash covers the member's tokens plus its file-level context, including
+`using` directives. A new import therefore changes every hash in that file even
+when the helpers are unchanged, as `using EPOOutline;` did in 0.8.330.
+`py -3 tools/review_code_dependencies.py --old <commit> --new <commit>` classifies
+each dependency as unchanged, context-only, member-changed, missing or
+old-unreviewed (the `--old` capture does not match the recorded hash), and prints
+the context lines, member identifiers and new hash. For context-only drift, check
+that the imported namespace declares none of those identifiers, then record the
+new hashes in `coded_contract.py`.
+
 Install the pinned source parser once with
 `py -3 -m pip install -r requirements-source.txt`. The source parser versions,
 adapter code, contract and captured input hashes participate in invalidation.

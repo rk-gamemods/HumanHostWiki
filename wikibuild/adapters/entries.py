@@ -35,6 +35,8 @@ def child(parent, kind, prefix, facts, name, name_status="internal", extra_evide
     result["fact_scope"] = "serialized-definition"
     result["name_status"] = name_status
     result["notes"] = parent["notes"]
+    if "switched_off_feature" in parent:
+        result["switched_off_feature"] = parent["switched_off_feature"]
     definition = definition_identity(result, identity_rule(parent["component"]))
     if definition:
         result["definition_identity"] = definition

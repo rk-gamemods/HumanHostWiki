@@ -43,11 +43,28 @@ def report(reports, previous=None):
             groups.append(row)
     groups.sort(key=lambda row: (row["topic"], row["stage"], row["code"], row["pattern"]))
     keys = {row["key"] for row in groups}
-    return {"schema_version": 1, "kind": "unresolved-wiki-content", "groups": groups,
-            "group_count": len(groups), "occurrences": sum(row["occurrences"] for row in groups),
-            "resolved_since_previous": sorted(set(old) - keys),
-            "next_action": "Present these exceptions to the user and ask how to proceed."
-            if groups else "No unresolved content in the implemented scope."}
+    result = {"schema_version": 1, "kind": "unresolved-wiki-content", "groups": groups,
+              "group_count": len(groups), "occurrences": sum(row["occurrences"] for row in groups),
+              "resolved_since_previous": sorted(set(old) - keys),
+              "next_action": "Present these exceptions to the user and ask how to proceed."
+              if groups else "No unresolved content in the implemented scope."}
+    # Drift inside features the capture ships switched off is listed but never blocks.
+    switched_off = sorted(({**group, "stage": stage, "key": stage + ":" + group["id"]}
+                           for stage, source in sorted(reports.items()) for group in source.get("switched_off", [])),
+                          key=lambda row: (row["feature"], row["topic"], row["stage"], row["code"], row["pattern"]))
+    if switched_off:
+        result["switched_off"] = switched_off
+    return result
+
+
+def switched_off_lines(exceptions):
+    rows = exceptions.get("switched_off", [])
+    if not rows:
+        return []
+    return [f"Switched-off features (not reachable in play; listed, not blocking): {len(rows)} groups, "
+            f"{sum(row['occurrences'] for row in rows)} occurrences.",
+            *(f"- [{row['feature']}: {row['topic']}/{row['stage']}] {row['code']}: {row['pattern']} ({row['occurrences']})"
+              for row in rows)]
 
 
 def contracts(root, project):
@@ -297,6 +314,7 @@ def operator_report(root, result):
                  f"Unresolved content: {saved['exceptions']['group_count']} groups, {saved['exceptions']['occurrences']} occurrences."]
         lines.extend(f"- [{group['topic']}/{group['stage']}] {group['code']}: {group['pattern']} ({group['occurrences']})"
                      for group in saved["exceptions"]["groups"])
+        lines.extend(switched_off_lines(saved["exceptions"]))
         return "\n".join([*lines, saved["next_step"]]) + "\n"
     saved = read(root, result["run_id"])
     lines = [f"Wiki supported stages completed for {saved['snapshot_id']}.",
@@ -315,6 +333,7 @@ def operator_report(root, result):
     for group in saved["exceptions"]["groups"]:
         lines.append(f"- [{group['topic']}/{group['stage']}] {group['code']}: {group['pattern']} "
                      f"({group['occurrences']}; {group['change']})")
+    lines.extend(switched_off_lines(saved["exceptions"]))
     articles = saved["completed"].get("external-articles")
     if articles:
         lines.append("External article checks: " + ", ".join(f"{count} {status}" for status, count in sorted(articles["counts"].items())))

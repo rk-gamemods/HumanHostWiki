@@ -162,6 +162,49 @@ class ComponentTests(unittest.TestCase):
             self.assertEqual(manager["evidence"][-1]["fields"], ["/m_Name", "/m_IsActive"])
             self.assertIn("fixture#1", source.requested)
 
+    def test_switched_off_merchant_drift_is_listed_without_blocking(self):
+        game_object = {"id": "fixture#1", "name": "Merchant_Mgr", "type": "GameObject"}
+        component = {"id": "fixture#2", "name": "Merchant_Mgr", "type": "MonoBehaviour",
+                     "assembly": "Merchant", "class": "Merchant_Mgr"}
+        stock = {"BiomeName": "Desert", "Items": [], "MerchantPrefabs": [{
+            "merchantRef": {"m_AssetGUID": "a" * 32, "m_SubObjectName": "", "m_SubObjectType": ""},
+            "voiceRefs": [], "voiceTexts": []}]}
+        record = {"id": "fixture#2", "script": {"assembly": "Merchant", "class": "Merchant_Mgr"},
+                  "fields": {"_BiomeItemSet": [stock], "_BuyPriceFactorGroups": [], "_SellPriceFactorGroups": [],
+                             **dict.fromkeys("_SpawnDis _DespawnDis _MerchantDisInterval _MaxMerchantCount "
+                                             "_MerchantCellHostProb _RefreshIntervalMinutes".split(), 1),
+                             "_FutureMerchantField": 1},
+                  "references": [{"field": "/m_GameObject", "status": "resolved", "target": "fixture#1"},
+                                 {"field": "/_BiomeItemSet/0/MerchantPrefabs/0/merchantRef", "guid": "a" * 32,
+                                  "status": "unresolved_guid", "targets": []}]}
+        drift = [("new-field", "Merchant_Mgr/_FutureMerchantField"),
+                 ("unresolved-reference", "Merchant_Mgr/_BiomeItemSet/*/MerchantPrefabs/*/merchantRef")]
+        # None: the manager object is not in the index, so the switch is unproven.
+        for active, blocking in ((False, []), (True, drift), (None, drift)):
+            with self.subTest(active=active):
+                fields = {"m_Name": "Merchant_Mgr", "m_IsActive": active} if active is not None else {"m_Name": "Merchant_Mgr"}
+                source = CatalogFixture([game_object, component], {
+                    "fixture#1": {"id": "fixture#1", "type": "GameObject", "fields": fields}, "fixture#2": record})
+                components.prepare(source, Exceptions())
+                issues = Exceptions()
+                rows = list(components.extract(source, issues))
+                report = issues.report()
+                self.assertEqual(blocking, sorted((g["code"], g["pattern"]) for g in report["groups"]))
+                if active is False:
+                    self.assertEqual(drift, sorted((g["code"], g["pattern"]) for g in report["switched_off"]))
+                    self.assertEqual({"merchants"}, {g["feature"] for g in report["switched_off"]})
+                    # Every row of the feature, including expanded stock, carries the marker.
+                    self.assertEqual({"merchants"}, {row.get("switched_off_feature") for row in rows
+                                                     if row["source_id"].startswith("fixture#2")})
+                    # The gap stays explicit in the link record; no target is invented.
+                    stock_row = next(row for row in rows if row["source_id"] == "fixture#2/_BiomeItemSet/0")
+                    self.assertIn({"predicate": "merchant-prefab", "status": "unresolved_guid", "guid": "a" * 32,
+                                   "source_field": "/_BiomeItemSet/0/MerchantPrefabs/0/merchantRef",
+                                   "target_source_ids": []}, stock_row["relationships"])
+                else:
+                    self.assertNotIn("switched_off", report)
+                    self.assertFalse(any("switched_off_feature" in row for row in rows))
+
     def test_record_chunks_bound_bytes_and_count_without_losing_oversized_records(self):
         sizes = {"a": {"bytes": 7}, "b": {"bytes": 4}, "c": {"bytes": 12},
                  "d": {"bytes": 2}, "e": {}, "f": {"bytes": 2}}

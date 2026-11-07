@@ -1,0 +1,108 @@
+{
+  "change_origin": "game-input-change",
+  "contract_sha256": "b46e6481b90b0961895d7d3ba9fe41dee9eae5e059bbf9cffde9588dc7b390f9",
+  "corrections_sha256": "5d62a235dcc2da9cda53d48b721d214c434e54eb8b580e1bd9e4a31852a2c79f",
+  "counts": {
+    "ambiguous": 7,
+    "changed": 46,
+    "new": 35,
+    "not-present": 4,
+    "uncaptured": 39,
+    "unchanged": 27248,
+    "unresolved": 7
+  },
+  "exceptions": {
+    "group_count": 3,
+    "groups": [
+      {
+        "code": "unresolved-observation",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12767/_BiomeItemSet/0",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12767/_BiomeItemSet/1",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12767/_BiomeItemSet/2",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12767/_BiomeItemSet/3",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12767/_BiomeItemSet/4",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12767/_BiomeItemSet/5",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12767/_BiomeItemSet/6"
+        ],
+        "id": "227376d8a87bf22468969515",
+        "message": "A prior observation is absent but its source object remains; review the extraction or identity change.",
+        "occurrences": 7,
+        "pattern": "loot-table",
+        "topic": "loot-acquisition"
+      },
+      {
+        "code": "ambiguous-identity",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/0",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/1",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/2",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/3",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/4",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/5",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/6"
+        ],
+        "id": "7fbde573a2ee3f989025836d",
+        "message": "Identity candidates are unresolved; this observation retains a separate wiki key.",
+        "occurrences": 7,
+        "pattern": "loot-table",
+        "topic": "loot-acquisition"
+      },
+      {
+        "code": "relationship-gap",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/0",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/1",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/2",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/3",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/4",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/5",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/6"
+        ],
+        "id": "f4dfa5927755682432e8ad8c",
+        "message": "A selected relationship lacks a unique cataloged target; other relationships were retained.",
+        "occurrences": 20,
+        "pattern": "merchant-prefab",
+        "topic": "loot-acquisition"
+      }
+    ],
+    "kind": "unresolved-wiki-content",
+    "next_action": "Ask the user how to handle these exceptions after supported work completes.",
+    "occurrences": 34,
+    "schema_version": 1
+  },
+  "extraction_run": "69f33888c611a733c07ca75c926c049ed33f89dfed8bf6bbcef870a88b1855e3",
+  "input_identity": {
+    "inventory": "909019cf0e97699f0186e7b8a6ed57dfed99a341",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "26507141",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "8638053949495181884",
+          "size": "52393325550"
+        }
+      }
+    }
+  },
+  "migration_id": "3b4d4222ca568da264ea22dc349f871cd27da95cb1715e4707efb8e133611e3f",
+  "models": {
+    "bytes": 111333771,
+    "path": ".local/history/objects/afa8c000ef7163b35f64a688e2b9a45a2f3c63e693f7c8744a22e0cc887d09f8.jsonl",
+    "sha256": "afa8c000ef7163b35f64a688e2b9a45a2f3c63e693f7c8744a22e0cc887d09f8"
+  },
+  "parent_run": "6faef209b27426d97790f12ed7afe51271669eeb6cce8d43f1c2d323bded9d81",
+  "request_key": "c45b9118ef4339e7a773bbbcf2e82a5cfb9619f2d239aeefaf8acb8daaa86a4a",
+  "run_id": "a149cc656131874f91db8537108a1cbd3d966bc78a72c45af22e586eba164350",
+  "schema_version": 1,
+  "snapshot_id": "build-26507141-c9f85a54326a",
+  "source_commit": "c9f85a54326a8071d40d1243927b1f2fdbb980a0",
+  "state": {
+    "bytes": 40148785,
+    "path": "identity/states/3439398fe928841a297e579cb98af6b245d3538d797aef2ce271a4b8bbf6b656.jsonl",
+    "sha256": "3439398fe928841a297e579cb98af6b245d3538d797aef2ce271a4b8bbf6b656"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}
