@@ -75,7 +75,8 @@ Each helper hash covers the member's tokens plus its file-level context, includi
 `using` directives. A new import therefore changes every hash in that file even
 when the helpers are unchanged, as `using EPOOutline;` did in 0.8.330.
 `py -3 tools/review_code_dependencies.py --old <commit> --new <commit>` classifies
-each dependency as unchanged, context-only, member-changed or missing, and prints
+each dependency as unchanged, context-only, member-changed, missing or
+old-unreviewed (the `--old` capture does not match the recorded hash), and prints
 the context lines, member identifiers and new hash. For context-only drift, check
 that the imported namespace declares none of those identifiers, then record the
 new hashes in `coded_contract.py`.

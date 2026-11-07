@@ -27,7 +27,10 @@ class ReviewCodeDependenciesTests(unittest.TestCase):
         self.revisions = {}
         for name, data in (("base", BASE),
                            ("import", BASE.replace(b"using System;\n", b"using System;\nusing EPOOutline;\n")),
-                           ("member", BASE.replace(b"a + b", b"b + a"))):
+                           ("member", BASE.replace(b"a + b", b"b + a")),
+                           ("member-import", BASE.replace(b"a + b", b"b + a").replace(
+                               b"using System;\n", b"using System;\nusing EPOOutline;\n")),
+                           ("broken", b"public class Item_Slot_Mgr {")):
             (self.repo / "UI").mkdir(exist_ok=True)
             (self.repo / "UI/UI.decompiled.cs").write_bytes(data)
             self.git("add", "-A")
@@ -39,11 +42,11 @@ class ReviewCodeDependenciesTests(unittest.TestCase):
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True, check=True, text=True).stdout
 
-    def review(self, new):
+    def review(self, new, old="base"):
         original = review_tool.RULES
         review_tool.RULES = self.rules
         try:
-            return review_tool.review(self.repo, self.revisions["base"], self.revisions[new])
+            return review_tool.review(self.repo, self.revisions[old], self.revisions[new])
         finally:
             review_tool.RULES = original
 
@@ -56,6 +59,15 @@ class ReviewCodeDependenciesTests(unittest.TestCase):
         self.assertIn("Build", imported["member_identifiers"])
         self.assertNotEqual(self.rules["ammo-address"][1][0]["sha256"], imported["new_sha256"])
         self.assertEqual("member-changed", self.review("member")[0]["status"])
+
+    def test_unreviewed_old_capture_cannot_hide_a_member_change(self):
+        # Reviewed at base; the body changed at "member"; an import arrived later.
+        self.assertEqual("old-unreviewed", self.review("member-import", old="member")[0]["status"])
+        self.assertEqual("member-changed", self.review("member-import")[0]["status"])
+
+    def test_unparseable_captures_are_reported_not_raised(self):
+        self.assertEqual("missing", self.review("broken")[0]["status"])
+        self.assertEqual("old-unreviewed", self.review("import", old="broken")[0]["status"])
 
     def test_missing_member_is_reported(self):
         self.rules["ammo-address"][1][0]["symbol"] = {**SELECTOR, "member": "Gone"}

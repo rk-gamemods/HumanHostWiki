@@ -10,6 +10,8 @@ revisions and reports one of:
                   and any imported namespace's type names, before rebaselining.
   member-changed  the member's own tokens changed; review its behavior.
   missing         the member cannot be selected in the new capture.
+  old-unreviewed  the --old capture does not match the recorded hash either, so
+                  comparing against it cannot show what changed since review.
 
 It prints the new hash for each dependency and, for context-only drift, which
 identifiers the member uses that the new context could rebind. It never edits
@@ -26,7 +28,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from wikibuild import bounded  # noqa: E402
-from wikibuild.code_dependencies import Document, SelectionError  # noqa: E402
+from wikibuild.code_dependencies import KINDS, Document, SelectionError  # noqa: E402
 from wikibuild.adapters.coded_contract import AMMO_RULE  # noqa: E402
 
 RULES = {"ammo-address": ("UI/UI.decompiled.cs", AMMO_RULE)}
@@ -45,9 +47,11 @@ def parts(document, selector):
     selected = document.select(selector)
     owner, context = document.types[selector["type"]][0]
     body = owner.child_by_field_name("body")
-    node = next(child for child in (body.named_children if body is not None else [])
-                if child.start_point.row + 1 == selected["line"])
-    return context, document.tokens(node), selected["sha256"]
+    nodes = [child for child in (body.named_children if body is not None else [])
+             if child.start_point.row + 1 == selected["line"] and child.type == KINDS.get(selector["kind"])]
+    if len(nodes) != 1:
+        raise SelectionError("several members start on the selected line")
+    return context, document.tokens(nodes[0]), selected["sha256"]
 
 
 def text(tokens):
@@ -57,10 +61,17 @@ def text(tokens):
 def review(source, old, new):
     report = []
     for rule, (path, dependencies) in RULES.items():
-        documents = {revision: Document(show(source, revision, path)) for revision in (old, new)}
+        documents = {}
+        for revision in (old, new):
+            try:
+                documents[revision] = Document(show(source, revision, path))
+            except SelectionError as exc:
+                documents[revision] = exc
         for dependency in dependencies:
             selector, row = dependency["symbol"], {"rule": rule, "path": path, "symbol": dependency["symbol"]}
             try:
+                if isinstance(documents[new], SelectionError):
+                    raise documents[new]
                 new_context, new_tokens, new_sha = parts(documents[new], selector)
             except SelectionError as exc:
                 report.append({**row, "status": "missing", "reason": str(exc)})
@@ -70,9 +81,15 @@ def review(source, old, new):
                 report.append({**row, "status": "unchanged"})
                 continue
             try:
-                old_context, old_tokens, _ = parts(documents[old], selector)
+                if isinstance(documents[old], SelectionError):
+                    raise documents[old]
+                old_context, old_tokens, old_sha = parts(documents[old], selector)
             except SelectionError as exc:
-                report.append({**row, "status": "member-changed", "reason": f"old capture: {exc}"})
+                report.append({**row, "status": "old-unreviewed", "reason": f"old capture: {exc}"})
+                continue
+            if old_sha != dependency["sha256"]:
+                report.append({**row, "status": "old-unreviewed",
+                               "reason": "the --old capture does not match the recorded hash"})
                 continue
             if old_tokens != new_tokens:
                 report.append({**row, "status": "member-changed"})
