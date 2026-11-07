@@ -1,0 +1,72 @@
+{
+  "change_origin": "identity-correction",
+  "contract_sha256": "85cf53aa16203c2c6a343abe0e391144e6488f21517727e6e03c0aac6077fbe2",
+  "corrections_sha256": "4d85547e531b33acec7808dffe5352dcae9fbc0cffc7db792afa638f87551c20",
+  "counts": {
+    "changed": 7,
+    "superseded": 7,
+    "unchanged": 27322
+  },
+  "exceptions": {
+    "group_count": 0,
+    "groups": [],
+    "kind": "unresolved-wiki-content",
+    "next_action": "No unresolved wiki content in the implemented extraction scope.",
+    "occurrences": 0,
+    "schema_version": 1,
+    "switched_off": [
+      {
+        "code": "relationship-gap",
+        "examples": [
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/0",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/1",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/2",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/3",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/4",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/5",
+          "bundles/icons_common_scenes_all.bundle::serialized-1#12810/_BiomeItemSet/6"
+        ],
+        "feature": "merchants",
+        "id": "8169a152c205859d173bd223",
+        "message": "A selected relationship lacks a unique cataloged target; other relationships were retained.",
+        "occurrences": 20,
+        "pattern": "merchant-prefab",
+        "topic": "loot-acquisition"
+      }
+    ]
+  },
+  "extraction_run": "efb6239f594c847cbb21f49eec3c996e9f8e86564460a769de682d9c6a5ada6d",
+  "input_identity": {
+    "inventory": "909019cf0e97699f0186e7b8a6ed57dfed99a341",
+    "steam": {
+      "app_id": "2393970",
+      "branch": "public",
+      "build_id": "26507141",
+      "installed_depots": {
+        "2393972": {
+          "manifest": "8638053949495181884",
+          "size": "52393325550"
+        }
+      }
+    }
+  },
+  "migration_id": "3b4d4222ca568da264ea22dc349f871cd27da95cb1715e4707efb8e133611e3f",
+  "models": {
+    "bytes": 112085172,
+    "path": ".local/history/objects/e5d14a83ec10fc238c024408e30cac4bba5a264d80aa400ad62605c7805c4265.jsonl",
+    "sha256": "e5d14a83ec10fc238c024408e30cac4bba5a264d80aa400ad62605c7805c4265"
+  },
+  "parent_run": "0fc8c7cfc446d0392785f4f1adf6ec663f7f3f1adfd0ca58aa04344088894d63",
+  "request_key": "7874f0103e6f1ffb0ef4825230d395d2e85e14f6f1b31733a6f774aac5514d3e",
+  "run_id": "592816caa7da4b7259195896364afd8a7bf503f3b3eb16a840a55892ca6f11b1",
+  "schema_version": 1,
+  "snapshot_id": "build-26507141-c9f85a54326a",
+  "source_commit": "c9f85a54326a8071d40d1243927b1f2fdbb980a0",
+  "state": {
+    "bytes": 40900123,
+    "path": "identity/states/139961b9e8f6a4a647c6f793a3fe439fda14a04a85d18a324f7a6aca8253c142.jsonl",
+    "sha256": "139961b9e8f6a4a647c6f793a3fe439fda14a04a85d18a324f7a6aca8253c142"
+  },
+  "verification": "selected-data-only; gameplay and pages not verified",
+  "wiki_release": "not-created"
+}
