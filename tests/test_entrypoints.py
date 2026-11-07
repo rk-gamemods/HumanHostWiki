@@ -92,9 +92,12 @@ class EntrypointReleaseTests(unittest.TestCase):
         self.assertEqual(second["capacity"]["rolled_topics"], ["hub", "items", "loot"])
         self.assertEqual({k: v["commit"] for k, v in second["repositories"].items()},
                          {k: v["git"]["commit"] for k, v in journal["plans"].items()})
-        self.assertEqual(check(self.root)["historical_configs"], 6)
+        self.assertEqual(check(self.root)["release_configs"], 3)
         for (identity, name), data in retained.items():
-            self.assertEqual(git(self.root / first["repositories"][identity]["path"], "show", "HEAD:" + name), data)
+            # The first release's configuration leaves the tree; its commit still holds it.
+            path = self.root / first["repositories"][identity]["path"]
+            self.assertFalse((path / name).exists())
+            self.assertEqual(git(path, "show", first["repositories"][identity]["commit"] + ":" + name), data)
         for topic, identity in second["entrypoints"].items():
             self.assertNotEqual(topic, identity)
             self.assertTrue(second["physical"][topic]["sealed"])
@@ -126,7 +129,7 @@ class EntrypointReleaseTests(unittest.TestCase):
         _, third = self.make("Third")
         self.assertEqual(third["entrypoints"], second["entrypoints"])
         self.assertEqual(frozen, {topic: third["repositories"][topic]["commit"] for topic in frozen})
-        self.assertEqual(check(self.root)["historical_configs"], 9)
+        self.assertEqual(check(self.root)["release_configs"], 3)
         self.assertEqual(publication.run(self.root, self.project, third, host=self.host)[0]["status"], "published")
         self.assertTrue(publication.run(self.root, self.project, third, host=self.host)[1]["reused"])
         # Roll again from a generated front. The hub control identity now lives
@@ -140,7 +143,7 @@ class EntrypointReleaseTests(unittest.TestCase):
         self.assertEqual(fourth["capacity"]["rolled_topics"], ["hub", "items", "loot"])
         self.assertTrue(all(fourth["entrypoints"][topic] != third["entrypoints"][topic] for topic in third["entrypoints"]))
         self.assertEqual(frozen, {topic: fourth["repositories"][topic]["commit"] for topic in frozen})
-        self.assertEqual(check(self.root)["historical_configs"], 12)
+        self.assertEqual(check(self.root)["release_configs"], 3)
         old_hub = third["entrypoints"]["hub"]
         confirmed_refs = dict(self.host.refs)
         self.host.fail_name = fourth["repositories"][old_hub]["github_name"]

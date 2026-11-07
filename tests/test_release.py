@@ -13,7 +13,7 @@ from tests._support import cache_git_queries, fixture_dir
 
 import test_reader
 from wikibuild import git_transaction, reader, release, workspace
-from wikibuild.storage import ContractError, git, json_bytes
+from wikibuild.storage import ContractError, digest, git, json_bytes
 from tools.check_release import check as independent_check
 
 
@@ -235,7 +235,7 @@ class ReleaseTests(unittest.TestCase):
             self.candidate, self.fixture = cloned.candidate, cloned.fixture
             return
         baselines = {'test_font_links_and_exact_bytes_survive_release_and_repeat',
-                     'test_prior_release_data_and_runtime_remain_available_without_pack_duplication',
+                     'test_second_release_removes_unwritten_files_and_keeps_reused_objects',
                      'test_reviewed_explanation_after_published_baseline_preserves_old_release_and_repeats',
                      'test_reviewed_successor_cannot_change_generated_outputs',
                      'test_failure_between_children_preserves_previous_release_then_resumes'}
@@ -398,21 +398,39 @@ class ReleaseTests(unittest.TestCase):
             self.run_release()
         self.assertFalse((self.root / "releases/latest.json").exists())
 
-    def test_prior_release_data_and_runtime_remain_available_without_pack_duplication(self):
+    def test_second_release_removes_unwritten_files_and_keeps_reused_objects(self):
         first, _ = self.run_release()
-        folder = self.root / 'repositories/items/site'
-        data = {p.name: p.read_bytes() for p in (folder / 'data').iterdir()}
-        old_config = (folder / 'releases' / (first['release_id'] + '.json')).read_bytes()
+        repo = self.root / 'repositories/items'
+        before = release.owned(repo)
+        old_config = 'site/releases/' + first['release_id'] + '.json'
+        self.assertIn(old_config, before)
+        row = self.fixture.observation(self.fixture.a, '<script>alert(1)</script>')
+        row['semantic']['facts']['weight'] = 4
+        row['revision_id'] = digest(json_bytes(row['semantic']))
+        self.fixture.runs = [self.fixture.make_run('300', [row], absent={self.fixture.b: 'not-present'})]
         self.new_candidate()
         second, _ = self.run_release()
-        self.assertNotEqual(first['release_id'], second['release_id'])
-        self.assertEqual(old_config, (folder / 'releases' / (first['release_id'] + '.json')).read_bytes())
-        self.assertEqual(data, {p.name: p.read_bytes() for p in (folder / 'data').iterdir()})
-        config = json.loads(old_config)
-        self.assertTrue((folder / config['runtime']['js']).is_file())
-        for record in config['snapshots'].values():
-            self.assertTrue((folder / record['path']).is_file())
-        self.assertEqual(independent_check(self.root)['historical_configs'], 2 * len(self.project['repositories']))
+        after = release.owned(repo)
+        # The tree holds exactly this release's files: no earlier config, snapshot or changed pack.
+        self.assertNotIn(old_config, after)
+        self.assertIn('site/releases/' + second['release_id'] + '.json', after)
+        removed = before.keys() - after.keys()
+        self.assertTrue(any(name.startswith('site/data/') for name in removed))
+        self.assertTrue(any(name.startswith('site/objects/') for name in removed))
+        on_disk = {p.relative_to(repo).as_posix() for folder in ('site', 'reference') for p in (repo / folder).rglob('*') if p.is_file()}
+        self.assertEqual(on_disk, {name for name in after if name.startswith(('site/', 'reference/'))})
+        # Unchanged content-addressed objects are kept, not rewritten.
+        kept = {name for name in before.keys() & after.keys() if name.startswith('site/data/')}
+        self.assertTrue(kept)
+        self.assertTrue(all(before[name] == after[name] for name in kept))
+        owner = json.loads((repo / '.wiki-output.json').read_bytes())
+        self.assertTrue(set(owner['capacity_objects']) <= set(after))
+        self.assertNotIn(old_config, owner['capacity_objects'])
+        # Removal is an ordinary commit; history still holds the old file.
+        git(repo, 'cat-file', '-e', first['repositories']['items']['commit'] + ':' + old_config)
+        self.assertEqual(git(repo, 'rev-parse', 'HEAD^'), first['repositories']['items']['commit'])
+        self.assertEqual(independent_check(self.root)['release_configs'], len(self.project['repositories']))
+        self.assertEqual(self.run_release()[0], second)
 
     def test_reviewed_explanation_after_published_baseline_preserves_old_release_and_repeats(self):
         first, _ = self.run_release()
@@ -438,7 +456,7 @@ class ReleaseTests(unittest.TestCase):
         release.verify(self.root, first, check_checkout=False)
         release.verify(self.root, second)
         self.assertEqual(self.run_release()[0], second)
-        self.assertEqual(independent_check(self.root)['historical_configs'], 2 * len(self.project['repositories']))
+        self.assertEqual(independent_check(self.root)['release_configs'], len(self.project['repositories']))
 
     def test_reviewed_successor_cannot_change_generated_outputs(self):
         first, _ = self.run_release()

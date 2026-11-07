@@ -65,7 +65,7 @@ def check(root):
     assert sha(canonical(candidate_manifest["inputs"])) == candidate_id
     assert manifest["versions"] == candidate_manifest["versions"]
     assert manifest["routes"] == candidate_manifest["inputs"]["bases"]
-    counts = {"repositories": 0, "owned_files": 0, "owned_bytes": 0, "candidate_files": 0, "historical_configs": 0, "ownership_pages": 0}
+    counts = {"repositories": 0, "owned_files": 0, "owned_bytes": 0, "candidate_files": 0, "release_configs": 0, "ownership_pages": 0}
     origins, ownership, locations = {}, {}, {}
     owner_name = candidate_manifest["inputs"]["project"]["github_owner"]
     for identity, record in manifest["repositories"].items():
@@ -124,6 +124,8 @@ def check(root):
         counts["owned_files"] += len(files)
         counts["owned_bytes"] += record["output_bytes"]
 
+    fetched = set()
+
     def public(topic, reference):
         name = reference["path"] if isinstance(reference, dict) else reference
         url = urljoin(manifest["routes"][topic], name)
@@ -133,6 +135,7 @@ def check(root):
         assert owner == topic, url
         relative = "site/" + url[len(base):]
         assert relative in ownership[path]
+        fetched.add(contained(path, relative))
         data = contained(path, relative).read_bytes()
         if isinstance(reference, dict):
             assert sha(data) == reference["sha256"] and len(data) == reference["bytes"], url
@@ -184,10 +187,10 @@ def check(root):
         if relative.startswith("snapshots/"):
             index = json.loads(public(topic, config["snapshots"][Path(relative).stem]))
             original = json.loads(data)
-            for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player", "guides"):
-                if kind in {"cards", "player", "guides"} and kind not in original:
+            for kind in ("entries", "semantics", "search", "backlinks", "cards", "player", "guides", "changes"):
+                if kind in {"cards", "player", "guides", "changes"} and kind not in original:
                     continue
-                if kind != "guides":
+                if kind not in {"guides", "changes"}:
                     index[kind] = list(leaves(index[kind], lambda ref: json.loads(public(topic, ref))))
                 assert len(index[kind]) == len(original[kind])
                 for actual, before in zip(index[kind], original[kind]):
@@ -221,11 +224,13 @@ def check(root):
         counts["candidate_files"] += 1
     # Full configs have one allocated location. Front stubs do not count as
     # duplicate configurations and must resolve to the same pinned bytes above.
+    # Sites hold only the current release: an earlier configuration is a leak.
     for (topic, name), path in locations.items():
         if not name.startswith("site/releases/"):
             continue
+        fetched.add(path)
         old = expand(read(path), lambda ref: json.loads(public(topic, ref)))
-        assert old["release_id"] == path.stem
+        assert old["release_id"] == path.stem == release_id, name
         articles_reachable(old.get("external_articles"), lambda ref: json.loads(public(topic, ref)))
         fonts_reachable(old.get("fonts"), lambda ref: public("hub", ref))
         for name in old["runtime"].values():
@@ -233,16 +238,19 @@ def check(root):
         for snapshot, index_ref in old["snapshots"].items():
             index = json.loads(public(topic, index_ref))
             assert index["snapshot_id"] == snapshot
-            for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player"):
+            for kind in ("entries", "semantics", "search", "backlinks", "cards", "player"):
                 if kind in {"cards", "player"} and kind not in index:
                     continue
                 for pack in leaves(index[kind], lambda ref: json.loads(public(topic, ref))):
                     public(topic, pack)
-            for guide in index.get("guides", []):
+            for guide in [*index.get("guides", []), *index.get("changes", [])]:
                 public(topic, guide)
-        counts["historical_configs"] += 1
+        counts["release_configs"] += 1
+    # Every allocated object is reachable from the current release; nothing older remains.
+    unreachable = sorted(str(path) for path in set(locations.values()) - fetched)
+    assert not unreachable, unreachable[:5]
     return {"status": "passed", "release_id": release_id, **counts,
-            "scope": "Committed bytes, candidate conservation and retained release reachability; not gameplay or deployment verification"}
+            "scope": "Committed bytes, candidate conservation and current-release-only outputs; not gameplay or deployment verification"}
 
 
 if __name__ == "__main__":
