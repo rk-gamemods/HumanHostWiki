@@ -233,4 +233,3 @@ def markdown(title, log, base, link):
                 lines.append(f"- {text} ({escape(item['kind'])})" + (f": {detail}" if detail else ""))
             lines.append("")
     return ("\n".join(lines) + "\n").encode("utf-8")
-
