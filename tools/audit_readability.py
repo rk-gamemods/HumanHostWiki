@@ -125,10 +125,8 @@ def jargon_token(token):
 def walk_page(topic, key, record, semantic, snapshot):
     name = record["name"]
     lines = [record["kind"].replace("-", " "), name]
-    for label, value in (("Snapshot", snapshot), ("Status", record.get("status")),
-                         ("Last substantive change", record.get("last_changed")),
-                         ("Last data check", record.get("last_data_checked")),
-                         ("Last gameplay verification", record.get("last_verified") or "Not performed")):
+    # Mirrors the entry page stamps; per-run fields are no longer published.
+    for label, value in (("Snapshot", snapshot), ("Status", record.get("status"))):
         lines.append(f"{label}: {value or 'Not recorded'}")
     lines.append(f"Evidence: {semantic.get('evidence_level', 'Not recorded')}")
     notes = semantic.get("notes") or []
@@ -250,6 +248,7 @@ def audit(repositories):
             names[(topic, kind, entry["name"])].append(key)
             if kind == "item" and not incoming[key].intersection(SOURCE_PREDICATES):
                 add("no_source_items", flag_row(topic, entry))
+            # Candidates since the current-only amendment publish no provenance or source ids.
             source_id = provenance.get(entry.get("provenance_id"), {}).get("source_id") or ""
             if DEBUG.search(entry["name"]) or DEBUG.search(source_id):
                 add("debug_names", {**flag_row(topic, entry, value=entry["name"]),

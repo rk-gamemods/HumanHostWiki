@@ -190,9 +190,7 @@ class ReadabilityAuditTests(unittest.TestCase):
         self.assertEqual((page["key"], page["topic"], page["kind"], page["name"]),
                          ("e-page", "items", "item", "Sample Rifle"))
         self.assertEqual(page["lines"], [
-            "item", "Sample Rifle", "Snapshot: snap-1", "Status: present",
-            "Last substantive change: snap-1", "Last data check: snap-1",
-            "Last gameplay verification: Not performed", "Evidence: extracted",
+            "item", "Sample Rifle", "Snapshot: snap-1", "Status: present", "Evidence: extracted",
             "Example note", "Scope: item data", "Extracted facts",
             "Type Code: Rifle", "Stats: 2 fields", "Mass: 0.07999999821186066",
             "Empty: Not set", "Relationships",
@@ -200,9 +198,9 @@ class ReadabilityAuditTests(unittest.TestCase):
             "Referenced by 2 relationships",
         ])
         self.assertEqual({key: page[key] for key in audit_readability.WALK_METRICS}, {
-            "visible_lines": 18, "facts_visible": 4, "relationships": 1,
+            "visible_lines": 15, "facts_visible": 4, "relationships": 1,
             "one_click_leaves": 2, "jargon_tokens": 2, "raw_floats": 1,
-            "bare_numbers": 1, "identifier_labels": 4, "jargon_ratio": 0.0385,
+            "bare_numbers": 1, "identifier_labels": 4, "jargon_ratio": 0.0513,
         })
         walk_text = (out / "readability-walk.md").read_text(encoding="utf-8")
         self.assertIn("## Page walk\n", walk_text)
