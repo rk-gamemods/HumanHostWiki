@@ -62,7 +62,7 @@ def classify_reader_path(topic, relative):
     if (relative in {"index.html", "404.html", ".nojekyll"} or
             re.fullmatch(r"groups/[a-z][a-z0-9-]*/index\.html", relative) or
             (topic == "hub" and re.fullmatch(r"reference/guides/[a-z][a-z0-9-]*\.md", relative)) or
-            re.fullmatch(r"reference/[a-z][a-z0-9-]*/[0-9]{4,}\.md", relative)):
+            re.fullmatch(r"reference/[a-z][a-z0-9-]*/[0-9]{4,}\.md", relative) or relative == "reference/changes.md"):
         return "mutable"
     raise ContractError(f"Unexpected reader output for capacity projection: {topic}/{relative}")
 

@@ -186,7 +186,7 @@ class ReaderTests(unittest.TestCase):
         self.old = self.make_run("100", [self.observation(self.a, "<script>alert(1)</script>"), self.observation(self.b, "Old item")])
         self.new = self.make_run("200", [self.observation(self.a, "<script>alert(1)</script>"), self.observation(self.c, "Crate", "loot-source", "loot", self.a)],
                                  absent={self.b: "not-present"})
-        self.runs = [self.new, self.old]
+        self.runs = [self.new]
 
     def observation(self, key, name, kind="item", topic="items", target=None):
         semantic = {"name": name, "kind": kind, "topic": topic, "facts": {"weight": 3, "nested": {"field": "value"}},
@@ -195,35 +195,51 @@ class ReaderTests(unittest.TestCase):
         return {"entity_key": key, "semantic": semantic, "revision_id": digest(json_bytes(semantic)),
                 "provenance": {"source_id": "bundle#" + str(ord(key[-1])), "evidence": [{"path": "Catalog/views/items.jsonl", "git_blob": "a" * 40}]}}
 
-    def test_migrated_history_compares_corrected_relationships_in_every_capture(self):
-        provisional = ["e-" + letter * 32 for letter in "def"]
-        runs, repairs = [], []
-        origin = {"snapshot_id": "build-300-" + "a" * 12}
-        for build, key in zip(("300", "400", "500"), provisional):
-            run = self.make_run(build, [self.observation(self.a, "A", target=key), self.observation(key, "B")])
-            runs.append(run)
-            receipt_path = self.root / "snapshots" / (run["snapshot_id"] + ".json")
-            receipt = json.loads(receipt_path.read_bytes())
-            receipt["game_version"] = "0.8." + build
-            receipt_path.write_bytes(json_bytes(receipt))
-            repairs.append({"old_key": key, "entity_key": self.b, "run_id": run["run_id"], "topic": "items",
-                            "origin": origin, "evidence": {"decision": {"status": "matched"}}})
-        migration = {"schema_version": 1, "base_run": runs[-1]["run_id"], "repairs": repairs,
-                     "redirects": {row["old_key"]: row for row in repairs}}
-        state, _ = identity_migration.reader_inputs(self.root, runs[-1], migration, self.root / "corrected-models.jsonl")
-        temporary = self.root / "corrected-state.jsonl"
-        temporary.write_bytes(b"".join(packs.compact(row) + b"\n" for row in state.values()))
-        migration["baseline"] = history.install(self.root, temporary, "fixtures/baseline")
-        migration["migration_id"] = model.fingerprint(migration)
-        history.immutable(self.root / "identity/migration.json", json_bytes(migration))
-        self.runs = list(reversed(runs))
-        site, _ = self.build()
-        for count, run in enumerate(runs, 1):
-            summary = self.index(site, "hub", run)["history"]
-            self.assertEqual(count, len(summary))
-            for row in summary[:-1]:
-                self.assertEqual({"new": 0, "changed": 0, "removed": 0},
-                                 {field: row["changes"][field] for field in ("new", "changed", "removed")})
+    def write_log(self, topic, versions):
+        path = self.root / "changes" / (topic + ".json")
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(json_bytes({"schema_version": 1, "topic": topic, "versions": versions}))
+
+    def test_change_logs_are_published_and_drive_hub_history(self):
+        previous = {"snapshot_id": self.old["snapshot_id"], "game_version": "0.8.100", "build_id": "100"}
+        current = {"snapshot_id": self.new["snapshot_id"], "game_version": "0.8.200", "build_id": "200"}
+        receipt_path = self.root / "snapshots" / (self.new["snapshot_id"] + ".json")
+        receipt_path.write_bytes(json_bytes({**json.loads(receipt_path.read_bytes()), "game_version": "0.8.200"}))
+        self.write_log("items", [
+            {**current, "count": 1, "previous": previous, "added": [],
+             "removed": [{"entity_key": self.b, "name": "Old item", "kind": "item", "status": "not-present"}],
+             "changed": [{"entity_key": self.a, "name": "<script>alert(1)</script>", "kind": "item",
+                          "fields": {"/facts/weight": {"old": 2, "new": 3}}}]},
+            {**previous, "count": 2, "previous": None}])
+        site, first = self.build()
+        index = self.index(site, "items", self.new)
+        self.assertEqual(1, len(index["changes"]))
+        log = json.loads((site / "items" / index["changes"][0]["path"]).read_bytes())
+        self.assertEqual(json.loads((self.root / "changes/items.json").read_bytes()), log)
+        empty = json.loads((site / "loot" / self.index(site, "loot", self.new)["changes"][0]["path"]).read_bytes())
+        self.assertEqual({"schema_version": 1, "topic": "loot", "versions": []}, empty)
+        page = (site / "items/reference/changes.md").read_text(encoding="utf-8")
+        self.assertIn("Version 0.8.200, Steam build 200", page)
+        self.assertIn("facts/weight", page)
+        self.assertIn("&lt;script&gt;", page)
+        self.assertNotIn("<script>alert", page)
+        history_rows = self.index(site, "hub", self.new)["history"]
+        self.assertEqual([self.new["snapshot_id"], self.old["snapshot_id"]], [row["snapshot_id"] for row in history_rows])
+        self.assertEqual({"new": 0, "changed": 1, "removed": 1}, {field: history_rows[0]["changes"][field]
+                                                                 for field in ("new", "changed", "removed")})
+        self.assertEqual(2, history_rows[0]["total"])
+        self.assertEqual(2, history_rows[1]["topics"]["items"])
+        self.assertIsNone(history_rows[1]["changes"])
+        # Old captures appear only as log rows; no older snapshot index or pack is projected.
+        self.assertEqual({self.new["snapshot_id"] + ".json"}, {path.name for path in (site / "items/snapshots").iterdir()})
+        self.write_log("items", [])
+        self.assertNotEqual(first["candidate_id"], self.build()[1]["candidate_id"])
+
+    def test_reader_projects_exactly_one_run(self):
+        self.runs = [self.new, self.old]
+        with self.assertRaisesRegex(ContractError, "exactly the current identity run"):
+            self.build()
+        self.assertFalse((self.root / ".local/reader-latest.json").exists())
 
     def make_run(self, build, observations, absent=None):
         snapshot = f"build-{build}-{'a' * 12}"
@@ -400,9 +416,8 @@ class ReaderTests(unittest.TestCase):
             current = self.index(site, topic, self.new)
             self.assertEqual(current["game_version"], "0.8.315")
             self.assertEqual(current["game_version_evidence"], evidence)
-            self.assertIsNone(self.index(site, topic, self.old)["game_version"])
             versions = json.loads((site / topic / "reader.json").read_bytes())["versions"]
-            self.assertEqual([row["game_version"] for row in versions], ["0.8.315", None])
+            self.assertEqual([row["game_version"] for row in versions], ["0.8.315"])
         self.assertTrue(self.build()[1]["reused"])
 
     def test_existing_full_hash_cache_location_remains_resolvable(self):
@@ -411,22 +426,22 @@ class ReaderTests(unittest.TestCase):
         legacy.mkdir(parents=True)
         self.assertEqual(reader.candidate_path(self.root / ".local", candidate), legacy)
 
-    def test_versions_keep_facts_removal_provenance_and_cross_topic_routes(self):
+    def test_current_entries_keep_removal_and_routes_without_per_run_fields(self):
         site, _ = self.build()
         latest = self.index(site, "items", self.new)
+        self.assertNotIn("provenance", latest)
         entries = reader.load_maps(site / "items", latest["entries"])
         self.assertEqual("not-present", entries[self.b]["status"])
         reverse = reader.load_maps(site / "items", latest["backlinks"])
         self.assertEqual("loot", next(value for key, value in reverse.items() if key.startswith(self.a + "/"))["topic"])
         self.assertEqual(1, entries[self.a]["backlink_count"])
-        self.assertIsNone(entries[self.a]["last_verified"])
-        older = self.index(site, "items", self.old)
-        old_entries = reader.load_maps(site / "items", older["entries"])
-        self.assertEqual("present", old_entries[self.b]["status"])
-        self.assertEqual(old_entries[self.a]["revision_id"], entries[self.a]["revision_id"])
-        self.assertTrue(set(row["path"] for row in older["semantics"]) <= set(row["path"] for row in latest["semantics"]))
+        churn = {"provenance_id", "first_seen", "last_changed", "last_seen", "last_data_checked", "last_verified", "decision", "source_id"}
+        for entry in entries.values():
+            self.assertFalse(churn & entry.keys())
+        for entry in reader.load_maps(site / "items", latest["search"]).values():
+            self.assertFalse(churn & entry.keys())
         config = json.loads((site / "loot/reader.json").read_text())
-        self.assertEqual(["200", "100"], [version["build_id"] for version in config["versions"]])
+        self.assertEqual(["200"], [version["build_id"] for version in config["versions"]])
         self.assertEqual(2, reader.validate_snapshot(site, self.new["snapshot_id"], ["hub", "items", "loot"]))
 
     def test_unchanged_candidate_is_byte_and_pointer_stable(self):
@@ -464,19 +479,21 @@ class ReaderTests(unittest.TestCase):
         self.assertIn("presentation.py", reader.contract())
         self.assertIn("game_text.py", reader.contract())
 
-    def test_unchanged_cards_share_storage_when_another_entry_disappears(self):
+    def test_new_capture_with_same_facts_rewrites_only_version_configuration(self):
         site, _ = self.build()
-        indexes = [self.index(site, "items", run) for run in self.runs]
-        entries = [reader.load_maps(site / "items", index["entries"]) for index in indexes]
-        card_id = entries[0][self.a]["card_id"]
-        self.assertEqual(card_id, entries[1][self.a]["card_id"])
-        shared = [{ref["path"] for ref in index["cards"]
-                   if card_id in reader.load_maps(site / "items", [ref])} for index in indexes]
-        self.assertEqual(shared[0], shared[1])
-        self.assertEqual(len(shared[0]), 1)
-        stored = [path for path in (site / "items/data").glob("*.json") if card_id in json.loads(path.read_bytes())]
-        self.assertEqual(len(stored), 1)
-        self.assertEqual(set(reader.load_maps(site / "items", indexes[0]["cards"])), {card_id})
+        before = {p.relative_to(site).as_posix(): p.read_bytes() for p in site.rglob("*") if p.is_file()}
+        renumbered = []
+        for row in model.rows(self.root / self.new["models"]["path"]):
+            row = {key: value for key, value in row.items() if key != "snapshot_id"}
+            row["provenance"] = {"source_id": "rebuilt#" + row["entity_key"][-4:], "evidence": [{"path": "other", "git_blob": "c" * 40}]}
+            renumbered.append(row)
+        self.runs = [self.make_run("300", renumbered, absent={self.b: "not-present"})]
+        after_site, _ = self.build()
+        after = {p.relative_to(after_site).as_posix(): p.read_bytes() for p in after_site.rglob("*") if p.is_file()}
+        banner = lambda name: name == "candidate.json" or name.endswith("/reader.json") or "/snapshots/" in name
+        self.assertEqual({name: data for name, data in before.items() if not banner(name)},
+                         {name: data for name, data in after.items() if not banner(name)})
+        self.assertNotEqual(before["items/reader.json"], after["items/reader.json"])
 
     def test_registry_change_invalidates_candidate_and_card_without_changing_facts(self):
         before, first = self.build()
@@ -491,7 +508,7 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(manifest["inputs"]["presentation"], digest(self.registry_path.read_bytes()))
         for run in self.runs:
             old, new = [self.index(site, "items", run) for site in (before, after)]
-            for kind in ("semantics", "provenance", "search"):
+            for kind in ("semantics", "search"):
                 self.assertEqual(old[kind], new[kind])
             old_cards = reader.load_maps(before / "items", old["cards"])
             new_cards = reader.load_maps(after / "items", new["cards"])
@@ -513,10 +530,10 @@ class ReaderTests(unittest.TestCase):
             text["semantic"]["facts"] = {"text": label}
             text["revision_id"] = digest(json_bytes(text["semantic"]))
             return [item, tooltip, text]
-        self.runs = [self.make_run("400", observations("Mass: ")), self.make_run("300", observations("Weight: "))]
-        site, _ = self.build()
         entries = []
-        for run, label in zip(self.runs, ("Mass", "Weight")):
+        for run, label in ((self.make_run("400", observations("Mass: ")), "Mass"), (self.make_run("300", observations("Weight: ")), "Weight")):
+            self.runs = [run]
+            site, _ = self.build()
             index = self.index(site, "items", run)
             entry = reader.load_maps(site / "items", index["entries"])[self.a]
             card = reader.load_maps(site / "items", index["cards"])[entry["card_id"]]
@@ -546,10 +563,10 @@ class ReaderTests(unittest.TestCase):
 
         newer = self.make_run("400", observations("Renamed wood"))
         older = self.make_run("300", observations("Old wood"))
-        self.runs = [newer, older]
-        site, _ = self.build()
         records = []
         for run, name in ((older, "Old wood"), (newer, "Renamed wood")):
+            self.runs = [run]
+            site, _ = self.build()
             index = self.index(site, "hub", run)
             entry = reader.load_maps(site / "hub", index["entries"])[self.b]
             card = reader.load_maps(site / "hub", index["cards"])[entry["card_id"]]
@@ -653,12 +670,11 @@ class ReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "missing"):
             self.build()
 
-    def test_removed_group_keeps_its_historical_static_route(self):
-        self.runs = [self.make_run("300", [], absent={self.a: "not-present", self.b: "not-present"}), self.old]
+    def test_removed_group_has_no_current_static_route(self):
+        self.runs = [self.make_run("300", [], absent={self.a: "not-present", self.b: "not-present"})]
         site, _ = self.build()
-        self.assertTrue((site / "items/groups/item/index.html").is_file())
+        self.assertFalse((site / "items/groups/item").exists())
         self.assertEqual({}, self.index(site, "items", self.runs[0])["counts"])
-        self.assertEqual({"item": 2}, self.index(site, "items", self.old)["counts"])
 
     def test_unsafe_site_bases_fail_before_output(self):
         for base in ("javascript:alert(1)/", "//unconfigured.test/", "/items/../private/", "https://user:secret@example.com/"):
@@ -709,24 +725,22 @@ class ReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "owning"):
             self.build(cache_root=self.root.parent)
 
-    def test_capacity_split_preserves_every_record_and_reuses_known_revisions(self):
+    def test_capacity_split_preserves_every_record_and_inserting_one_key_keeps_other_packs(self):
         records = {digest(str(i).encode()): packs.compact({"facts": "x" * 100}) for i in range(100)}
-        written, known = {}, {}
+        written = {}
         def output(path, data):
             written[path] = data
-        first = packs.reuse(records, known, 1024, output)
+        first = packs.write(records, 1024, output)
         self.assertGreater(len(first), 1)
         self.assertTrue(all(len(data) <= 1024 for data in written.values()))
         values = {key: value for data in written.values() for key, value in json.loads(data).items()}
         self.assertEqual(set(records), set(values))
-        before = dict(written)
         extended = {**records, "f" * 64: packs.compact({"facts": "new"})}
-        packs.reuse(extended, known, 1024, output)
-        self.assertEqual(1, len(written) - len(before))
-        self.assertTrue(all(written[path] == data for path, data in before.items()))
+        second = packs.write(extended, 1024, output)
+        self.assertEqual(1, len({row["path"] for row in second} - {row["path"] for row in first}))
+        self.assertEqual(1, len({row["path"] for row in first} - {row["path"] for row in second}))
         with self.assertRaisesRegex(ContractError, "exceeds"):
             list(packs.partition({"large": packs.compact("x" * 2000)}, 1024))
-
 
 if __name__ == "__main__":
     unittest.main()

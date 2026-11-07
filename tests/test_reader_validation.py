@@ -90,7 +90,7 @@ class ReaderValidationTests(unittest.TestCase):
     def test_empty_snapshot_and_search_coverage_error(self):
         folder = self.root / "items/snapshots"
         folder.mkdir(parents=True)
-        index = {kind: [] for kind in ("entries", "semantics", "provenance", "search", "backlinks")}
+        index = {kind: [] for kind in ("entries", "semantics", "search", "backlinks")}
         path = folder / "fixture.json"
         path.write_bytes(json_bytes(index))
         self.assertEqual(reader_validation.validate_snapshot(self.root, "fixture", ["items"]), 0)
@@ -112,8 +112,6 @@ class SnapshotPhaseTests(unittest.TestCase):
 
     def snapshot(self, change=None, change_index=None, change_guide=None):
         self.a, self.b, self.c = ("e-" + digit * 32 for digit in "abc")
-        provenance = {"source": "fixture"}
-        provenance_id = digest(packs.compact(provenance))
         item = {"relationships": [{"targets": [self.c], "technical_targets": [self.c]}]}
         biome = {"relationships": []}
         item_id, biome_id = digest(json_bytes(item)), digest(json_bytes(biome))
@@ -121,18 +119,18 @@ class SnapshotPhaseTests(unittest.TestCase):
                   "used_in": {"items": []}, "links": {self.c: {"name": "Biome", "topic": "hub"}}}
         player_id = digest(packs.compact(player))
         entry = {"topic": "items", "status": "present", "name": "Raw A", "kind": "item",
-                 "revision_id": item_id, "provenance_id": provenance_id, "card_id": "card", "player_id": player_id,
+                 "revision_id": item_id, "card_id": "card", "player_id": player_id,
                  "links": {self.c: {"topic": "hub"}}}
         hub_entry = {"topic": "hub", "status": "present", "name": "Biome", "kind": "biome",
-                     "revision_id": biome_id, "provenance_id": provenance_id, "links": {}}
+                     "revision_id": biome_id, "links": {}}
         present = {self.a: {"entity_key": self.a, "name": "Wiki A", "source_name": "Raw A", "kind": "item", "topic": "items"},
                    self.c: {"entity_key": self.c, "name": "Biome", "kind": "biome", "topic": "hub"}}
         maps = {"items": {"entries": {self.a: entry, self.b: {"topic": "items", "status": "not-present"}},
-                          "semantics": {item_id: item}, "provenance": {provenance_id: provenance},
+                          "semantics": {item_id: item},
                           "search": {self.a: {}, self.b: {}}, "backlinks": {}, "cards": {"card": {}},
                           "player": {player_id: player}},
                 "hub": {"entries": {self.c: hub_entry}, "semantics": {biome_id: biome},
-                        "provenance": {provenance_id: provenance}, "search": present,
+                        "search": present,
                         "backlinks": {self.c + "/back": {"entity": self.a, "topic": "items"}}, "cards": {}, "player": {}}}
         if change:
             change(maps)
@@ -175,7 +173,7 @@ class SnapshotPhaseTests(unittest.TestCase):
 
         self.snapshot()
         load = reader_validation.load_maps
-        kinds = ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player")
+        kinds = ("entries", "semantics", "search", "backlinks", "cards", "player")
         for topics in (("items", "hub"), ("hub", "items")):
             references, positions, observed = {}, {}, []
 
@@ -204,12 +202,12 @@ class SnapshotPhaseTests(unittest.TestCase):
     def test_map_and_entry_phases_return_complete_records(self):
         expected = self.snapshot()
         index = json.loads((self.root / "items/snapshots/fixture.json").read_bytes())
-        entries, semantics, provenance, searches, backlinks, players, targets = reader_validation.load_snapshot_maps(self.root / "items", index)
-        self.assertEqual((entries, semantics, provenance, searches, backlinks, players, targets),
-                         (expected["items"]["entries"], expected["items"]["semantics"], expected["items"]["provenance"],
+        entries, semantics, searches, backlinks, players, targets = reader_validation.load_snapshot_maps(self.root / "items", index)
+        self.assertEqual((entries, semantics, searches, backlinks, players, targets),
+                         (expected["items"]["entries"], expected["items"]["semantics"],
                           expected["items"]["search"], expected["items"]["backlinks"], expected["items"]["player"], [(self.c, "hub")]))
         membership, present = {}, {}
-        self.assertEqual(reader_validation.validate_entries("items", "fixture", entries, semantics, provenance, backlinks,
+        self.assertEqual(reader_validation.validate_entries("items", "fixture", entries, semantics, backlinks,
                                                            players, membership, present, targets), (1, {"total": 1, "kinds": {"item": 1}}))
         self.assertEqual(membership, {self.a: "items", self.b: "items"})
         self.assertEqual(present, {self.a: expected["hub"]["search"][self.a]})
@@ -227,7 +225,6 @@ class SnapshotPhaseTests(unittest.TestCase):
             (lambda maps: next(iter(maps["items"]["player"].values())).update(name="changed"), "Reader player hash differs"),
             (lambda maps: maps["items"]["entries"][self.a].update(topic="hub"), "Reader has duplicate or invalid canonical ownership"),
             (lambda maps: next(iter(maps["items"]["semantics"].values())).update(extra=True), "Reader semantic revision hash differs"),
-            (lambda maps: next(iter(maps["items"]["provenance"].values())).update(extra=True), "Reader provenance hash differs"),
             (lambda maps: maps["items"]["entries"][self.a].update(links={}), "Reader relationship lacks a route"),
             (lambda maps: maps["items"]["entries"][self.a]["links"][self.c].update(topic="items"), "Reader relationship leaves its selected snapshot"),
             (lambda maps: maps["items"]["backlinks"].update({"missing/back": {"entity": self.c, "topic": "hub"}}), "Reader backlink has no owning entry"),

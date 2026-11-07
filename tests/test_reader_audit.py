@@ -85,28 +85,27 @@ class ReaderAuditTests(unittest.TestCase):
         consumer[1]["semantic"]["relationships"][0]["targets"] = [canonical]
         consumer[1]["provenance"]["resolved_targets"][0]["target_entity"] = canonical
         consumer[1]["revision_id"] = digest(encoded(consumer[1]["semantic"]))
-        entries, semantics, provenance, search = {}, {}, {}, {}
+        entries, semantics, search = {}, {}, {}
         players = {"player-a": {"name": "Player item"}}
         for row in consumer:
             key, semantic = row["entity_key"], row["semantic"]
-            provenance_id = digest(encoded(row["provenance"]))
             entries[key] = {"entity_key": key, "status": "present", "name": semantic["name"],
-                            "kind": "item", "topic": "items", "revision_id": row["revision_id"],
-                            "provenance_id": provenance_id, "last_verified": None}
+                            "kind": "item", "topic": "items", "revision_id": row["revision_id"]}
             semantics[row["revision_id"]] = semantic
-            provenance[provenance_id] = row["provenance"]
             search[key] = {"entity_key": key, "name": semantic["name"], "kind": "item", "topic": "items"}
         entries[canonical]["player_id"] = "player-a"
         search[canonical].update(name="Player item", source_name="Source item")
         reverse = {canonical + "/edge": {"entity": self.other, "predicate": "references",
                                           "field": "/item", "topic": "items"}}
-        topic_values = {"entries": entries, "semantics": semantics, "provenance": provenance,
+        topic_values = {"entries": entries, "semantics": semantics,
                         "search": search, "backlinks": reverse, "player": players}
         for topic in ("hub", "items"):
             index = {kind: self.pack(topic, kind, search if topic == "hub" and kind == "search"
                                    else values if topic == "items" else {})
                      for kind, values in topic_values.items()}
             index["redirects"] = {self.old: self.new} if migrated and topic == "items" else {}
+            self.output(f"{topic}/data/changes.json", {"schema_version": 1, "topic": topic, "versions": []})
+            index["changes"] = [{"path": "data/changes.json", **self.files[f"{topic}/data/changes.json"]}]
             if topic == "hub":
                 index["topic_counts"] = {"hub": {"total": 0, "kinds": {}},
                                          "items": {"total": 2, "kinds": {"item": 2}}}
@@ -164,13 +163,24 @@ class ReaderAuditTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.audit()
 
-    def test_rehashed_migration_edge_and_provenance_tampering_are_rejected(self):
+    def test_change_log_must_equal_the_committed_log(self):
+        self.fixture()
+        self.write(self.root / "changes/items.json", encoded({"schema_version": 1, "topic": "items", "versions": [
+            {"snapshot_id": self.snapshot, "build_id": "1", "count": 2, "previous": None}]}))
+        with self.assertRaises(AssertionError):
+            self.audit()
+
+    def test_per_run_fields_in_public_entries_are_rejected(self):
+        self.fixture()
+        self.change("items/data/entries.json", lambda rows: rows[self.old].update(last_data_checked=self.snapshot))
+        with self.assertRaises(AssertionError):
+            self.audit()
+
+    def test_rehashed_migration_edge_tampering_is_rejected(self):
         self.fixture(migrated=True)
         for kind, mutation in [
             ("semantics", lambda rows: next(row for row in rows.values() if row["relationships"])
-             ["relationships"][0].update(targets=[self.old])),
-            ("provenance", lambda rows: next(row for row in rows.values() if row["resolved_targets"])
-             ["resolved_targets"][0].update(target_entity=self.old))]:
+             ["relationships"][0].update(targets=[self.old]))]:
             with self.subTest(kind=kind):
                 path = f"items/data/{kind}.json"
                 original = json.loads((self.site / path).read_bytes())

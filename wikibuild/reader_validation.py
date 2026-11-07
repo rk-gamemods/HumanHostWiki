@@ -47,7 +47,6 @@ def load_snapshot_maps(site, index):
     targets = []
     entries = load_maps(site, index["entries"])
     semantics = load_maps(site, index["semantics"])
-    provenance = load_maps(site, index["provenance"])
     searches = load_maps(site, index["search"])
     backlinks = load_maps(site, index["backlinks"])
     cards = load_maps(site, index.get("cards", []))
@@ -70,7 +69,11 @@ def load_snapshot_maps(site, index):
         if linked != player["links"].keys():
             raise ContractError("Reader player links differ from its runs")
         targets.extend((key, link["topic"]) for key, link in player["links"].items())
-    return entries, semantics, provenance, searches, backlinks, players, targets
+    for ref in index.get("changes", []):
+        data = within(site, ref["path"]).read_bytes()
+        if digest(data) != ref["sha256"] or len(data) != ref["bytes"] or ref["path"] != f"data/{ref['sha256']}.json":
+            raise ContractError("Change log pack hash differs")
+    return entries, semantics, searches, backlinks, players, targets
 
 def validate_explanations(key, topic, snapshot, notes):
     for note in notes:
@@ -83,7 +86,7 @@ def validate_explanations(key, topic, snapshot, notes):
         if note["status"] == "unverified" and (note["text"] is not None or not note["reasons"]):
             raise ContractError("Failed explanation lacks its reason")
 
-def validate_entries(topic, snapshot, entries, semantics, provenance, backlinks, players, membership, present, targets):
+def validate_entries(topic, snapshot, entries, semantics, backlinks, players, membership, present, targets):
     kinds, count = Counter(), 0
     for key, record in entries.items():
         if key in membership or record["topic"] != topic or not ENTITY.fullmatch(key):
@@ -99,8 +102,6 @@ def validate_entries(topic, snapshot, entries, semantics, provenance, backlinks,
         semantic = semantics[record["revision_id"]]
         if digest(json_bytes(semantic)) != record["revision_id"]:
             raise ContractError("Reader semantic revision hash differs")
-        if digest(packs.compact(provenance[record["provenance_id"]])) != record["provenance_id"]:
-            raise ContractError("Reader provenance hash differs")
         for link in semantic["relationships"]:
             for target in link["targets"] + link.get("technical_targets", []):
                 if target not in record["links"]:
@@ -137,17 +138,17 @@ def validate_snapshot(stage, snapshot, topics):
     for topic in topics:
         site = within(stage, topic)
         index = json.loads((site / "snapshots" / f"{snapshot}.json").read_text(encoding="utf-8"))
-        entries, semantics, provenance, searches, backlinks, players, player_targets = load_snapshot_maps(site, index)
+        entries, semantics, searches, backlinks, players, player_targets = load_snapshot_maps(site, index)
         targets.extend(player_targets)
         if topic == "hub" and "topic_counts" in index:
             hub_index, hub_search = index, searches
         elif set(entries) != set(searches):
             raise ContractError("Search coverage differs from snapshot entries")
-        topic_count, totals[topic] = validate_entries(topic, snapshot, entries, semantics, provenance, backlinks,
+        topic_count, totals[topic] = validate_entries(topic, snapshot, entries, semantics, backlinks,
                                                      players, membership, present, targets)
         count += topic_count
         # Release topic facts before the next topic's loading phase.
-        del entries, semantics, provenance, searches, backlinks, players, player_targets
+        del entries, semantics, searches, backlinks, players, player_targets
     if any(membership.get(key) != topic for key, topic in targets):
         raise ContractError("Reader relationship leaves its selected snapshot")
     if hub_index is not None:

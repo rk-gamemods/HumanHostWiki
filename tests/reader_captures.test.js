@@ -394,10 +394,9 @@ function fixture(count = 121) {
   subject = discoveryReader(olderSnapshot, "entry/" + retiredKey + "/"); await subject.context.start();
   assert.match(flattened(subject.nodes.content).join(" "), /Retired creature 0/);
   assert.doesNotMatch(flattened(subject.nodes.content).join(" "), /reviewed correction replaced/);
-  const historyLinks = descendants(subject.nodes.content).filter(node => node.tag === "a" && /entry\//.test(node.href || ""));
-  assert.ok(historyLinks.some(node => new URL(node.href).searchParams.get("snapshot") === olderSnapshot));
-  assert.ok(historyLinks.some(node => new URL(node.href).searchParams.get("snapshot") === currentSnapshot));
-  console.log("Present-only topic browse, kinds and search retain retired routes and historical entries");
+  // Entry pages list the topic change log instead of links to other captured versions.
+  assert.match(flattened(subject.nodes.content).join(" "), /Changes in recorded game versions/);
+  console.log("Present-only topic browse, kinds and search retain retired routes; entries show the change log");
 
   if (process.argv[2]) {
     const input = JSON.parse(fs.readFileSync(process.argv[2], "utf8")), root = path.resolve(input.root);

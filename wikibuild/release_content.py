@@ -23,7 +23,7 @@ def indexed(data, resolve, fields):
         raise ContractError("Unsupported snapshot schema during release projection")
     changed = False
     for kind in fields:
-        if kind in {"cards", "player", "guides"} and kind not in value:
+        if kind in {"cards", "player", "guides", "changes"} and kind not in value:
             continue
         for reference in value[kind]:
             path = reference["path"]
@@ -37,8 +37,8 @@ def indexed(data, resolve, fields):
 
 
 def snapshot(data, resolve):
-    # Guides are ordered metadata rows, not range directories consumed by keyed().
-    return indexed(data, resolve, (*SHARD_KINDS, "guides"))
+    # Guides and the change log are ordered metadata rows, not range directories consumed by keyed().
+    return indexed(data, resolve, (*SHARD_KINDS, "guides", "changes"))
 
 
 def configuration(data, release_id, snapshots, runtime, external_articles=None):

@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 
-from . import availability, curation, external_links, extraction, game_text, guide_queries, guides, history, identity_migration, model, packs, pages, presentation, snapshots
+from . import availability, changes, curation, external_links, extraction, game_text, guide_queries, guides, history, identity_migration, model, packs, pages, presentation, snapshots
 from . import staging
 from .exceptions import Exceptions
 # Moved validation may change failure-journal location paths, lines and function names.
@@ -27,7 +27,7 @@ def candidate_path(cache_root, candidate_id):
 
 def contract():
     folder = Path(__file__).parent
-    paths = [folder / name for name in ("reader.py", "reader_validation.py", "availability.py", "extraction.py", "history.py", "model.py", "snapshots.py", "staging.py", "exceptions.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py", "presentation.py", "game_text.py", "gameplay.py", "names.py", "guide_queries.py", "lint.py")]
+    paths = [folder / name for name in ("reader.py", "reader_validation.py", "availability.py", "extraction.py", "history.py", "model.py", "snapshots.py", "staging.py", "exceptions.py", "packs.py", "pages.py", "storage.py", "curation.py", "curated_rules.py", "source.py", "external_links.py", "mediawiki.py", "presentation.py", "game_text.py", "gameplay.py", "names.py", "guide_queries.py", "lint.py", "changes.py")]
     paths.append(folder / "guides.py")
     paths.append(folder / "identity_migration.py")
     paths += sorted(folder.glob("guide_query_*.py"))
@@ -37,21 +37,11 @@ def contract():
 
 
 def versions(root):
-    """Latest decision for each captured snapshot, without discarding prior runs."""
-    result, seen, snapshots_seen = [], set(), set()
+    """The current identity run only. Sites hold one game version plus a change log."""
     current = history.latest(root)
-    while current:
-        if current["run_id"] in seen:
-            raise ContractError("Cycle in identity history")
-        seen.add(current["run_id"])
-        if current["snapshot_id"] not in snapshots_seen:
-            history.read(root, current["run_id"])
-            result.append(current)
-            snapshots_seen.add(current["snapshot_id"])
-        current = history.read(root, current["parent_run"], require_models=False) if current["parent_run"] else None
-    if not result:
+    if not current:
         raise ContractError("No normalized snapshots; run normalize first")
-    return result
+    return [history.read(root, current["run_id"])]
 
 
 def verify(destination, expected_id=None):
@@ -208,58 +198,46 @@ def project_guides(root, identities, context, output):
                   "features": context["features"]}
 
 
-def history_rows(root, runs, current_state, topic_ids, *, migration=None, staging=None):
-    """Summarize the latest capture of each of the four newest game versions."""
-    selected = {}
-    for order, run in enumerate(reversed(runs)):
-        receipt = snapshots.read(root, run["snapshot_id"])
-        build = int(receipt["steam"]["build_id"])
-        version = receipt.get("game_version")
-        # A capture that recorded no game version cannot be placed among versions. The early
-        # captures of build 25548639 did this, and their older extractor would read as game changes.
-        if not version:
+def change_logs(root, project):
+    return {repo["id"]: changes.read(root, repo["id"]) for repo in project["repositories"]}
+
+
+def changed_counts(entries, topic_ids):
+    if not entries or any(entry is None or entry.get("previous") is None for entry in entries.values()):
+        return None
+    by_topic = {topic: {"new": len(entries[topic]["added"]) if topic in entries else 0,
+                        "changed": len(entries[topic]["changed"]) if topic in entries else 0,
+                        "removed": len(entries[topic]["removed"]) if topic in entries else 0}
+                for topic in sorted(topic_ids)}
+    return {**{kind: sum(row[kind] for row in by_topic.values()) for kind in ("new", "changed", "removed")},
+            "topics": by_topic}
+
+
+def history_rows(logs, current, topic_ids):
+    """Summarize the newest capture of each of the four newest game versions.
+
+    The current capture comes from its own state; older rows come only from the
+    committed change logs. Captures without a recorded game version are left out.
+    """
+    by_snapshot = {}
+    for topic, log in logs.items():
+        for entry in log["versions"]:
+            by_snapshot.setdefault(entry["snapshot_id"], {})[topic] = entry
+    rows = {current["snapshot_id"]: {**current, "changes": changed_counts(by_snapshot.get(current["snapshot_id"]), topic_ids)}}
+    for snapshot, entries in by_snapshot.items():
+        if snapshot in rows:
             continue
-        if version not in selected or (build, order) > selected[version][0]:
-            selected[version] = ((build, order), run, receipt)
-
-    rows = []
-    present_by_row = []
-    for _, run, receipt in sorted(selected.values(), key=lambda item: item[0], reverse=True)[:4]:
-        if migration:
-            state, _ = identity_migration.reader_inputs(root, run, migration, staging / ("history-" + run["run_id"] + ".jsonl"))
-        else:
-            state = current_state if run["snapshot_id"] == runs[0]["snapshot_id"] else history.load_state(root, run)
-        present = {key: (entry["descriptor"]["topic"], entry["revision_id"])
-                   for key, entry in state.items() if entry["status"] == "present"}
-        topics = Counter(topic for topic, _ in present.values())
-        captured = receipt.get("captured") or receipt.get("captured_at")
-        rows.append({"snapshot_id": run["snapshot_id"], "game_version": receipt.get("game_version"),
-                     "build_id": receipt["steam"]["build_id"],
-                     "captured": captured[:10] if isinstance(captured, str) and re.match(r"^\d{4}-\d{2}-\d{2}(?:$|T)", captured) else None,
-                     "total": len(present), "topics": {topic: topics[topic] for topic in sorted(topic_ids)}, "changes": None})
-        present_by_row.append(present)
-
-    for index, newer in enumerate(present_by_row[:-1]):
-        older = present_by_row[index + 1]
-        changes = {kind: 0 for kind in ("new", "changed", "removed")}
-        by_topic = {topic: {kind: 0 for kind in changes} for topic in sorted(topic_ids)}
-        # A record that only moved to a new key (the game renumbered its object, identity kept
-        # them apart) has the same revision on both sides; pair those and count neither.
-        added = Counter((newer[key][0], newer[key][1]) for key in newer.keys() - older.keys())
-        dropped = Counter((older[key][0], older[key][1]) for key in older.keys() - newer.keys())
-        moved = added & dropped
-        for (topic, _), n in sorted((added - moved).items()):
-            changes["new"] += n
-            by_topic[topic]["new"] += n
-        for (topic, _), n in sorted((dropped - moved).items()):
-            changes["removed"] += n
-            by_topic[topic]["removed"] += n
-        for key in newer.keys() & older.keys():
-            if newer[key][1] != older[key][1]:
-                changes["changed"] += 1
-                by_topic[newer[key][0]]["changed"] += 1
-        rows[index]["changes"] = {**changes, "topics": by_topic}
-    return rows
+        sample = next(iter(entries.values()))
+        topics = {topic: entries[topic]["count"] if topic in entries else 0 for topic in sorted(topic_ids)}
+        rows[snapshot] = {"snapshot_id": snapshot, "game_version": sample.get("game_version"),
+                          "build_id": sample["build_id"], "captured": sample.get("captured"),
+                          "total": sum(topics.values()), "topics": topics, "changes": changed_counts(entries, topic_ids)}
+    newest = {}
+    for row in rows.values():
+        key = (int(row["build_id"]), row["snapshot_id"] == current["snapshot_id"], row["snapshot_id"])
+        if row["game_version"] and (row["game_version"] not in newest or key > newest[row["game_version"]][0]):
+            newest[row["game_version"]] = (key, row)
+    return [row for _, row in sorted(newest.values(), key=lambda item: item[0], reverse=True)[:4]]
 
 
 def biome_rows(context):
@@ -278,7 +256,7 @@ def biome_rows(context):
     return rows
 
 
-def project_snapshot(root, project, run, stage, output, limit, known, explanations=None, *, registry, site, captured_runs, migration=None):
+def project_snapshot(root, project, run, stage, output, limit, explanations=None, *, registry, site, logs, migration=None):
     snapshot = run["snapshot_id"]
     state, models = identity_migration.reader_inputs(root, run, migration, stage.parent / ("models-" + snapshot + ".jsonl"))
     routes = {key: {"name": row["descriptor"]["name"], "topic": row["descriptor"]["topic"]} for key, row in state.items()}
@@ -323,7 +301,7 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
         snapshot_metadata={"game_version": receipt.get("game_version") or "unknown", "build_id": receipt["steam"]["build_id"]},
         consume_context=consume_context)
     hub_search = {}
-    maps = {topic: {kind: {} for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player")} for topic in topics}
+    maps = {topic: {kind: {} for kind in ("entries", "semantics", "search", "backlinks", "cards", "player")} for topic in topics}
     counts = {topic: Counter() for topic in topics}
     groups = {topic: defaultdict(list) for topic in topics}
     for row in model.rows(models):
@@ -331,18 +309,15 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
         topic, ledger = semantic["topic"], state[key]
         data = maps[topic]
         data["semantics"][row["revision_id"]] = packs.compact(semantic)
-        provenance = packs.compact(row["provenance"])
-        provenance_id = digest(provenance)
-        data["provenance"][provenance_id] = provenance
         links = {target: routes[target] for link in semantic["relationships"]
                  for target in link["targets"] + link.get("technical_targets", [])}
         reverse = {key + "/" + digest(packs.compact(link)): packs.compact(link) for link in backlinks[key]}
         data["backlinks"].update(reverse)
+        # Public records carry facts only. Source ids, provenance and per-run
+        # bookkeeping change without a fact change and would rewrite packs.
         record = {"entity_key": key, **routes[key], "kind": semantic["kind"], "status": "present",
-                  "revision_id": row["revision_id"], "provenance_id": provenance_id,
-                  "first_seen": ledger["first_seen"], "last_changed": ledger["last_changed"],
-                  "last_data_checked": ledger["last_data_checked"], "last_verified": ledger["last_verified"],
-                  "decision": ledger["decision"], "links": links, "backlink_count": len(reverse)}
+                  "revision_id": row["revision_id"], "links": links, "backlink_count": len(reverse),
+                  **({"ambiguous": True} if ledger["decision"]["status"] == "ambiguous" else {})}
         if semantic["kind"] in registry["kinds"]:
             card = packs.compact(presentation.card(registry, semantic["kind"], semantic, text, links))
             card_id = digest(card)
@@ -358,7 +333,7 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
         primitive = {name: semantic.get("fact_labels", {}).get("/" + name, value)
                      for name, value in semantic["facts"].items() if value is None or isinstance(value, (str, int, float, bool))}
         brief = {"entity_key": key, **routes[key], "kind": semantic["kind"], "status": "present",
-                 "source_id": row["provenance"]["source_id"], "preview": dict(list(primitive.items())[:6])}
+                 "preview": dict(list(primitive.items())[:6])}
         groups[topic][semantic["kind"]].append({**brief, **({"explanations": notes[key]} if notes[key] else {})})
         if player_names[key]["name"] != brief["name"]:
             brief.update(source_name=brief["name"], name=player_names[key]["name"])
@@ -370,9 +345,7 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
         if ledger["status"] == "present":
             continue
         topic = ledger["descriptor"]["topic"]
-        record = {"entity_key": key, **routes[key], "kind": ledger["descriptor"]["kind"],
-                  "status": ledger["status"], "last_seen": ledger["last_seen"],
-                  "last_changed": ledger["last_changed"], "last_verified": ledger["last_verified"],
+        record = {"entity_key": key, **routes[key], "kind": ledger["descriptor"]["kind"], "status": ledger["status"],
                   **({"superseded_by": ledger["superseded_by"]} if ledger.get("superseded_by") else {})}
         if notes[key]:
             record["explanations"] = notes[key]
@@ -381,15 +354,17 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
     maps["hub"]["search"] = hub_search
     topic_counts = {topic: {"total": sum(kinds.values()), "kinds": dict(sorted(kinds.items()))}
                     for topic, kinds in counts.items()}
-    changes_history = history_rows(root, captured_runs, state, topics, migration=migration, staging=stage.parent)
+    captured = receipt.get("captured") or receipt.get("captured_at")
+    current = {"snapshot_id": snapshot, "game_version": receipt.get("game_version"), "build_id": receipt["steam"]["build_id"],
+               "captured": captured[:10] if isinstance(captured, str) and re.match(r"^\d{4}-\d{2}-\d{2}(?:$|T)", captured) else None,
+               "total": sum(value["total"] for value in topic_counts.values()),
+               "topics": {topic: topic_counts[topic]["total"] for topic in sorted(topics)}}
+    changes_history = history_rows(logs, current, topics)
     for topic, data in maps.items():
         writer = lambda name, value, topic=topic: output(f"{topic}/{name}", value)
-        # Reuse whole single-card shards: a removed entry must not leave its card
-        # in a later snapshot merely because a surviving card shared its shard.
-        card_shards = [shard for key, value in sorted(data.pop("cards").items())
-                       for shard in packs.reuse({key: value}, known[topic]["cards"], limit, writer)]
-        player_shards = [shard for key, value in sorted(data.pop("player").items())
-                         for shard in packs.reuse({key: value}, known[topic]["player"], limit, writer)]
+        log = packs.compact(logs[topic])
+        change_ref = {"path": f"data/{digest(log)}.json", "sha256": digest(log), "bytes": len(log)}
+        writer(change_ref["path"], log)
         index = {"schema_version": 1, "snapshot_id": snapshot, "identity_run": run["run_id"],
                  **({"identity_migration": migration["migration_id"]} if migration else {}),
                  "source_commit": run["source_commit"], "steam": receipt["steam"], "game_version": receipt["game_version"],
@@ -397,12 +372,11 @@ def project_snapshot(root, project, run, stage, output, limit, known, explanatio
                  "game_version_evidence": receipt.get("game_version_evidence", []),
                  "counts": dict(sorted(counts[topic].items())), "coverage": "partial", "verification": "not-performed",
                  "latest_available_build": receipt["latest_available_game_build"], "change_origin": run["change_origin"],
-                 "cards": card_shards,
                  "redirects": {key: proof["entity_key"] for key, proof in (migration or {}).get("redirects", {}).items() if proof["topic"] == topic},
-                 "player": player_shards,
+                 "changes": [change_ref],
                  **({"guides": guide_rows, "topic_counts": topic_counts, "history": changes_history, "biomes": biomes} if topic == "hub" else {}),
-                 **{kind: packs.reuse(values, known[topic][kind], limit, writer) if kind in {"semantics", "provenance"}
-                    else packs.write(values, limit, writer) for kind, values in data.items()}}
+                 # Key-prefix partitioning keeps unchanged records in byte-identical packs.
+                 **{kind: packs.write(values, limit, writer) for kind, values in data.items()}}
         writer(f"snapshots/{snapshot}.json", packs.compact(index))
     # Validation streams one topic at a time. Release construction buffers first
     # so parsed validation data does not coexist with the full projection.
@@ -450,7 +424,8 @@ def inputs_changed(root, project, inputs, registry_path, hub_digests):
             or (identity_migration.read(root) or {}).get("migration_id") != inputs["identity_migration"]
             or digest(registry_path.read_bytes()) != inputs["presentation"]
             or hub_inputs(root)[1] != hub_digests
-            or external_links.configured(root, project) != inputs["external_articles"])
+            or external_links.configured(root, project) != inputs["external_articles"]
+            or {topic: digest(json_bytes(log)) for topic, log in change_logs(root, project).items()} != inputs["changes"])
 
 
 def project_fonts(web, bases, output):
@@ -468,8 +443,8 @@ def project_fonts(web, bases, output):
 def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=None, cache_root=None, source=None):
     """Caller holds writer_lock. This writes staging only, not child repositories."""
     runs = versions(root) if runs is None else runs
-    if not runs or len({run["snapshot_id"] for run in runs}) != len(runs):
-        raise ContractError("Reader needs one identity run per selected snapshot")
+    if len(runs) != 1:
+        raise ContractError("Reader projects exactly the current identity run")
     source = Path(source) if source else root / project.get("source", {}).get("default_path", "../HumanHostCodebase")
     checked, check_metrics = curation.run(root, project, source, runs)
     curated = {"run_id": checked["run_id"] if checked else None, "metrics": check_metrics,
@@ -480,6 +455,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
     registry = presentation.load(registry_path)
     site, hub_digests = hub_inputs(root)
     migration = identity_migration.read(root)
+    logs = change_logs(root, project)
     inputs = {"project": project, "runs": [digest(json_bytes(run)) for run in runs], "renderer": contract(),
               "presentation": registry_digest,
               "identity_migration": migration["migration_id"] if migration else None,
@@ -487,7 +463,8 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
               "receipts": [digest(json_bytes(snapshots.read(root, run["snapshot_id"]))) for run in runs],
               "bases": bases, "pack_bytes": max_pack_bytes, "availability": availability.latest(root, project),
               "external_articles": external_links.configured(root, project),
-              "curation": checked["run_id"] if checked else None}
+              "curation": checked["run_id"] if checked else None,
+              "changes": {topic: digest(json_bytes(log)) for topic, log in logs.items()}}
     candidate_id = digest(json_bytes(inputs))
     local_root = staging.regular(Path(root) / ".local")
     cache_root = staging.regular(cache_root) if cache_root else local_root
@@ -549,7 +526,7 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                 if article_packs and "/snapshots/" in name:
                     topic = name.split("/", 1)[0]
                     saved_index = json.loads(within(prior_path, name).read_bytes())
-                    for kind in ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player", "guides"):
+                    for kind in ("entries", "semantics", "search", "backlinks", "cards", "player", "guides", "changes"):
                         article_packs.difference_update(f"{topic}/{ref['path']}" for ref in saved_index.get(kind, []))
             for name, record in prior["files"].items():
                 source = within(prior_path, name)
@@ -580,24 +557,14 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
             return {"candidate_id": candidate_id, "path": str(destination), "bytes": manifest["total_bytes"],
                     "reused": False, "projection_reused": True, "curation": curated}
 
-        projected, current_groups = {}, None
-        all_groups = {repo["id"]: set() for repo in project["repositories"]}
-        known = {repo["id"]: {"semantics": {}, "provenance": {}, "cards": {}, "player": {}} for repo in project["repositories"]}
-        for index in range(len(runs) - 1, -1, -1):
-            run = runs[index]
-            # Revalidate pinned artifacts, even if a caller supplied the run.
-            extraction.artifact(root, run["state"])
-            extraction.artifact(root, run["models"])
-            version, groups = project_snapshot(root, project, run, stage, output, max_pack_bytes, known,
-                                               checked["snapshots"].get(run["snapshot_id"]) if checked else None,
-                                               registry=registry, site=site, captured_runs=runs[index:],
-                                               migration=migration)
-            projected[run["snapshot_id"]] = version
-            for topic, kinds in groups.items():
-                all_groups[topic].update(kinds)
-            if run is runs[0]:
-                current_groups = groups
-        projected = [projected[run["snapshot_id"]] for run in runs]
+        run = runs[0]
+        # Revalidate pinned artifacts, even if a caller supplied the run.
+        extraction.artifact(root, run["state"])
+        extraction.artifact(root, run["models"])
+        version, current_groups = project_snapshot(root, project, run, stage, output, max_pack_bytes,
+                                                   checked["snapshots"].get(run["snapshot_id"]) if checked else None,
+                                                   registry=registry, site=site, logs=logs, migration=migration)
+        projected = [version]
         views = external_views(stage, project, inputs["external_articles"], runs, max_pack_bytes, output)
         web = Path(__file__).parent / "web"
         fonts = project_fonts(web, bases, output)
@@ -624,13 +591,14 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                    "external_articles": views.get(topic),
                    "topic": topic, "topics": topics, "versions": projected, "default_snapshot": projected[0]["snapshot_id"],
                    "official_links": project["official_links"], "publication": "local-candidate"}))
-            for kind in sorted(all_groups[topic]):
+            for kind in sorted(current_groups[topic]):
                 output(f"{topic}/groups/{kind}/index.html", content)
             for kind, records in current_groups[topic].items():
                 ordered = sorted(records, key=lambda row: (row["name"].casefold(), row["entity_key"]))
                 for offset in range(0, len(ordered), 100):
                     output(f"{topic}/reference/{kind}/{offset // 100 + 1:04d}.md",
                            pages.markdown(kind, ordered[offset:offset + 100], bases[topic]))
+            output(f"{topic}/reference/changes.md", changes.markdown(repo["title"], logs[topic], bases[topic], pages.entry))
         current = projected[0]["snapshot_id"]
         hub_index = json.loads((stage / "hub/snapshots" / (current + ".json")).read_bytes())
         for ref in hub_index["guides"]:

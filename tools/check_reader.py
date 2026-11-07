@@ -1,4 +1,8 @@
-"""Independently compare public reader packs with every pinned normalized row."""
+"""Independently compare public reader packs with every pinned normalized row.
+
+Candidates hold one game version. Its topic change logs must equal the committed
+changes/<topic>.json files, and public records must carry no per-run bookkeeping.
+"""
 
 from collections import Counter
 import argparse
@@ -105,6 +109,8 @@ def check(root, site=None):
             suffix in {".woff2", ".txt"} and path.startswith("hub/fonts/"))
     migration = migration_record(root, inputs.get("identity_migration"))
     checked, checks = 0, 0
+    assert len(manifest["versions"]) == 1, "A reader candidate projects only the current version"
+    churn = {"provenance_id", "first_seen", "last_changed", "last_seen", "last_data_checked", "last_verified", "decision", "source_id"}
     for version in manifest["versions"]:
         run = read(root / "identity/runs" / (version["identity_run"] + ".json"))
         expected = expected_models(root, run, migration)
@@ -117,7 +123,15 @@ def check(root, site=None):
         for topic in inputs["project"]["repositories"]:
             folder = site / topic["id"]
             index = read(folder / "snapshots" / (version["snapshot_id"] + ".json"))
-            entries, semantics, provenance, search, reverse = [maps(folder, index[kind]) for kind in ("entries", "semantics", "provenance", "search", "backlinks")]
+            assert "provenance" not in index
+            entries, semantics, search, reverse = [maps(folder, index[kind]) for kind in ("entries", "semantics", "search", "backlinks")]
+            committed = root / "changes" / (topic["id"] + ".json")
+            expected_log = read(committed) if committed.exists() else {"schema_version": 1, "topic": topic["id"], "versions": []}
+            [log_ref] = index["changes"]
+            log_data = (folder / log_ref["path"]).read_bytes()
+            assert len(log_data) == log_ref["bytes"] and sha(log_data) == log_ref["sha256"]
+            assert json.loads(log_data) == expected_log
+            checks += 1
             players = maps(folder, index.get("player", []))
             assert index.get("redirects", {}) == {key: proof["entity_key"] for key, proof in
                 (migration or {}).get("redirects", {}).items() if proof["topic"] == topic["id"]}
@@ -138,7 +152,7 @@ def check(root, site=None):
                 assert value["topic"] == original["semantic"]["topic"]
                 assert value["revision_id"] == original["revision_id"]
                 assert semantics[value["revision_id"]] == original["semantic"]
-                assert provenance[value["provenance_id"]] == original["provenance"]
+                assert not churn & value.keys() and not churn & search[key].keys()
                 display = players.get(value.get("player_id"), {}).get("name", value["name"])
                 assert search[key]["name"] == display
                 assert search[key]["entity_key"] == key
@@ -150,7 +164,6 @@ def check(root, site=None):
                 topic_search[key] = {field: search[key][field] for field in
                     ("entity_key", "name", "source_name", "kind", "topic") if field in search[key]}
                 kinds[value["kind"]] += 1
-                assert value["last_verified"] is None
                 assert key not in actual_keys
                 actual_keys.add(key)
                 checks += 9

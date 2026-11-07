@@ -7,7 +7,7 @@ import sys
 from time import perf_counter
 import traceback
 
-from . import availability, curation, external_links, extraction, history, physical, reader, reader_retention, release, release_retention, snapshots
+from . import availability, changes, curation, external_links, extraction, history, physical, reader, reader_retention, release, release_retention, snapshots
 from .storage import ContractError, digest, json_bytes, within, write_changed
 
 
@@ -118,6 +118,8 @@ def run(root, project, source, progress=None, timing_sink=None, precheck_only=Fa
             if progress:
                 progress(stage)
             normalized, metrics[stage] = history.run(root, source, receipt, extracted)
+            # The committed change log gains this capture's entry while the prior state still exists.
+            metrics["changes"] = changes.record(root, normalized)
             completed[stage] = {"run_id": normalized["run_id"], "counts": normalized["counts"]}
             reports[stage] = normalized["exceptions"]
         if precheck_only or any(value["group_count"] for value in reports.values()):

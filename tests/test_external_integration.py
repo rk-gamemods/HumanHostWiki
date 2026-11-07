@@ -32,7 +32,7 @@ class ExternalIntegrationTests(unittest.TestCase):
         f = self.fixture
         f.old = f.make_run("100", [f.observation(f.a, "Axe"), f.observation(f.b, "Old item")])
         f.new = f.make_run("200", [f.observation(f.a, "Axe")], absent={f.b: "not-present"})
-        f.runs = [f.new, f.old]
+        f.runs = [f.new]
         self.root, self.project = f.root, f.project
         self.project["external_articles"] = options()
         self.provider = test_external_links.Provider(test_external_links.page(1, "Axe"),
@@ -47,7 +47,7 @@ class ExternalIntegrationTests(unittest.TestCase):
     def view(self, site):
         return json.loads((site / "items/reader.json").read_bytes())["external_articles"]
 
-    def test_reader_matches_each_historical_snapshot_offline_and_keeps_facts_separate(self):
+    def test_reader_matches_the_current_snapshot_offline_and_keeps_facts_separate(self):
         observed = self.observe()
         with patch.object(mediawiki, "Client", side_effect=AssertionError("Rendering contacted the provider")):
             site, result = self.fixture.build()
@@ -55,7 +55,7 @@ class ExternalIntegrationTests(unittest.TestCase):
         self.assertEqual(view["checked_at"], observed["checked_at"])
         self.assertEqual(view["topics"][0]["status"], "missing")
         matched = reader.load_maps(site / "items", view["entries"])
-        self.assertIn(self.fixture.old["snapshot_id"] + "/" + self.fixture.b, matched)
+        self.assertFalse(any(key.startswith(self.fixture.old["snapshot_id"] + "/") for key in matched))
         self.assertNotIn(self.fixture.new["snapshot_id"] + "/" + self.fixture.b, matched)
         key = self.fixture.new["snapshot_id"] + "/" + self.fixture.a
         self.assertIn("oldid=10", matched[key]["url"])
@@ -64,8 +64,8 @@ class ExternalIntegrationTests(unittest.TestCase):
             self.assertNotIn("url", row)
         self.assertTrue(self.fixture.build()[1]["reused"])
         audited = audit_projection(site)
-        self.assertEqual(audited["eligible_entries"], 3)
-        self.assertEqual(audited["populated_entry_links"], 2)
+        self.assertEqual(audited["eligible_entries"], 1)
+        self.assertEqual(audited["populated_entry_links"], 1)
 
     def test_external_change_reuses_gameplay_files_and_removes_obsolete_article_packs(self):
         self.observe()
@@ -85,7 +85,7 @@ class ExternalIntegrationTests(unittest.TestCase):
                 index = self.fixture.index(first, topic, run)
                 self.assertTrue((first / topic / "snapshots" / (run["snapshot_id"] + ".json")).samefile(
                     second / topic / "snapshots" / (run["snapshot_id"] + ".json")))
-                for kind in ("entries", "semantics", "provenance", "search", "backlinks"):
+                for kind in ("entries", "semantics", "search", "backlinks", "changes"):
                     for ref in index[kind]:
                         self.assertTrue((first / topic / ref["path"]).samefile(second / topic / ref["path"]))
         self.observe(7200)

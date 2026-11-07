@@ -117,8 +117,9 @@ class PlayerProjectionTests(unittest.TestCase):
         inactive = self.fixture.make_run("300", observations(False))
         active = self.fixture.make_run("400", observations(True))
         missing = self.fixture.make_run("500", observations())
-        site = self.build([inactive, active, missing])
-        for run, expected in ((inactive, "merchants"), (active, None), (missing, "merchants")):
+        for run, expected, status in ((inactive, "merchants", "inactive"), (active, None, "active"),
+                                      (missing, "merchants", "manager-object-missing")):
+            site = self.build([run])
             _, items = self.maps(site, run)
             _, loot = self.maps(site, run, "loot")
             self.assertIn(self.key("stock"), items["search"])
@@ -133,14 +134,10 @@ class PlayerProjectionTests(unittest.TestCase):
                 self.assertEqual(items["player"][items["entries"][self.key("stock")]["player_id"]]["how"], [])
             else:
                 self.assertTrue(items["player"][items["entries"][self.key("stock")]["player_id"]]["how"])
-        manifest = json.loads((site / "candidate.json").read_bytes())
-        reports = {version["build_id"]: version["guides"]["features"]["merchants"]
-                   for version in manifest["versions"]}
-        self.assertEqual(reports["300"]["status"], "inactive")
-        self.assertEqual(reports["400"]["status"], "active")
-        self.assertEqual(reports["500"]["status"], "manager-object-missing")
+            manifest = json.loads((site / "candidate.json").read_bytes())
+            self.assertEqual(manifest["versions"][0]["guides"]["features"]["merchants"]["status"], status)
 
-    def test_history_existing_kinds_and_repeat_bytes(self):
+    def test_player_projection_change_keeps_fact_packs_and_repeat_bytes(self):
         old = self.fixture.make_run("300", self.rows(1))
         def legacy(models, registry, text, snapshot, **kwargs):
             return ({row["entity_key"]: {"name": row["semantic"]["name"]}
@@ -148,42 +145,38 @@ class PlayerProjectionTests(unittest.TestCase):
         with patch.object(reader, "player_projection", side_effect=legacy):
             baseline = self.build([old], cache_root=self.root / ".local/legacy")
         first = self.build([old])
-        new = self.fixture.make_run("400", self.rows(2))
-        with patch.object(guide_queries, "build_context", wraps=guide_queries.build_context) as spy:
-            second = self.build([new, old])
-        self.assertEqual(spy.call_count, 2)
         for topic in ("hub", "items", "loot"):
             original = self.fixture.index(baseline, topic, old)
-            earlier = self.fixture.index(first, topic, old)
-            retained = self.fixture.index(second, topic, old)
-            self.assertEqual(earlier, retained)
-            for kind in ("semantics", "provenance", "cards", "backlinks"):
-                self.assertEqual(original[kind], retained[kind])
+            current = self.fixture.index(first, topic, old)
+            for kind in ("semantics", "cards", "backlinks"):
+                self.assertEqual(original[kind], current[kind])
                 for ref in original[kind]:
-                    self.assertEqual((baseline / topic / ref["path"]).read_bytes(), (second / topic / ref["path"]).read_bytes())
+                    self.assertEqual((baseline / topic / ref["path"]).read_bytes(), (first / topic / ref["path"]).read_bytes())
             before = reader.load_maps(baseline / topic, original["entries"])
-            after = reader.load_maps(second / topic, retained["entries"])
+            after = reader.load_maps(first / topic, current["entries"])
             self.assertEqual(before, {key: {k: v for k, v in row.items() if k != "player_id"} for key, row in after.items()})
-        _, old_maps = self.maps(second, old)
+        new = self.fixture.make_run("400", self.rows(2))
+        with patch.object(guide_queries, "build_context", wraps=guide_queries.build_context) as spy:
+            second = self.build([new])
+        self.assertEqual(spy.call_count, 1)
+        _, old_maps = self.maps(first, old)
         _, new_maps = self.maps(second, new)
         ore = self.key("ore")
         self.assertEqual(old_maps["entries"][ore]["revision_id"], new_maps["entries"][ore]["revision_id"])
         self.assertNotEqual(old_maps["entries"][ore]["player_id"], new_maps["entries"][ore]["player_id"])
         before = {p.relative_to(second): p.read_bytes() for p in second.rglob("*") if p.is_file()}
-        repeated = reader.build(self.root, self.project, [new, old])
+        repeated = reader.build(self.root, self.project, [new])
         self.assertTrue(repeated["reused"])
         self.assertEqual(before, {p.relative_to(second): p.read_bytes() for p in second.rglob("*") if p.is_file()})
 
-    def test_unchanged_player_reuses_one_shard_without_removed_owners(self):
+    def test_removed_owner_drops_its_player_payload(self):
         rows = self.rows(1) + [self.row("named", "Some_Internal")]
         old = self.fixture.make_run("300", rows)
         new = self.fixture.make_run("400", self.rows(1), absent={self.key("named"): "not-present"})
-        site = self.build([new, old])
-        old_index, old_maps = self.maps(site, old)
-        new_index, new_maps = self.maps(site, new)
+        _, old_maps = self.maps(self.build([old]), old)
+        _, new_maps = self.maps(self.build([new]), new)
         removed = old_maps["entries"][self.key("named")]["player_id"]
         self.assertEqual({key: value for key, value in old_maps["player"].items() if key != removed}, new_maps["player"])
-        self.assertEqual([ref for ref in old_index["player"] if ref["first"] != removed], new_index["player"])
         self.assertNotIn("player_id", new_maps["entries"][self.key("named")])
 
     def test_projection_rejects_construction_name_with_different_item_model(self):

@@ -10,7 +10,7 @@ import json
 from . import packs
 from .storage import ContractError
 
-FIELDS = ("entries", "semantics", "provenance", "search", "backlinks", "cards", "player")
+FIELDS = ("entries", "semantics", "search", "backlinks", "cards", "player")
 KIND = "wiki-shard-directory"
 PAGE_BYTES = 64 * 1024
 
