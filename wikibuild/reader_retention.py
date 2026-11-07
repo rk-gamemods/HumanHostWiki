@@ -93,6 +93,54 @@ def verified_files(root, folder, manifest, manifest_hash, verified, summary):
     return result
 
 
+def previous_candidates(marker):
+    """Candidate manifest hashes from the last completed pass, or none."""
+    try:
+        value = metadata(marker)[0] if marker.exists() else {}
+    except (OSError, ValueError):
+        return {}
+    candidates = value.get("candidates") if isinstance(value, dict) and value.get("schema_version") == 1 else None
+    return candidates if isinstance(candidates, dict) else {}
+
+
+def settled_sources(settled, groups):
+    """Map each new file key to old files that could share it, from manifests only."""
+    wanted, sources = set(groups), {}
+    for entry, (manifest, _) in sorted(settled.items()):
+        for name, record in sorted(manifest["files"].items()):
+            key = (record["sha256"], record["bytes"])
+            if key in wanted:
+                sources.setdefault(key, []).append(entry / name)
+    return sources
+
+
+def verified_source(root, paths, key, verified, summary):
+    """Hash one old file now, so a damaged old copy is never shared onward."""
+    for path in paths:
+        try:
+            path = checked(root, path.relative_to(root).as_posix())
+            info = path.stat()
+            if not stat.S_ISREG(info.st_mode) or info.st_size != key[1]:
+                raise ContractError(f"Reader candidate size changed: {path.name}")
+            signed = signature(info)
+            if signed not in verified:
+                sha = hashlib.sha256()
+                with path.open("rb") as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        sha.update(chunk)
+                        summary["verified_bytes"] += len(chunk)
+                if signature(path.stat()) != signed:
+                    raise ContractError(f"Reader candidate changed during verification: {path.name}")
+                verified[signed] = sha.hexdigest()
+                summary["verified_files"] += 1
+            if verified[signed] != key[0]:
+                raise ContractError(f"Reader candidate hash changed: {path.name}")
+            return path, info
+        except (OSError, ValueError) as exc:
+            summary["retained"].append({"candidate": path.relative_to(root / ".local/readers").as_posix(), "reason": str(exc)})
+    return None
+
+
 def replace_duplicate(root, source, target, expected):
     """Atomic rename keeps readers on complete identical bytes, including on retry."""
     source_path = source[0]
@@ -164,20 +212,29 @@ def run(root):
         receipt = {"schema_version": 1, "contract": contract(),
                    "candidates": {entry.name: sha for entry, (_, sha) in candidates.items()}}
         marker = checked(root, ".local/reader-retention/completed.json")
+        previous = previous_candidates(marker)
         if not summary["retained"] and marker.exists() and metadata(marker)[0] == receipt:
             return summary
         summary["reused"] = False
+        # A candidate whose exact manifest a completed pass already verified and
+        # shared is not rescanned: candidates are immutable, so cost follows the
+        # new candidates instead of the whole history. Each old file chosen as a
+        # sharing source is still hashed before any new file links to it.
+        settled = {entry: value for entry, value in candidates.items() if previous.get(entry.name) == value[1]}
         verified, groups = {}, {}
         for entry, (manifest, sha) in candidates.items():
+            if entry in settled:
+                continue
             try:
                 files = verified_files(root, entry, manifest, sha, verified, summary)
                 for path, info, key in files:
                     groups.setdefault(key, []).append((path, info))
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 summary["retained"].append({"candidate": entry.name, "reason": str(exc)})
+        sources = settled_sources(settled, groups)
         for key, files in groups.items():
-            source = files[0]
-            for target in files[1:]:
+            source = verified_source(root, sources.get(key, []), key, verified, summary) or files[0]
+            for target in (files if source is not files[0] else files[1:]):
                 if (source[1].st_dev, source[1].st_ino) == (target[1].st_dev, target[1].st_ino):
                     continue
                 try:

@@ -17,6 +17,7 @@ class PublishGateTests(unittest.TestCase):
         self.origin.mkdir()
         (self.root / "code.txt").write_text("reviewed code")
         self.commit = self.head = self.main = "e" * 40
+        self.ancestors, self.changed, self.ancestor_runs, self.parents, self.trees = [], {}, {}, {}, {}
         self.origin_url = "https://github.com/rk-gamemods/HumanHostWiki.git"
         commands = patch.object(publish_gate.bounded, "run", side_effect=self.git_response)
         self.commands = commands.start()
@@ -39,7 +40,8 @@ class PublishGateTests(unittest.TestCase):
         self.host.repository.side_effect = lambda name: self.remote
         self.host.api.side_effect = lambda method, path, *args, **kwargs: (
             {"data": {"repository": {"object": {"associatedPullRequests": {"nodes": self.pulls}}}}} if path == "graphql" else
-                                                                  self.pages if path.endswith("/pages") else self.host.api.return_value)
+                                                                  self.pages if path.endswith("/pages") else
+            self.ancestor_runs[path.rsplit("=", 1)[1]] if path.rsplit("=", 1)[-1] in self.ancestor_runs else self.host.api.return_value)
         self.host.ref.return_value = "c" * 40
         self.client = patch.object(publish_gate.github_pages, "GitHubPages", return_value=self.host)
         self.client.start()
@@ -61,6 +63,14 @@ class PublishGateTests(unittest.TestCase):
             value = self.head
         elif args == ["rev-parse", "refs/remotes/origin/main"]:
             value = self.main
+        elif args[0] == "rev-list" and "--parents" in args:
+            value = " ".join([args[-1], *self.parents.get(args[-1], [])])
+        elif args[0] == "rev-list":
+            value = "\n".join([self.head, *self.ancestors])
+        elif args[0] == "rev-parse" and args[1].endswith("^{tree}"):
+            value = self.trees.get(args[1][:-len("^{tree}")], args[1] + "-own")
+        elif args[0] == "diff":
+            value = "\n".join(self.changed[args[-2]])
         else:
             raise AssertionError(f"Unexpected Git command: {command}")
         return subprocess.CompletedProcess(command, 0, value.encode(), b"")
@@ -137,6 +147,59 @@ class PublishGateTests(unittest.TestCase):
                 with self.assertRaisesRegex(ContractError, message):
                     self.check()
                 self.host.ref.assert_not_called()
+
+    def test_data_only_commit_uses_the_ci_of_its_identical_code_ancestor(self):
+        parent, grandparent = "1" * 40, "2" * 40
+        run = lambda sha, conclusion="success": {"workflow_runs": [
+            {"id": 7, "name": "CI", "path": publish_gate.CI_PATH, "event": "push", "head_branch": "main",
+             "head_sha": sha, "run_attempt": 1, "status": "completed", "conclusion": conclusion}]}
+        data = ["releases/" + "a" * 64 + ".json", "identity/states/x.jsonl", "workspace.lock.json"]
+        self.host.api.return_value = {"workflow_runs": []}  # CI skipped this data-only push.
+        self.ancestors = [parent, grandparent]
+        self.changed = {parent: data, grandparent: data}
+        self.ancestor_runs = {grandparent: run(grandparent)}
+        result = self.check()  # The parent is also data-only and has no CI of its own.
+        self.assertEqual((grandparent, 7, self.commit), (result["ci_commit"], result["ci_run_id"], result["workspace_commit"]))
+        for changed, runs, message in (
+                ([*data, "wikibuild/pipeline.py"], run(grandparent), "CI is missing"),
+                ([*data, "docs/UPDATE_0.8.330.md"], run(grandparent), "CI is missing"),
+                ([*data, "snapshots/README.md"], run(grandparent), "CI is missing"),
+                (data, run(grandparent, "failure"), "CI did not conclude success")):
+            with self.subTest(changed=changed[-1], message=message):
+                self.changed = {parent: data, grandparent: changed}
+                self.ancestor_runs = {grandparent: runs}
+                with self.assertRaisesRegex(ContractError, message):
+                    self.check()
+        self.ancestors = []
+        with self.assertRaisesRegex(ContractError, "CI is missing"):
+            self.check()
+
+    def test_merge_with_the_pr_heads_exact_tree_uses_the_pr_run(self):
+        base, head = "3" * 40, "4" * 40
+        pr_run = lambda conclusion="success", status="completed": {"workflow_runs": [
+            {"id": 9, "name": "CI", "path": publish_gate.CI_PATH, "event": "pull_request", "head_branch": "update",
+             "head_sha": head, "run_attempt": 1, "status": status, "conclusion": conclusion}]}
+        self.host.api.return_value = {"workflow_runs": []}  # Main does not re-test.
+        self.parents = {self.commit: [base, head]}
+        self.trees = {self.commit: "t" * 40, head: "t" * 40}
+        self.ancestor_runs = {head: pr_run()}
+        result = self.check()
+        self.assertEqual((head, 9), (result["ci_commit"], result["ci_run_id"]))
+        # Main moved under the PR, the PR run did not pass, or the commit is not a merge.
+        for trees, runs, parents in (({self.commit: "t" * 40, head: "u" * 40}, pr_run(), [base, head]),
+                                     (self.trees, pr_run("failure"), [base, head]),
+                                     (self.trees, pr_run(None, "in_progress"), [base, head]),
+                                     (self.trees, pr_run(), [base])):
+            with self.subTest(trees=trees, runs=runs["workflow_runs"][0]["conclusion"], parents=len(parents)):
+                self.trees, self.ancestor_runs, self.parents = trees, {head: runs}, {self.commit: parents}
+                with self.assertRaisesRegex(ContractError, "CI is missing"):
+                    self.check()
+        # A passing PR run on the identical tree wins over an unfinished main run.
+        self.trees, self.ancestor_runs, self.parents = {self.commit: "t" * 40, head: "t" * 40}, {head: pr_run()}, {self.commit: [base, head]}
+        self.host.api.return_value = {"workflow_runs": [{"id": 1, "name": "CI", "path": publish_gate.CI_PATH, "event": "push",
+                                                         "head_branch": "main", "head_sha": self.commit, "run_attempt": 1,
+                                                         "status": "in_progress", "conclusion": None}]}
+        self.assertEqual(9, self.check()["ci_run_id"])
 
     def test_latest_ci_attempt_must_succeed(self):
         good = self.host.api.return_value["workflow_runs"][0]

@@ -74,10 +74,11 @@ class ReaderRetentionTests(unittest.TestCase):
         self.assert_intact([self.first, self.second, third])
         for name in self.payloads:
             self.assertTrue(os.path.samefile(self.first / name, third / name))
-        # Three copies require only two content reads after earlier sharing.
-        logical = sum(path.stat().st_size for base in [self.first, self.second, third]
-                      for path in base.rglob("*") if path.is_file() and path.name != "candidate.json")
-        self.assertEqual(result["verified_bytes"], logical - sum(map(len, self.payloads.values())))
+        # Settled candidates are not rescanned: the pass reads the new candidate
+        # and, once, each old shared source it links to. Cost follows new
+        # candidates, not the whole history.
+        new = sum(path.stat().st_size for path in third.rglob("*") if path.is_file() and path.name != "candidate.json")
+        self.assertEqual(result["verified_bytes"], new + sum(map(len, self.payloads.values())))
 
     def test_modified_or_unknown_files_preserve_the_whole_candidate(self):
         for failure in ["modified", "unknown"]:

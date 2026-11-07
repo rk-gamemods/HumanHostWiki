@@ -630,13 +630,13 @@ def build(root, project, runs=None, max_pack_bytes=DEFAULT_PACK_BYTES, bases=Non
                 ordered = sorted(records, key=lambda row: (row["name"].casefold(), row["entity_key"]))
                 for offset in range(0, len(ordered), 100):
                     output(f"{topic}/reference/{kind}/{offset // 100 + 1:04d}.md",
-                           pages.markdown(kind, ordered[offset:offset + 100], projected[0]["snapshot_id"], candidate_id, bases[topic]))
+                           pages.markdown(kind, ordered[offset:offset + 100], bases[topic]))
         current = projected[0]["snapshot_id"]
         hub_index = json.loads((stage / "hub/snapshots" / (current + ".json")).read_bytes())
         for ref in hub_index["guides"]:
             pack = json.loads((stage / "hub" / ref["path"]).read_bytes())
             markdown = guides.render_markdown(pack["document"], lambda key: pages.entry(
-                bases[pack["links"][key]["topic"]], key, current, candidate_id))
+                bases[pack["links"][key]["topic"]], key))
             output(f"hub/reference/guides/{ref['id']}.md", markdown.encode("utf-8"))
         manifest = {"schema_version": 1, "candidate_id": candidate_id, "inputs": inputs,
                     "versions": projected, "files": files, "total_bytes": sum(record["bytes"] for record in files.values()),

@@ -86,7 +86,8 @@ class HubProjectionTests(unittest.TestCase):
         self.assertEqual(newest["topic_counts"], {"hub": {"total": 0, "kinds": {}},
             "items": {"total": 1, "kinds": {"item": 1}}, "loot": {"total": 1, "kinds": {"loot-source": 1}}})
         markdown = (site / "hub/reference/guides/second.md").read_text()
-        self.assertIn("/loot/entry/" + self.fixture.c + "/?snapshot=" + self.fixture.new["snapshot_id"], markdown)
+        self.assertIn("/loot/entry/" + self.fixture.c + "/)", markdown)
+        self.assertNotIn("snapshot=", markdown)
         self.assertIn("Unavailable source", markdown)
         self.assertNotIn(self.dangling, markdown)
         self.assertFalse((site / "hub/reference/guides/broken.md").exists())

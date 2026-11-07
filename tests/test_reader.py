@@ -635,8 +635,10 @@ class ReaderTests(unittest.TestCase):
         self.assertIn("&lt;script&gt;", markdown)
         self.assertNotIn("<script>alert", markdown)
         self.assertNotIn("alert(1)", (site / "items/index.html").read_text())
-        self.assertIn("snapshot=build-200-", markdown)
-        self.assertIn("release=", markdown)
+        # Current pages carry no snapshot or release ids, so unchanged facts keep identical bytes.
+        self.assertNotIn("snapshot=", markdown)
+        self.assertNotIn("release=", markdown)
+        self.assertNotIn("build-200-", markdown)
 
     def test_bad_model_target_does_not_promote_candidate(self):
         row = self.observation(self.c, "Crate", "loot-source", "loot", "e-" + "d" * 32)

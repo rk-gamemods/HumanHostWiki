@@ -1,9 +1,27 @@
 name: CI
 
 on:
+  # Pull requests test what changed. Main does not re-test: the publish gate
+  # accepts the PR run when the merge commit has the PR head's exact tree.
+  # Generated data only skips CI; the gate then uses the CI of the identical
+  # code's first-parent ancestor. Keep these patterns in step with
+  # publish_gate DATA_PREFIXES/DATA_FILES (test_foundation checks this).
   pull_request:
-  push:
-    branches: [main]
+    paths:
+      - "**"
+      - "!availability/**"
+      - "!curation/runs/**"
+      - "!curation/latest.json"
+      - "!external-links/**"
+      - "!identity/latest.json"
+      - "!identity/requests/**"
+      - "!identity/runs/**"
+      - "!identity/states/**"
+      - "!publications/**"
+      - "!releases/**"
+      - "!snapshots/**"
+      - "!workspace.lock.json"
+      - "**.md"
   workflow_dispatch:
 
 permissions:
