@@ -8,6 +8,43 @@ Repository/category ownership and pipeline dependencies are defined in
 shows their connections. Commands and recovery procedures belong in
 [WORKFLOW.md](../WORKFLOW.md).
 
+## Amendment, 2026-11-07: current version plus a change log
+
+The user decided on 2026-11-07 that published sites hold only the current game
+version plus a compact change log. Previous versions are kept only as that log,
+never as copies of pages or packs. Local and committed state keeps only what the
+next update needs.
+
+The 0.8.330 publication failed this way. GitHub Pages could not deploy
+`HumanHost-Wiki-Construction-Part-0002` within its fixed 10-minute sync timeout
+after one update grew that site from 1,335 files and 145 MB to 1,866 files and
+204 MB. The reader projected every captured version with its own data packs, and
+release trees only ever added files.
+
+This amendment supersedes these parts of the original decision:
+
+- Sections 1 and 5: sites describe the current capture only. Earlier versions are
+  not browser-accessible as pages, packs or release configurations. Each topic
+  publishes its cumulative change log as a data pack and as `reference/changes.md`.
+- Section 4, version behavior: entry pages show the current version, semantic
+  revision, status and the entry's own change-log rows. They no longer show last
+  substantive change, last data check, provenance or links to other captures.
+  Provenance and identity decisions stay in local models and committed identity
+  state; they change without a fact change and would rewrite public packs.
+  Authored explanations keep their last successful check.
+- Section 5, storage: each release tree holds exactly the generated files that
+  release writes or keeps. Earlier files leave the tree in an ordinary commit and
+  Git history may still hold them. Capacity allocation and entrypoint rollover
+  stay; a storage partition may end up holding only its landing page.
+- Section 8: changes across captured builds are demonstrated by the change log:
+  added, removed and changed entities with the changed field values, decided by
+  identity revisions so that provenance-only changes never count.
+
+`changes/<topic>.json` holds each topic's log in this umbrella, newest capture
+first. `wiki.py prune` removes local state the next update does not need.
+[RELEASE.md](../RELEASE.md), [RETENTION.md](../RETENTION.md) and
+[READER.md](../READER.md) own the details.
+
 ## 1. Outcome and scope
 
 Public name, selected by the user on 2026-09-27:

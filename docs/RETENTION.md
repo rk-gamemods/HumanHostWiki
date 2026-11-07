@@ -91,16 +91,44 @@ must hold the workspace lock.
 at each stage. [ACCEPTANCE.md](ACCEPTANCE.md#current-engineering-limits) owns
 the remaining engineering work.
 
+## Prune to the latest state
+
+`wiki.py prune` (`wikibuild/prune.py`) removes local and committed state that the
+next update does not need. Run it after a successful update; `--dry-run` reports
+the plan without deleting. It takes the writer lock itself, so it refuses while
+another writer runs, and it refuses while a release transaction is pending.
+
+It keeps:
+
+- the latest identity state in `identity/states/` and its models in
+  `.local/history/objects/`, plus the migration baseline state when
+  `identity/migration.json` exists, because that record validates against it;
+- the latest extraction run receipt and the objects it names;
+- the reader candidates named by `.local/reader-latest.json` and by the latest
+  release;
+- the release stage named by the completed `.local/releases/pending.json`.
+
+Everything else in those folders and in `.local/reader-stage/` is removed, but
+only entries with generated names (hashes or attempt IDs) of the expected kind.
+Unknown files stay, and nothing outside the owned folders is touched. The kept
+state must verify first; a damaged latest state stops the prune. Identity run and
+request receipts stay because they are small and keep the identity chain readable.
+Removing older `identity/states/` files leaves a Git change for the operator to
+commit. The next update compares against the kept latest state and models, so the
+[change log](adr/0001-versioned-public-wiki.md#amendment-2026-11-07-current-version-plus-a-change-log)
+keeps working. A run whose parent state was pruned records an entry without a
+comparison instead of inventing changes.
+
 ## Retention scope and checks
 
-Extraction caches, identity model caches, test fixtures and old diagnostic indexes
-are outside this cleaner's scope. Removing them requires their own recovery and
-ownership proof. Tests own their cleanup under [ARCHITECTURE.md](ARCHITECTURE.md#running-tests).
+Test fixtures and old diagnostic files under `.local/` are outside these cleaners.
+Tests own their cleanup under [ARCHITECTURE.md](ARCHITECTURE.md#running-tests).
 
 Focused checks:
 
 ```powershell
 py -3 -m unittest discover -s tests -p test_release_retention.py -v
+py -3 -m unittest discover -s tests -p test_prune.py -v
 py -3 -m unittest discover -s tests -p test_pipeline.py -v
 ```
 
@@ -114,7 +142,7 @@ local release while content exceptions remain available for user direction.
 `wikibuild/reader_retention.py` shares identical files across completed candidates
 under `.local/readers/`. The normal update invokes it after the local release and staging
 cleanup, under the same OS-held writer lock. Every candidate path remains available
-for historical previews, audits and release recovery. No Git tree, accepted fact,
+until `wiki.py prune` removes candidates other than the latest. No Git tree, accepted fact,
 source snapshot or public file is changed. This reduces duplicate storage without
 evicting unique candidate content.
 
@@ -156,4 +184,4 @@ The benchmark runs the normal wiki update, hashes actual candidate files before
 and after independently of the compactor, and measures an immediate cleanup repeat.
 It writes ignored evidence and the final operator report under `.local/`. Reported
 unique-inode bytes are file lengths, not filesystem allocation or free-disk space.
-Retention of unique obsolete cache content remains open.
+`wiki.py prune` removes unique obsolete candidates.

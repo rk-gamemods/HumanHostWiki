@@ -233,7 +233,8 @@ never enters preparation, so rehearsal checks no source pins.
 The hub remains at its
 previous release until every topic verifies. Direct topic landing pages consult
 the hub's selection, so preparing a newer topic does not advertise an incomplete
-release. Explicit historical release links continue to load their pinned content.
+release. Sites hold only the current release, so a link pinned to an earlier
+release fails explicitly instead of loading substitute content.
 
 If the new hub fails verification, a new commit restores the previous validated
 tree at that selection point. On the first publication, the fallback is an explicit unavailable page.

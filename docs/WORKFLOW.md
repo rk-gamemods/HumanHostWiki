@@ -243,6 +243,19 @@ applies the [capacity contract](CAPACITY.md) during release preparation; no sepa
 allocation command is needed. An indivisible over-budget control record fails
 before promotion. [ACCEPTANCE.md](ACCEPTANCE.md) owns capacity status and proof limits.
 
+## Prune local state
+
+After a successful update, remove state the next update does not need:
+
+```powershell
+py -3 wiki.py prune --dry-run
+py -3 wiki.py prune
+```
+
+It keeps the latest identity state, extraction run, reader candidate and release
+stage and refuses while another writer runs. [RETENTION.md](RETENTION.md#prune-to-the-latest-state)
+lists what it keeps. Commit the removed `identity/states/` files afterwards.
+
 ## Publish or abandon a release
 
 `wiki.py update` stops after release and retention and reports the release id and
