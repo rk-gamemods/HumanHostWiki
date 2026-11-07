@@ -111,13 +111,15 @@
         "wikibuild/model.py",
         "wikibuild/history.py",
         "wikibuild/identity_migration.py",
+        "wikibuild/changes.py",
         "tools/check_history.py"
       ],
       "tests": [
         "tests/test_identity.py",
         "tests/test_model.py",
         "tests/test_history.py",
-        "tests/test_identity_migration.py"
+        "tests/test_identity_migration.py",
+        "tests/test_changes.py"
       ],
       "depends_on": [
         "process-runtime",
@@ -396,10 +398,12 @@
       "description": "CLI entrypoint and unattended stage orchestration.",
       "paths": [
         "wiki.py",
-        "wikibuild/pipeline.py"
+        "wikibuild/pipeline.py",
+        "wikibuild/prune.py"
       ],
       "tests": [
         "tests/test_pipeline.py",
+        "tests/test_prune.py",
         "tests/test_cli_publication.py",
         "tests/test_run_timing.py",
         "tests/test_git_bounds.py"
