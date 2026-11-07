@@ -87,6 +87,9 @@ class OwnershipTransactionTests(unittest.TestCase):
         frozen = self.repo / ".local/frozen"
         frozen.mkdir()
         writer = release_output.Writer(self.repo, frozen, {"id": "items", "role": "partition"}, "d" * 64)
+        # A partition whose files are all kept unchanged stays frozen: no receipt rewrite.
+        for name in writer.previous:
+            writer.keep(name)
         self.assertEqual(writer.finish(2048)[0], {})
 
     def test_unknown_and_modified_pages_are_preserved(self):

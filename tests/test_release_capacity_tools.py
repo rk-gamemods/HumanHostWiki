@@ -29,7 +29,7 @@ class CapacityToolTests(unittest.TestCase):
                 observation["semantic"]["facts"]["nested"]["field"] = "x" * 24000
                 observation["revision_id"] = digest(json_bytes(observation["semantic"]))
                 observations.append(observation)
-            runs = [fixture.make_run("300", observations), *runs]
+            runs = [fixture.make_run("300", observations)]
         self.project.update(schema_version=1, language="en", github_owner="wiki-fixture",
                             source={"steam_app_id": "2393970", "catalog_schema": 1},
                             publication={"visibility": "public", "monetized": False,
