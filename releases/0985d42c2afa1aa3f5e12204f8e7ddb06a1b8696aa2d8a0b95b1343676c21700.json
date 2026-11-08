@@ -1,0 +1,397 @@
+{
+  "capacity": {
+    "budgets": {
+      "file_bytes": 33554432,
+      "history_bytes": 838860800,
+      "history_reserve_bytes": 16777216,
+      "site_bytes": 838860800,
+      "site_reserve_bytes": 16777216
+    },
+    "new_repositories": [],
+    "phases": [
+      "6a5a625e8b67382ef16611847a50c6eae596999dbbf822f8c9620fd70b511910",
+      "6b854d641ad266a7bc3861e342ba600f0f4da7180a45a77875df8fbf58718f08",
+      "7d250f752c8027a329781dce9afc8dcdcc8a1892f98556a8c944d1538dab196f"
+    ],
+    "prepared_sizes_checked": true,
+    "rolled_topics": []
+  },
+  "entrypoints": {
+    "biomes-resources": "biomes-resources",
+    "combat": "combat",
+    "construction": "construction-part-0001",
+    "crafting-processing": "crafting-processing",
+    "creatures-ai": "creatures-ai",
+    "hub": "hub",
+    "items-equipment": "items-equipment",
+    "loot-acquisition": "loot-acquisition",
+    "skills-survival": "skills-survival",
+    "spawning-populations": "spawning-populations",
+    "technical-reference": "technical-reference",
+    "vehicles": "vehicles",
+    "world-systems": "world-systems"
+  },
+  "inputs": {
+    "contract": {
+      "capacity.py": "7b4886f528c27b78175e7102b63c3532ea24c9851f0e8a6f6fee63660e580650",
+      "capacity_inventory.py": "c65b103407b32f19b02f9fe6615a58acf0cbd1512e2f1445d688f87f85384b77",
+      "capacity_projection.py": "9101e093499216e0d864554505127198163786593287b78b6f0d6ed3303b409d",
+      "capture_catalog.py": "b9f8bd1f510f0921eb914b96169571c201ecc5dd88c410ec7042938fa01c884d",
+      "entrypoints.py": "b29fcf88d1db285009eaf0a690298e9eb79ef491844d299c50d0198814348d51",
+      "git_transaction.py": "70b1bf5617cc6c9d7b24e0c3d98cb2bed75c2eab21ad27357b3769a4ddc1f5d8",
+      "ownership.py": "5c1e0e35049aeceade5126313ffdc37602a77511924500817c08b79f95adfda5",
+      "physical.py": "93916d81d78dc2a5a02336e645b08fc98d8c76ae97099b3b8dc3233c96098119",
+      "publication_git.py": "790de83605cad68d46ce5ba507df06d69d9b4b4804266fd68647442c64cb8d6b",
+      "release.py": "70336f46ba8748af125af96ffa8ed70b53ff8908457b183baa4790734603b1b5",
+      "release_bootstrap.js": "42f2ae61a23ab1f3ab2caa770bd416b2130cee7ea9c55ce8ec90b7de8e3e4265",
+      "release_content.py": "2406f9779cc3ee3094f79756c79e6eb01b2d13893a59665d68b0cbe184223c86",
+      "release_output.py": "bd1fbbff9919a8f4ad0b4f84ed8dee333950c4170e7a9467cfb64057da709de8",
+      "release_partitions.py": "7ab5e5d62c81e1a198eaee42f8c134e94f026985479833917423ad0e6516b565",
+      "release_prepare.py": "40b2a3522da4cbba3ac2bc2a8f858cb9a6586eef165175f6a45c463a7ea3313e",
+      "shard_index.py": "6a183f586c23f735bab75224c42fdeb86bc29de4a2187491a7ecf6f6f13c9f1a",
+      "workspace.py": "9817c6c199992347668b4433ac46cfe0370ff2d109fa38ab8b4c6ee2f1f8cfef"
+    },
+    "project_sha256": "d7287fabafa54ba308315c2905c0cfbe8c68b6f5b25953530b5188bc56095361",
+    "reader": "b86158776fc9ed729d603ee35f8fe3c08e668d943ad5b2278510c96f44f6d8b4"
+  },
+  "manifest_sha256": "328199d38b77d2ff61a0c63f496cabaeabb9e844cfdfd79e49f5268ffad5d403",
+  "physical": {
+    "biomes-resources": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "biomes-resources"
+    },
+    "combat": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "combat"
+    },
+    "construction": {
+      "ordinal": 0,
+      "sealed": true,
+      "topic": "construction"
+    },
+    "construction-part-0001": {
+      "entrypoint": true,
+      "ordinal": 1,
+      "sealed": false,
+      "topic": "construction"
+    },
+    "construction-part-0002": {
+      "ordinal": 2,
+      "sealed": false,
+      "topic": "construction"
+    },
+    "crafting-processing": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "crafting-processing"
+    },
+    "creatures-ai": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "creatures-ai"
+    },
+    "hub": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "hub"
+    },
+    "items-equipment": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "items-equipment"
+    },
+    "loot-acquisition": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "loot-acquisition"
+    },
+    "skills-survival": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "skills-survival"
+    },
+    "spawning-populations": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "spawning-populations"
+    },
+    "technical-reference": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "technical-reference"
+    },
+    "vehicles": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "vehicles"
+    },
+    "world-systems": {
+      "ordinal": 0,
+      "sealed": false,
+      "topic": "world-systems"
+    }
+  },
+  "publication": "not-published",
+  "reader_candidate": "b86158776fc9ed729d603ee35f8fe3c08e668d943ad5b2278510c96f44f6d8b4",
+  "release_id": "0985d42c2afa1aa3f5e12204f8e7ddb06a1b8696aa2d8a0b95b1343676c21700",
+  "repositories": {
+    "biomes-resources": {
+      "commit": "903a9eb3db47e2bdbb11bbbf94d46c4f36a3dc76",
+      "file_count": 62,
+      "files_sha256": "e645d74200b4613ee65cccfb56f0cf3337dbdab6cf4363d3e5f0b35d0d5c2128",
+      "github_name": "HumanHost-Wiki-Biomes",
+      "history_bytes": 171863405,
+      "output_bytes": 3904140,
+      "ownership_sha256": "3687495d689d11d82bcba67e39bfc6ed3edb4743165b4a413fcdb0737f5f99a5",
+      "pages": "bc78a654075d231eaad661bdaef6a8fafda00fe4",
+      "pages_parent": "eb68838801e1b324854d08fb8e976d5a9fb84d73",
+      "path": "repositories/biomes-resources",
+      "site_bytes": 3736442,
+      "tree": "edabf607ba9ffee8294a7d87f3e500edc28df3af"
+    },
+    "combat": {
+      "commit": "c1874f0e454f1b297506045788b1b57c4b42bd13",
+      "file_count": 42,
+      "files_sha256": "207b6604363c83e1a4daa14022e1b7ada97544bb8347d0dd999f42735342f100",
+      "github_name": "HumanHost-Wiki-Combat",
+      "history_bytes": 42310379,
+      "output_bytes": 1654097,
+      "ownership_sha256": "a4a2154ffafe7314aa6cd1f95e9567f706ce6a0ca16af99c7d08ab0670de6f0b",
+      "pages": "a4a0a24256188ee0c3b6e13b527a372d72bf266f",
+      "pages_parent": "72948ae9058d49ec05cf02502352cad64f1398e8",
+      "path": "repositories/combat",
+      "site_bytes": 1534250,
+      "tree": "abed43b4d0d822d3aeb799061b27c93255ec3990"
+    },
+    "construction": {
+      "commit": "89478af7d864e6314ff064ddac5ac50733f6f265",
+      "file_count": 26,
+      "files_sha256": "0253eb9b2a4b07f61a3c526a50b31b77e5476a7b8b033b452c25a3b82b81ce62",
+      "github_name": "HumanHost-Wiki-Construction",
+      "history_bytes": 808546571,
+      "output_bytes": 2952212,
+      "ownership_sha256": "b4092c36df0018c2bb00c8394686f691d51be037cb9e71ce61234760c8ed33dd",
+      "pages": "c5317a1cbddfedb85015b82c58dc98741c876a55",
+      "pages_parent": "c2e11ce35148b17a79f58a97a63cd2d0aef09c60",
+      "path": "repositories/construction",
+      "site_bytes": 2951555,
+      "tree": "03c7161328649e6e5a64b8ec86721be4c276dff2"
+    },
+    "construction-part-0001": {
+      "commit": "45c4c6cfa17a81cb9355100a4260b7c28722d3d1",
+      "file_count": 137,
+      "files_sha256": "d69dcd92b204f193965526c76a2d9e1c605e3c2ae3581ac27c6ce69d5777afa5",
+      "github_name": "HumanHost-Wiki-Construction-Part-0001",
+      "history_bytes": 26374808,
+      "output_bytes": 4119163,
+      "ownership_sha256": "8f384eddbd0ead6ffb5ded3baec9f253f516435c22afb175528c49768182f9cc",
+      "pages": "a94c65b505895e7226804c4aa30b934f39fa9906",
+      "pages_parent": "d792ec2b707028c3b85acdb0a41316de921a655a",
+      "path": "repositories/construction-part-0001",
+      "site_bytes": 15302,
+      "tree": "9fd85ecff8d18a783a936fff54d06856945aee9d"
+    },
+    "construction-part-0002": {
+      "commit": "52673ba90f4141d900e668610ac1b4b261cdcac0",
+      "file_count": 401,
+      "files_sha256": "e63275dd2c0e6c872ce99afa643be7dba44134a1f5bbb39011dd089bf98bae11",
+      "github_name": "HumanHost-Wiki-Construction-Part-0002",
+      "history_bytes": 230329592,
+      "output_bytes": 24776514,
+      "ownership_sha256": "7c8c8309e16838c0a8c63f0df6ea89536d98e7b44e030a962016800e6ffee208",
+      "pages": "292bdf0a4ae27c0678f2b897cdba32a746e5edf7",
+      "pages_parent": "6fcc535cd4a22a6e011865c8458b4c4cdcf4e00d",
+      "path": "repositories/construction-part-0002",
+      "site_bytes": 24776514,
+      "tree": "83251dc669bb91be4687e6249372d89b1bde8de0"
+    },
+    "crafting-processing": {
+      "commit": "a5fb6724ea766421c5540d219f8142e35d546e57",
+      "file_count": 65,
+      "files_sha256": "3c63ead06456b49e0689d4061b4b57a99881ae7d978bd8a11f468405985ae49f",
+      "github_name": "HumanHost-Wiki-Crafting",
+      "history_bytes": 78538214,
+      "output_bytes": 2935199,
+      "ownership_sha256": "eff35614980a1a7272af29b64f0dbde911df68ea1d71ce2551ea1f72cc7fc8f4",
+      "pages": "083157c3a485a314149a392652f65bff9f85db53",
+      "pages_parent": "61a0b5e0025fd066a748005747967283412bdf9a",
+      "path": "repositories/crafting-processing",
+      "site_bytes": 2695825,
+      "tree": "033de36bf5d75d6af119eca3cd06503899821bc6"
+    },
+    "creatures-ai": {
+      "commit": "10966ee25efd01de92c14ec89bd7f8c48be8902e",
+      "file_count": 26,
+      "files_sha256": "11b745cca69576866834c27343c22bdc581008fcd6fd71e4f85529602091465d",
+      "github_name": "HumanHost-Wiki-Creatures",
+      "history_bytes": 27514997,
+      "output_bytes": 1218756,
+      "ownership_sha256": "0635db493a793ef271f80758884e13da59565dcd6e5ace92fdfe5a81f0d8e2e1",
+      "pages": "818e80dfc6cb15f98ebac5c0e04ba3172d90b309",
+      "pages_parent": "2fdc720468324eed5d63db3ce851d1d5314bef1c",
+      "path": "repositories/creatures-ai",
+      "site_bytes": 1084319,
+      "tree": "8d136ebb057e43858e376343a26e5224d133b9a7"
+    },
+    "hub": {
+      "commit": "154f0b12867625fa4c3fa35c85fa962c16edf41d",
+      "file_count": 55,
+      "files_sha256": "3d10bbd0b29fc84b3a390fb4ab88f6dd0d8a116d0d45a32d2a1dc284492a76b4",
+      "github_name": "HumanHost-Wiki",
+      "history_bytes": 68029735,
+      "output_bytes": 6453951,
+      "ownership_sha256": "9f3e8af6b83f615f5e7766f5e81b0e5e9c19639e4e6c69729d8aacb4b6c2b046",
+      "pages": "f11c9c7673a98307f3aad8e79b1d7e7029aa0617",
+      "pages_parent": "610a0cb157954f7e0ea9b28bbdacc6eeee46c170",
+      "path": "repositories/hub",
+      "site_bytes": 6287743,
+      "tree": "5f5d8e6c8bd9c7e5c8816d3bb6e902b9003506ee"
+    },
+    "items-equipment": {
+      "commit": "b263133dd67dfd47a3885602a922d8bded4033bd",
+      "file_count": 98,
+      "files_sha256": "6eb6ed30f95ea85dab009722847f448f1a7341eb46d07e110de5b4ed5d3742bf",
+      "github_name": "HumanHost-Wiki-Items",
+      "history_bytes": 133777004,
+      "output_bytes": 5307270,
+      "ownership_sha256": "415a7ca84e8e08dfea4a3c44baf4f41e2cd7bbea0e012243ff5466405d1b594e",
+      "pages": "4ebe6e949a435baf7673273d0758c2c878b05ab4",
+      "pages_parent": "03bdf3e70fe09f003c490ac28660f21e568a4214",
+      "path": "repositories/items-equipment",
+      "site_bytes": 4822181,
+      "tree": "a674f9449a184b1c936228773133026f35b8a6c1"
+    },
+    "loot-acquisition": {
+      "commit": "f9020af43aab1d3881a3db26d6e80668357a915a",
+      "file_count": 49,
+      "files_sha256": "0a56bb650f32dd20dbf88bc0707b7ab4688062d30669398171463df0a56ad8fb",
+      "github_name": "HumanHost-Wiki-Loot",
+      "history_bytes": 71975018,
+      "output_bytes": 2033979,
+      "ownership_sha256": "e5b60f3a1a8f04bbf5a9fdeabad568d71c8a467af9e812bdff5884298bf4c6d1",
+      "pages": "b98b21ba2741b02eba7f9e58229a49af9b98c06d",
+      "pages_parent": "84bab9d5196db025947f38de3318c93485624cf8",
+      "path": "repositories/loot-acquisition",
+      "site_bytes": 1721458,
+      "tree": "7329de59d106bf707273a6a304a56ad60b8721f5"
+    },
+    "skills-survival": {
+      "commit": "3a3691fcfce9f5d9f0eeacc73ee7a63632fc2d04",
+      "file_count": 27,
+      "files_sha256": "b5b76a350b5a0a0402e3d534e987b44d41cb5ce2610db8a0addb53437d62579c",
+      "github_name": "HumanHost-Wiki-Survival",
+      "history_bytes": 26563034,
+      "output_bytes": 982038,
+      "ownership_sha256": "0aeaa61774eb1f5d49723f8408bc31a68ef83ff34cb372b58db02c1ad2f345a4",
+      "pages": "f559e0c6e1626cd0de72bff49ad519813c48b06f",
+      "pages_parent": "c335a167960791d38f5c3e4429f1d6ccabff72e2",
+      "path": "repositories/skills-survival",
+      "site_bytes": 890802,
+      "tree": "4038370bd8d2fc7da8ac218dbe87389ba871975a"
+    },
+    "spawning-populations": {
+      "commit": "d6eaa45bfe394af67a0f2987c9f782ec8d8f74a3",
+      "file_count": 24,
+      "files_sha256": "c79a3908097f11fe41a9dfc5e7c10c6bf62523a140c854764ce5885a83691320",
+      "github_name": "HumanHost-Wiki-Spawning",
+      "history_bytes": 5811878,
+      "output_bytes": 235051,
+      "ownership_sha256": "0edb86ffd76173d7ea3ccc2eb7622634507f1ba6e9654c499a9edbbf486da67b",
+      "pages": "290023af90f399ad77448ec40a2dbdb168d56444",
+      "pages_parent": "ae07a2f91bd228027c007f0f85486bbfd62eafe9",
+      "path": "repositories/spawning-populations",
+      "site_bytes": 228217,
+      "tree": "abf9337ee1440b5a0c3bbd6f8ee0084089f1cd4c"
+    },
+    "technical-reference": {
+      "commit": "2a4222f74afc0dd77353806093ba62b015d1d6e2",
+      "file_count": 458,
+      "files_sha256": "c66c5b49553b8882bc838ade4884d7ec6486a04d4c4cb8dab1dd684889605f51",
+      "github_name": "HumanHost-Wiki-Technical",
+      "history_bytes": 515220575,
+      "output_bytes": 27610942,
+      "ownership_sha256": "e7d9f860a94b39448df4d70d8cb02f6a2aff5ed1e511ae5f29ebba9312aa5cd3",
+      "pages": "2c271ec14530617d1cb57d082c377fd63af0dc90",
+      "pages_parent": "c2a3e6130b7a05cf6d6e8ad5290c852ee6d0c7cf",
+      "path": "repositories/technical-reference",
+      "site_bytes": 24708088,
+      "tree": "d965f535818bc4b2086e655afa2e69d03a91115f"
+    },
+    "vehicles": {
+      "commit": "25379e14349dd2a9f328f28cdda4aa6c718a2d83",
+      "file_count": 24,
+      "files_sha256": "51846fa452db8e1b4702758efe62bea7cd023a8055d4011eeac5f6705d35e2c9",
+      "github_name": "HumanHost-Wiki-Vehicles",
+      "history_bytes": 3226196,
+      "output_bytes": 185153,
+      "ownership_sha256": "7c6f2c408bc42e695439870dab278651bd7e650d9a7046a1e5901a8c28a09f65",
+      "pages": "d3e82ed4fe310b7fad6b7a1d2c956569cf2ce67f",
+      "pages_parent": "d05f07a8a8006af0849c3e6c79be66c5c05834bb",
+      "path": "repositories/vehicles",
+      "site_bytes": 178824,
+      "tree": "08eeab715a22f66241c0898d27120c6b4c30bcaf"
+    },
+    "world-systems": {
+      "commit": "ab9ef4d3b5db2887a3ae675e4c8f2fc965984d8d",
+      "file_count": 28,
+      "files_sha256": "7cd9b334f47e4994ddeff3237c2e9206a874b94cc50481f4b8942cb19a83b91f",
+      "github_name": "HumanHost-Wiki-World",
+      "history_bytes": 21193156,
+      "output_bytes": 804110,
+      "ownership_sha256": "37591d9910becd6ca0f783f4dec25e770a70bbbc6f243755d5317ebe3394a3a9",
+      "pages": "ba8bc3969077ecbdbdb0784800f7490737478b42",
+      "pages_parent": "b9a749cd73893b5b9bcf990955e7a1a4fc7483ca",
+      "path": "repositories/world-systems",
+      "site_bytes": 712027,
+      "tree": "1c387fe21a2ec33dda539de7e7fe6ace0fe7b839"
+    }
+  },
+  "routes": {
+    "biomes-resources": "https://rk-gamemods.github.io/HumanHost-Wiki-Biomes/",
+    "combat": "https://rk-gamemods.github.io/HumanHost-Wiki-Combat/",
+    "construction": "https://rk-gamemods.github.io/HumanHost-Wiki-Construction/",
+    "crafting-processing": "https://rk-gamemods.github.io/HumanHost-Wiki-Crafting/",
+    "creatures-ai": "https://rk-gamemods.github.io/HumanHost-Wiki-Creatures/",
+    "hub": "https://rk-gamemods.github.io/HumanHost-Wiki/",
+    "items-equipment": "https://rk-gamemods.github.io/HumanHost-Wiki-Items/",
+    "loot-acquisition": "https://rk-gamemods.github.io/HumanHost-Wiki-Loot/",
+    "skills-survival": "https://rk-gamemods.github.io/HumanHost-Wiki-Survival/",
+    "spawning-populations": "https://rk-gamemods.github.io/HumanHost-Wiki-Spawning/",
+    "technical-reference": "https://rk-gamemods.github.io/HumanHost-Wiki-Technical/",
+    "vehicles": "https://rk-gamemods.github.io/HumanHost-Wiki-Vehicles/",
+    "world-systems": "https://rk-gamemods.github.io/HumanHost-Wiki-World/"
+  },
+  "schema_version": 1,
+  "status": "git-release-committed",
+  "validation": {
+    "coverage": "partial",
+    "gameplay_verification": "not-performed",
+    "reader_artifacts": "passed"
+  },
+  "versions": [
+    {
+      "build_id": "26507141",
+      "game_version": "0.8.330",
+      "guides": {
+        "count": 4,
+        "dropped_links": 0,
+        "errors": [],
+        "features": {
+          "merchants": {
+            "live": false,
+            "manager_object": "Merchant_Mgr",
+            "status": "inactive"
+          }
+        },
+        "other_scenery": [
+          "terra block"
+        ]
+      },
+      "identity_run": "592816caa7da4b7259195896364afd8a7bf503f3b3eb16a840a55892ca6f11b1",
+      "observations": 27329,
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    }
+  ]
+}

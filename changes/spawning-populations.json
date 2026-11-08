@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "topic": "spawning-populations",
+  "versions": [
+    {
+      "added": [],
+      "build_id": "26507141",
+      "changed": [],
+      "count": 20,
+      "game_version": "0.8.330",
+      "previous": {
+        "build_id": "26180432",
+        "game_version": "0.8.326",
+        "snapshot_id": "build-26180432-202c27fe16cb"
+      },
+      "removed": [
+        {
+          "entity_key": "e-1a34f22405a730f0cb416cf749733765",
+          "kind": "spawn-rule",
+          "name": "Merchant_02",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-393b7b5e91fff081746e7dbf767e2f76",
+          "kind": "spawn-rule",
+          "name": "Merchant_10",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-4aaaedaa5ec84f61c70c4e38844db9df",
+          "kind": "spawn-rule",
+          "name": "Merchant_09",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-52e3e224dd55852444d7b54104c73460",
+          "kind": "spawn-rule",
+          "name": "Merchant_07",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-61371105b43181fea7bebdd3ad9eba98",
+          "kind": "spawn-rule",
+          "name": "Merchant_12",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-64f03888f97f7ce3683a9e981d81065e",
+          "kind": "spawn-rule",
+          "name": "Merchant_04",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-85ddff3c88c8da79c92aff55ba8b89bb",
+          "kind": "spawn-rule",
+          "name": "Merchant_03",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-a0e52f1bfaa735baa96d5b84db1222d4",
+          "kind": "spawn-rule",
+          "name": "Merchant_06",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-b66fc839d693f8caa972efbae35aa35f",
+          "kind": "spawn-rule",
+          "name": "Merchant_05",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-c4517140386f6144c49b86619800f40d",
+          "kind": "spawn-rule",
+          "name": "Merchant_01",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-dc298dfe181d0ba40e0d5fca6f6d1e83",
+          "kind": "spawn-rule",
+          "name": "Merchant_08",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-e5ae8ce7e2bdf4adeed258066eb6fd8a",
+          "kind": "spawn-rule",
+          "name": "Merchant_11",
+          "status": "uncaptured"
+        }
+      ],
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    }
+  ]
+}

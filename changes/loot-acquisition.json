@@ -1,0 +1,356 @@
+{
+  "schema_version": 1,
+  "topic": "loot-acquisition",
+  "versions": [
+    {
+      "added": [],
+      "build_id": "26507141",
+      "changed": [
+        {
+          "entity_key": "e-020c8c1d7c15ae16a2f51a45330d6ed9",
+          "fields": {
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "29a4bd90e25d094459c9792cf8b9cb28",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/targets": {
+              "new": [],
+              "old": [
+                "e-82ff3a22e17afe578fa62357b6c958a5"
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "c45d46e1e63d2aa4ab00e86821cbdbb0",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/targets": {
+              "new": [],
+              "old": [
+                "e-3e62afdafb7118985c019f6ac1eac30c"
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "6786beac871f1b54fb640d7a5f9900d9",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/targets": {
+              "new": [],
+              "old": [
+                "e-db7f29917110a0eda1c94a04f493f139"
+              ]
+            }
+          },
+          "kind": "loot-table",
+          "name": "War_Zone merchant stock"
+        },
+        {
+          "entity_key": "e-4d73329e5ffb1113805e850efbc952aa",
+          "fields": {
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "6ba02464aaa73474ab7f132d3d54a436",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/targets": {
+              "new": [],
+              "old": [
+                "e-3c5cd97afd5ee9001dfe300c1b1e8ebe"
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "0960ac80ec31b2847bfed21e2e5f8f02",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/targets": {
+              "new": [],
+              "old": [
+                "e-c258cd6511b274c53b1690639d2fcedd"
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "f134822a147b8f14f833fdad61cffccc",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/targets": {
+              "new": [],
+              "old": [
+                "e-42f755a696ccedfcebbe97c27433e46b"
+              ]
+            }
+          },
+          "kind": "loot-table",
+          "name": "Moss_Forest merchant stock"
+        },
+        {
+          "entity_key": "e-67b7402399a274044615b987da268738",
+          "fields": {
+            "/facts/MerchantPrefabs": {
+              "new": [
+                {},
+                {},
+                {}
+              ],
+              "old": [
+                {}
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "d9c8e3c9b9517894a818fa7733446602",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/targets": {
+              "new": []
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "26a82ba7b94a4934380f855de534acc4",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/targets": {
+              "new": []
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "eb5db3c882ca28e43a7eb1ff908aec31",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/targets": {
+              "new": []
+            }
+          },
+          "kind": "loot-table",
+          "name": "Wasteland merchant stock"
+        },
+        {
+          "entity_key": "e-6baeda590fd4a53ade1a51f790297525",
+          "fields": {
+            "/facts/MerchantPrefabs": {
+              "new": [
+                {},
+                {},
+                {}
+              ],
+              "old": [
+                {}
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "9547d0078fbf63e4594b90f46cf38afa",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/targets": {
+              "new": []
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "3b3b3ce8d9bc240489185a03a42f4842",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/targets": {
+              "new": []
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "ceeaa500f65a3ee419ad6ae4f85868d4",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/targets": {
+              "new": []
+            }
+          },
+          "kind": "loot-table",
+          "name": "Desert_Rocky merchant stock"
+        },
+        {
+          "entity_key": "e-7790007a135b0922e7d4c71439ac73af",
+          "fields": {
+            "/facts/MerchantPrefabs": {
+              "new": [
+                {},
+                {}
+              ],
+              "old": [
+                {}
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "7397b4e62fd04ec48bf4c299f0f167bb",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/targets": {
+              "new": []
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "87a7ed852eb1df6449592c31acc22def",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/targets": {
+              "new": []
+            }
+          },
+          "kind": "loot-table",
+          "name": "Tropical_Jungle merchant stock"
+        },
+        {
+          "entity_key": "e-9cdd802f27f9a351e1e4f8cbcbb2d48c",
+          "fields": {
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "e91d8f1a837d7ef4c852791aceac8bb6",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/targets": {
+              "new": [],
+              "old": [
+                "e-b64b3a1ee298678dc54e3652162dc663"
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "3ceffa755a320ab40b85c8607c3ae22f",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/targets": {
+              "new": [],
+              "old": [
+                "e-b7a0fac99035dee134a846fe78646275"
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "14a1f0ad592582e4aaa829c980aa5ac2",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/targets": {
+              "new": [],
+              "old": [
+                "e-8598f2bfdc24db0390181c52b7a5fc32"
+              ]
+            }
+          },
+          "kind": "loot-table",
+          "name": "Mountain_Forest merchant stock"
+        },
+        {
+          "entity_key": "e-f6fe2cbb74566f59cfa080e1381f3dc1",
+          "fields": {
+            "/facts/MerchantPrefabs": {
+              "new": [
+                {},
+                {},
+                {}
+              ],
+              "old": [
+                {}
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "a8e6656b56b377f48992adc33ad0a4ee",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/0/merchantRef/targets": {
+              "new": []
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "8b7b57997b129f844bb6f7c8f74ed17e",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/1/merchantRef/targets": {
+              "new": []
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/gaps": {
+              "new": [
+                {
+                  "guid": "e5f0ee98b4c05534083d22cf81396fdf",
+                  "status": "unresolved_guid"
+                }
+              ]
+            },
+            "/relationships/merchant-prefab/MerchantPrefabs/2/merchantRef/targets": {
+              "new": []
+            }
+          },
+          "kind": "loot-table",
+          "name": "Desert merchant stock"
+        }
+      ],
+      "count": 972,
+      "game_version": "0.8.330",
+      "previous": {
+        "build_id": "26180432",
+        "game_version": "0.8.326",
+        "snapshot_id": "build-26180432-202c27fe16cb"
+      },
+      "removed": [],
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    }
+  ]
+}

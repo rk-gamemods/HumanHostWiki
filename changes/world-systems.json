@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "topic": "world-systems",
+  "versions": [
+    {
+      "added": [],
+      "build_id": "26507141",
+      "changed": [
+        {
+          "entity_key": "e-c21f0f570ae41e7f1d25a4e1fbecb615",
+          "fields": {
+            "/fact_labels/~1DisableSmartTerrainSuspension": {
+              "new": "No"
+            },
+            "/facts/DisableSmartTerrainSuspension": {
+              "new": 0
+            },
+            "/facts/SmartLoadReleaseInterval": {
+              "new": 0.3499999940395355
+            },
+            "/facts/TravelIntentMaxAngleDegrees": {
+              "new": 60.0
+            },
+            "/facts/TravelIntentMinDistance": {
+              "new": 40.0
+            },
+            "/facts/TravelIntentSpeedKmh": {
+              "new": 50.0
+            },
+            "/facts/TravelIntentSpeedWindow": {
+              "new": 0.5
+            },
+            "/notes": {
+              "new": {
+                "omitted_bytes": 495,
+                "sha256": "70ff2f08774253aef01cf450a35d63c37cccf86a703c105403a07f7ba15b00b2"
+              },
+              "old": "Serialized terrain-layer order, prefab bindings and streaming dimensions. The check interval is seconds. Player/world seed, live positions, origin-shift bindings and texture blending are omitted."
+            }
+          },
+          "kind": "world-rule",
+          "name": "Terrain_Loader"
+        },
+        {
+          "entity_key": "e-d1c91f97ad4c0c81c3875c6b6b218765",
+          "fields": {
+            "/fact_labels/~1DisableSmartTerrainSuspension": {
+              "new": "No"
+            },
+            "/facts/DisableSmartTerrainSuspension": {
+              "new": 0
+            },
+            "/facts/SmartLoadReleaseInterval": {
+              "new": 0.3499999940395355
+            },
+            "/facts/TravelIntentMaxAngleDegrees": {
+              "new": 60.0
+            },
+            "/facts/TravelIntentMinDistance": {
+              "new": 40.0
+            },
+            "/facts/TravelIntentSpeedKmh": {
+              "new": 50.0
+            },
+            "/facts/TravelIntentSpeedWindow": {
+              "new": 0.5
+            },
+            "/notes": {
+              "new": {
+                "omitted_bytes": 495,
+                "sha256": "70ff2f08774253aef01cf450a35d63c37cccf86a703c105403a07f7ba15b00b2"
+              },
+              "old": "Serialized terrain-layer order, prefab bindings and streaming dimensions. The check interval is seconds. Player/world seed, live positions, origin-shift bindings and texture blending are omitted."
+            }
+          },
+          "kind": "world-rule",
+          "name": "Terrain_Loader"
+        }
+      ],
+      "count": 277,
+      "game_version": "0.8.330",
+      "previous": {
+        "build_id": "26180432",
+        "game_version": "0.8.326",
+        "snapshot_id": "build-26180432-202c27fe16cb"
+      },
+      "removed": [
+        {
+          "entity_key": "e-097ca31c1dae6aa9b30152bb6a4f513e",
+          "kind": "world-rule",
+          "name": "Merchant_03",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-12b08321990eeb7da463814ef48b989b",
+          "kind": "world-rule",
+          "name": "Merchant_06",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-175da077c6d899de3eb7c8b1d625dba2",
+          "kind": "world-rule",
+          "name": "Merchant_11",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-1a185c5ae80d5f870a858ab39f034705",
+          "kind": "world-rule",
+          "name": "Merchant_01",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-3b3f58d9312af8894cf0be743c0e5308",
+          "kind": "world-rule",
+          "name": "Merchant_12",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-3c42556ebb065f38b3c03e4c8d40f834",
+          "kind": "world-rule",
+          "name": "Merchant_05",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-3e7322bbe17c2b2c561c3c19e4252a1b",
+          "kind": "world-rule",
+          "name": "Merchant_09",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-46589ed61eebf56827be91f5f183911e",
+          "kind": "world-rule",
+          "name": "Merchant_02",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-987aede2d34275e9551e8677cd7662dc",
+          "kind": "world-rule",
+          "name": "Merchant_08",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-aa2be9274ad109a72a552a406014dde0",
+          "kind": "world-rule",
+          "name": "Merchant_07",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-d1e2a44e3585dec464461a94f468359e",
+          "kind": "world-rule",
+          "name": "Merchant_10",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-f6859cfe10c3bf9445aac319cff935ae",
+          "kind": "world-rule",
+          "name": "Merchant_04",
+          "status": "uncaptured"
+        }
+      ],
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    }
+  ]
+}
