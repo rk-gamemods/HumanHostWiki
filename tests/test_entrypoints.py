@@ -92,12 +92,12 @@ class EntrypointReleaseTests(unittest.TestCase):
         self.assertEqual(second["capacity"]["rolled_topics"], ["hub", "items", "loot"])
         self.assertEqual({k: v["commit"] for k, v in second["repositories"].items()},
                          {k: v["git"]["commit"] for k, v in journal["plans"].items()})
-        self.assertEqual(check(self.root)["release_configs"], 3)
+        audit = check(self.root)
+        self.assertEqual((audit["release_configs"], audit["retained_release_id"]), (3, first["release_id"]))
         for (identity, name), data in retained.items():
-            # The first release's configuration leaves the tree; its commit still holds it.
+            # The published first release stays loadable in the retired fronts until the hub moves.
             path = self.root / first["repositories"][identity]["path"]
-            self.assertFalse((path / name).exists())
-            self.assertEqual(git(path, "show", first["repositories"][identity]["commit"] + ":" + name), data)
+            self.assertEqual(git(path, "show", "HEAD:" + name), data)
         for topic, identity in second["entrypoints"].items():
             self.assertNotEqual(topic, identity)
             self.assertTrue(second["physical"][topic]["sealed"])
@@ -125,11 +125,17 @@ class EntrypointReleaseTests(unittest.TestCase):
         new_hub = second["repositories"][second["entrypoints"]["hub"]]["github_name"]
         hub_update = next(i for i, event in enumerate(self.host.events) if event[:3] == ("push", "Wiki-hub", "gh-pages") and event[3] != published["repositories"]["hub"]["pages"])
         self.assertLess(self.host.events.index(("verified", new_hub)), hub_update)
-        frozen = {topic: second["repositories"][topic]["commit"] for topic in second["entrypoints"]}
         _, third = self.make("Third")
         self.assertEqual(third["entrypoints"], second["entrypoints"])
-        self.assertEqual(frozen, {topic: third["repositories"][topic]["commit"] for topic in frozen})
-        self.assertEqual(check(self.root)["release_configs"], 3)
+        audit = check(self.root)
+        self.assertEqual((audit["release_configs"], audit["retained_release_id"]), (3, second["release_id"]))
+        for (identity, name), data in retained.items():
+            # Once the second release is published, the first one leaves the tree; its commit still holds it.
+            path = self.root / first["repositories"][identity]["path"]
+            self.assertFalse((path / name).exists())
+            self.assertEqual(git(path, "show", first["repositories"][identity]["commit"] + ":" + name), data)
+        # Retired fronts now hold only their successor shells and stay frozen.
+        frozen = {topic: third["repositories"][topic]["commit"] for topic in second["entrypoints"]}
         self.assertEqual(publication.run(self.root, self.project, third, host=self.host)[0]["status"], "published")
         self.assertTrue(publication.run(self.root, self.project, third, host=self.host)[1]["reused"])
         # Roll again from a generated front. The hub control identity now lives

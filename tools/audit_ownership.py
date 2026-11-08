@@ -22,20 +22,25 @@ def expand(owner, read_bytes):
         pages[name] = {"sha256": ref["sha256"], "bytes": len(data)}
         return json.loads(data)
 
-    files, allocated = {}, []
+    files, allocated, retained = {}, [], []
     for ref in leaves(owner["file_index"], fetch):
         page = fetch(ref)
         assert len(page) == ref["count"] and min(page) == ref["first"] and max(page) == ref["last"]
         for name, meta in page.items():
             assert name not in files
-            assert set(meta) <= {"sha256", "bytes", "allocated"}
+            assert set(meta) <= {"sha256", "bytes", "allocated", "retained"}
             files[name] = {"sha256": meta["sha256"], "bytes": meta["bytes"]}
-            assert type(meta.get("allocated", False)) is bool
+            assert type(meta.get("allocated", False)) is bool and type(meta.get("retained", False)) is bool
             if meta.get("allocated"):
                 allocated.append(name)
+            if meta.get("retained"):
+                retained.append(name)
     raw = (json.dumps(files, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()
     assert hashlib.sha256(raw).hexdigest() == owner["files_sha256"]
     assert len(files) == owner["file_count"] and len(allocated) == owner["allocated_count"]
-    result = {k: v for k, v in owner.items() if k not in {"file_index", "file_count", "files_sha256", "allocated_count"}}
+    assert len(retained) == owner.get("retained_count", 0)
+    result = {k: v for k, v in owner.items() if k not in {"file_index", "file_count", "files_sha256", "allocated_count", "retained_count"}}
     result.update(schema_version=1, files=files, capacity_objects=sorted(allocated))
+    if retained:
+        result["retained_files"] = sorted(retained)
     return result, pages

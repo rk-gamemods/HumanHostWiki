@@ -348,7 +348,8 @@
         "tests/test_release*.py",
         "tests/test_serve_release.py",
         "tests/test_ownership_transaction.py",
-        "tests/release_bootstrap.test.js"
+        "tests/release_bootstrap.test.js",
+        "tests/release_bootstrap_served.js"
       ],
       "depends_on": [
         "process-runtime",

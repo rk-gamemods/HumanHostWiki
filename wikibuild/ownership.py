@@ -2,6 +2,10 @@
 
 encode/decode are pure except for supplied byte callbacks. Checkout and pinned-Git
 adapters share the codec; Git reads use one batch process per receipt.
+
+Release membership is explicit. `retained_files` lists files kept only for the
+release named by `retained_release_id`, the release a live hub may still select
+while this one publishes. Every other file belongs to the receipt's own release.
 """
 
 import json
@@ -41,17 +45,36 @@ def validate(value):
             len(allocated) != len(set(allocated)) or
             any(name not in files or not capacity.OBJECT.fullmatch(name) for name in allocated)):
         raise ContractError("Invalid ownership allocation membership")
-    return {**value, "capacity_objects": sorted(allocated)}
+    retained = value.get("retained_files", [])
+    if (not isinstance(retained, list) or any(not isinstance(name, str) for name in retained) or
+            len(retained) != len(set(retained)) or any(name not in files for name in retained)):
+        raise ContractError("Invalid ownership release membership")
+    retained_id = value.get("retained_release_id")
+    if (retained_id is None) != (not retained) or (retained_id is not None and (
+            not isinstance(retained_id, str) or not capacity.SHA.fullmatch(retained_id))):
+        raise ContractError("Invalid retained release identity")
+    result = {key: item for key, item in value.items() if key not in {"retained_files", "retained_release_id"}}
+    result.update(capacity_objects=sorted(allocated), retained_files=sorted(retained))
+    if retained_id is not None:
+        result["retained_release_id"] = retained_id
+    return result
+
+
+def stored(value):
+    """Return the receipt form. An empty retained list is not written, so readers
+    use value.get("retained_files", [])."""
+    return {key: item for key, item in value.items() if key != "retained_files" or item}
 
 
 def encode(value, limit, emit):
     """Return root bytes and page metadata; emit(name, bytes) stages a new page."""
     value = validate(value)
-    raw, page_limit = json_bytes(value), min(limit, PAGE_BYTES)
+    raw, page_limit = json_bytes(stored(value)), min(limit, PAGE_BYTES)
     if len(raw) <= page_limit:
         return raw, {}
-    allocated = set(value["capacity_objects"])
-    records = {name: packs.compact({**meta, **({"allocated": True} if name in allocated else {})})
+    allocated, retained = set(value["capacity_objects"]), set(value["retained_files"])
+    records = {name: packs.compact({**meta, **({"allocated": True} if name in allocated else {}),
+                                    **({"retained": True} if name in retained else {})})
                for name, meta in value["files"].items()}
     pages = {}
 
@@ -65,9 +88,11 @@ def encode(value, limit, emit):
 
     refs = [{**output(data), "first": rows[0][0], "last": rows[-1][0], "count": len(rows)}
             for rows, data in packs.partition(records, page_limit)]
-    root = {key: item for key, item in value.items() if key not in {"files", "capacity_objects"}}
+    root = {key: item for key, item in value.items() if key not in {"files", "capacity_objects", "retained_files"}}
     root.update(schema_version=2, file_index=refs, file_count=len(records),
                 files_sha256=digest(json_bytes(value["files"])), allocated_count=len(allocated))
+    if retained:
+        root["retained_count"] = len(retained)
     roots = shard_index.compact({("ownership", "files"): packs.compact(root)}, page_limit,
                                lambda batch: [output(data) for _, data in batch], fields=("file_index",))
     return roots[("ownership", "files")], pages
@@ -75,7 +100,7 @@ def encode(value, limit, emit):
 
 def decode(raw, fetch):
     """Return the legacy logical view and the exact referenced metadata pages."""
-    pages, files, allocated = {}, {}, []
+    pages, files, allocated, retained = {}, {}, [], []
 
     def rows(refs, depth=0):
         if depth >= 32 or not isinstance(refs, list):
@@ -116,22 +141,25 @@ def decode(raw, fetch):
     try:
         value = json.loads(raw)
         if value.get("schema_version") == 1:
-            return validate(value), pages
+            return stored(validate(value)), pages
         if value.get("schema_version") != 2 or value.get("kind") != "generated-wiki-output":
             raise ContractError("Unknown generated-output ownership")
         for name, meta in rows(value["file_index"]):
-            if name in files or set(meta) - {"sha256", "bytes", "allocated"} or type(meta.get("allocated", False)) is not bool:
+            if (name in files or set(meta) - {"sha256", "bytes", "allocated", "retained"} or
+                    type(meta.get("allocated", False)) is not bool or type(meta.get("retained", False)) is not bool):
                 raise ContractError("Invalid or duplicate ownership file record")
-            files[name] = {key: item for key, item in meta.items() if key != "allocated"}
+            files[name] = {key: item for key, item in meta.items() if key not in {"allocated", "retained"}}
             if meta.get("allocated"):
                 allocated.append(name)
+            if meta.get("retained"):
+                retained.append(name)
         if (len(files) != value["file_count"] or digest(json_bytes(files)) != value["files_sha256"] or
-                len(allocated) != value["allocated_count"]):
+                len(allocated) != value["allocated_count"] or len(retained) != value.get("retained_count", 0)):
             raise ContractError("Ownership membership summary differs")
         result = {key: item for key, item in value.items()
-                  if key not in {"file_index", "file_count", "files_sha256", "allocated_count"}}
-        result.update(schema_version=1, files=files, capacity_objects=allocated)
-        return validate(result), pages
+                  if key not in {"file_index", "file_count", "files_sha256", "allocated_count", "retained_count"}}
+        result.update(schema_version=1, files=files, capacity_objects=allocated, retained_files=retained)
+        return stored(validate(result)), pages
     except ContractError:
         raise
     except (AttributeError, KeyError, TypeError, ValueError) as error:

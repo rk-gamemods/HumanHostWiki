@@ -32,9 +32,11 @@ This amendment supersedes these parts of the original decision:
   Provenance and identity decisions stay in local models and committed identity
   state; they change without a fact change and would rewrite public packs.
   Authored explanations keep their last successful check.
-- Section 5, storage: each release tree holds exactly the generated files that
-  release writes or keeps. Earlier files leave the tree in an ordinary commit and
-  Git history may still hold them. Capacity allocation and entrypoint rollover
+- Section 5, storage: each release tree holds the generated files that release
+  writes or keeps, plus the immutable files of the immediately previous release:
+  the published release, which the hub still selects until it is promoted last.
+  Trees are bounded at two releases. Older files leave the tree in an ordinary
+  commit and Git history may still hold them. Capacity allocation and entrypoint rollover
   stay; a storage partition may end up holding only its landing page.
 - Section 8: changes across captured builds are demonstrated by the change log:
   added, removed and changed entities with the changed field values, decided by

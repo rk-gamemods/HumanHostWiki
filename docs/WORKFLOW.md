@@ -234,7 +234,7 @@ py -3 tools/serve_release.py
 ```
 
 The independent checker compares committed blobs with the candidate and verifies
-that retained release indexes, packs and runtimes remain reachable. The benchmark
+that the current and retained release indexes, packs and runtimes remain reachable. The benchmark
 runs an unchanged `wiki.py update` and checks child commits, output bytes and
 timestamps. It requires an already completed release for the current inputs.
 
