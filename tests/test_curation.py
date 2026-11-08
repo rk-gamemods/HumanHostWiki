@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -231,9 +232,14 @@ class CurationTests(unittest.TestCase):
                  (b'class Item { }', 'code-member-missing'),
                  (b'class Item { int Limit; int Limit; }', 'code-member-ambiguous'),
                  (b'class Item {', 'code-parse-error')]
+        stamp = path.stat().st_mtime
         for data, reason in cases:
             with self.subTest(reason=reason):
                 path.write_bytes(data)
+                # A same-size rewrite within one timestamp tick can look unchanged
+                # to Git's stat check on Windows, so give every case its own mtime.
+                stamp += 10
+                os.utime(path, (stamp, stamp))
                 git(source, 'add', '.')
                 git(source, 'commit', '-qm', reason)
                 self.fixture.new['source_commit'] = git(source, 'rev-parse', 'HEAD')
