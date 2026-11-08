@@ -1,0 +1,737 @@
+{
+  "schema_version": 1,
+  "topic": "technical-reference",
+  "versions": [
+    {
+      "added": [
+        {
+          "entity_key": "e-10ffeda213e55c34507b6ac0c989f7c8",
+          "kind": "configuration",
+          "name": "16.You can grumble about the cost"
+        },
+        {
+          "entity_key": "e-158896bcf1a673f5d18663dc061660d9",
+          "kind": "configuration",
+          "name": "7.If you’ve got nothing of value"
+        },
+        {
+          "entity_key": "e-1ce0189b3e393b9007a0d48b5d97d6a6",
+          "kind": "configuration",
+          "name": "Work in progress... Co-op mod is out!"
+        },
+        {
+          "entity_key": "e-21eefec99b1d4e0ebce9471f5f2cc6d8",
+          "kind": "configuration",
+          "name": "VRAM_Warning_Body"
+        },
+        {
+          "entity_key": "e-44f714933fc3e18f64188fc5067d4b04",
+          "kind": "configuration",
+          "name": "6.Word travels fast across these"
+        },
+        {
+          "entity_key": "e-484243fd161c72e6de7c344788abc6fd",
+          "kind": "configuration",
+          "name": "8.You’re lucky I’m willing to"
+        },
+        {
+          "entity_key": "e-49a968bb38d160e034dae7c464c1a9fa",
+          "kind": "configuration",
+          "name": "Frame Generation"
+        },
+        {
+          "entity_key": "e-53bf37b9114ca857368db7bb53a6abc1",
+          "kind": "configuration",
+          "name": "VRAM_Warning_Title"
+        },
+        {
+          "entity_key": "e-559b7af234a0c23192a7b0a6c535a656",
+          "kind": "configuration",
+          "name": "MultiPlayer Tooltip"
+        },
+        {
+          "entity_key": "e-565092dec4b0084aa2eef9a38a447727",
+          "kind": "configuration",
+          "name": "18.Do not mistake my calm for"
+        },
+        {
+          "entity_key": "e-6c2967ff282be4db730059af82b9ab14",
+          "kind": "configuration",
+          "name": "13.The wasteland doesn’t coddle"
+        },
+        {
+          "entity_key": "e-792c753a01ac0a191e047bccceff9629",
+          "kind": "configuration",
+          "name": "11.Don’t try to smooth‑talk me"
+        },
+        {
+          "entity_key": "e-8040522b4956a283e42cd29d1d57dc01",
+          "kind": "configuration",
+          "name": "12.When we talk, watch your"
+        },
+        {
+          "entity_key": "e-80fb7c180e6cbd1c17bb4aa4dab08fc9",
+          "kind": "configuration",
+          "name": "When enabled, performance is"
+        },
+        {
+          "entity_key": "e-8a92031dc99b102ce200db62c5000575",
+          "kind": "configuration",
+          "name": "9.All the top‑tier stock you see"
+        },
+        {
+          "entity_key": "e-937db3710f987c6a56512eadebbbe82b",
+          "kind": "configuration",
+          "name": "Frame Generation"
+        },
+        {
+          "entity_key": "e-963513c3244d0539d94b50857d70c06d",
+          "kind": "configuration",
+          "name": "19.Don’t linger after we finish"
+        },
+        {
+          "entity_key": "e-97456434954f89b0bd0ba4e665e07f3d",
+          "kind": "configuration",
+          "name": "10.You can gripe about my prices"
+        },
+        {
+          "entity_key": "e-a9205d044e6c4bca6c4917668ff7ba2c",
+          "kind": "configuration",
+          "name": "14.Fair barter is the only truce"
+        },
+        {
+          "entity_key": "e-b41b48d9325d9281dda457945373b136",
+          "kind": "configuration",
+          "name": "17.What you covet comes with risk"
+        },
+        {
+          "entity_key": "e-c53e5a6c0862f77205f1bec82bd31176",
+          "kind": "configuration",
+          "name": "4.Don’t fixate on gear you"
+        },
+        {
+          "entity_key": "e-cbfe5908ec6559670b0b216697672281",
+          "kind": "configuration",
+          "name": "3.Play this exchange fair, and"
+        },
+        {
+          "entity_key": "e-d758ffdb365279ba1f49c78ddf203795",
+          "kind": "configuration",
+          "name": "15.I’ve watched scavs ruin their"
+        },
+        {
+          "entity_key": "e-e588e00332492019e02fb684169d17aa",
+          "kind": "configuration",
+          "name": "5.You’ve got one shot at this"
+        },
+        {
+          "entity_key": "e-ea71a22f2c3ee915a39d5cce4b3870b8",
+          "kind": "configuration",
+          "name": "1.What I carry is hard‑won"
+        },
+        {
+          "entity_key": "e-eed84e1a7a3130bd96fd5c0081309dbc",
+          "kind": "configuration",
+          "name": "20.You get exactly what you pay"
+        },
+        {
+          "entity_key": "e-f0e2af2aa26df7d50f24c08dfad5d502",
+          "kind": "configuration",
+          "name": "When enabled, performance is"
+        },
+        {
+          "entity_key": "e-f9b394005bffa8c38b38d03a1e5b93af",
+          "kind": "configuration",
+          "name": "2.Folks have died testing how"
+        }
+      ],
+      "build_id": "26507141",
+      "changed": [
+        {
+          "entity_key": "e-073bc09351dfdfc3d268d7b225998c98",
+          "fields": {
+            "/facts/record_count": {
+              "new": 1124,
+              "old": 1120
+            }
+          },
+          "kind": "component",
+          "name": "UnityEngine.UI.Text"
+        },
+        {
+          "entity_key": "e-1ff0d4078198fc520ecf24bcf479401e",
+          "fields": {
+            "/facts/record_count": {
+              "new": 32662,
+              "old": 32672
+            }
+          },
+          "kind": "asset",
+          "name": "MeshCollider"
+        },
+        {
+          "entity_key": "e-2769c74a16d539a6e95d971b23d0d1e4",
+          "fields": {
+            "/facts/record_count": {
+              "new": 3,
+              "old": 4
+            }
+          },
+          "kind": "asset",
+          "name": "Camera"
+        },
+        {
+          "entity_key": "e-2d8564428f8108c7c133664bafea5269",
+          "fields": {
+            "/facts/record_count": {
+              "new": 94,
+              "old": 98
+            }
+          },
+          "kind": "asset",
+          "name": "CustomRenderTexture"
+        },
+        {
+          "entity_key": "e-2e4932f53d28f96ac07d1f92abaeb168",
+          "fields": {
+            "/facts/record_count": {
+              "new": 4,
+              "old": 8
+            }
+          },
+          "kind": "asset",
+          "name": "AnimatorController"
+        },
+        {
+          "entity_key": "e-2fc8fdbbccf1257e84b96ccb81b4aadb",
+          "fields": {
+            "/facts/record_count": {
+              "new": 2759,
+              "old": 2761
+            }
+          },
+          "kind": "component",
+          "name": "My_DC_Source"
+        },
+        {
+          "entity_key": "e-389684a900dec81a71eebaaa134b604a",
+          "fields": {
+            "/facts/record_count": {
+              "new": 40323,
+              "old": 40448
+            }
+          },
+          "kind": "asset",
+          "name": "MeshRenderer"
+        },
+        {
+          "entity_key": "e-3ec06ec4c0916d6e3cac03e0fd0adb64",
+          "fields": {
+            "/facts/record_count": {
+              "new": 65,
+              "old": 72
+            }
+          },
+          "kind": "asset",
+          "name": "Avatar"
+        },
+        {
+          "entity_key": "e-4e732d5e037fafaec1f66f4da0c8764f",
+          "fields": {
+            "/facts/record_count": {
+              "new": 4280,
+              "old": 4376
+            }
+          },
+          "kind": "asset",
+          "name": "BoxCollider"
+        },
+        {
+          "entity_key": "e-4ed94fd901c81d4505cee41db17c68a4",
+          "fields": {
+            "/facts/record_count": {
+              "new": 51,
+              "old": 49
+            }
+          },
+          "kind": "component",
+          "name": "Slot_Hover"
+        },
+        {
+          "entity_key": "e-5507637adea65cb3fd8f10b39db1a718",
+          "fields": {
+            "/facts/text": {
+              "new": {
+                "omitted_bytes": 261,
+                "sha256": "8fb442f7aec571c7ba824f4185bafd64229b2e331437d9fd6f14215fc95e1479"
+              },
+              "old": {
+                "omitted_bytes": 263,
+                "sha256": "9908671f81598e8fff1520b121165374de5fd52151e4562cda29cdd758c04f5b"
+              }
+            }
+          },
+          "kind": "configuration",
+          "name": "Enabling super resolution"
+        },
+        {
+          "entity_key": "e-57538c2b02d004095b6f0d7dbb2dc920",
+          "fields": {
+            "/facts/record_count": {
+              "new": 90,
+              "old": 98
+            }
+          },
+          "kind": "asset",
+          "name": "SphereCollider"
+        },
+        {
+          "entity_key": "e-5a387c20b3aa448d226f57bf6fcf0eb2",
+          "fields": {
+            "/facts/record_count": {
+              "new": 66051,
+              "old": 69160
+            }
+          },
+          "kind": "asset",
+          "name": "Transform"
+        },
+        {
+          "entity_key": "e-5a390e37fbedfad472c1de7c175f90b1",
+          "fields": {
+            "/facts/record_count": {
+              "new": 1306,
+              "old": 1310
+            }
+          },
+          "kind": "asset",
+          "name": "Sprite"
+        },
+        {
+          "entity_key": "e-5e35ed569fa83a54d464e48e247e8276",
+          "fields": {
+            "/facts/record_count": {
+              "new": 658,
+              "old": 662
+            }
+          },
+          "kind": "asset",
+          "name": "AnimationClip"
+        },
+        {
+          "entity_key": "e-79848c758019b0cc9fdad94cc137e18e",
+          "fields": {
+            "/facts/record_count": {
+              "new": 80,
+              "old": 85
+            }
+          },
+          "kind": "asset",
+          "name": "AssetBundle"
+        },
+        {
+          "entity_key": "e-7c61fdd8e18ce3cb59e24da1bd6c863b",
+          "fields": {
+            "/facts/record_count": {
+              "new": 417,
+              "old": 413
+            }
+          },
+          "kind": "component",
+          "name": "DuloGames.UI.UIHighlightTransition"
+        },
+        {
+          "entity_key": "e-81118f71cc9aea27434f040ddca44f59",
+          "fields": {
+            "/facts/record_count": {
+              "new": 378,
+              "old": 376
+            }
+          },
+          "kind": "component",
+          "name": "UnityEngine.UI.LayoutElement"
+        },
+        {
+          "entity_key": "e-83d8974c9293060240d93a1b8f4bbeac",
+          "fields": {
+            "/facts/record_count": {
+              "new": 643,
+              "old": 639
+            }
+          },
+          "kind": "component",
+          "name": "UnityEngine.UI.Shadow"
+        },
+        {
+          "entity_key": "e-84cb9b228b308742f138e1841e21bc18",
+          "fields": {
+            "/facts/record_count": {
+              "new": 40310,
+              "old": 40435
+            }
+          },
+          "kind": "asset",
+          "name": "MeshFilter"
+        },
+        {
+          "entity_key": "e-8945cd10540c513df24707e9f522c258",
+          "fields": {
+            "/facts/record_count": {
+              "new": 72242,
+              "old": 75333
+            }
+          },
+          "kind": "asset",
+          "name": "GameObject"
+        },
+        {
+          "entity_key": "e-8c72dede9ab37f0506dcf8b0b8bc185b",
+          "fields": {
+            "/facts/record_count": {
+              "new": 1259,
+              "old": 1271
+            }
+          },
+          "kind": "asset",
+          "name": "Rigidbody"
+        },
+        {
+          "entity_key": "e-9061fcfff6220a666ffc56c39a0a047f",
+          "fields": {
+            "/notes": {
+              "new": "Vehicle command service binding and vehicle-core outline style index; behavior is implemented in source rather than serialized settings.",
+              "old": "Vehicle command service binding; behavior is implemented in source rather than serialized settings."
+            }
+          },
+          "kind": "component",
+          "name": "Car_Funs"
+        },
+        {
+          "entity_key": "e-957828120d04535a0176358c1c78bc69",
+          "fields": {
+            "/facts/record_count": {
+              "new": 6139,
+              "old": 6137
+            }
+          },
+          "kind": "asset",
+          "name": "MonoScript"
+        },
+        {
+          "entity_key": "e-967126042260283f831b29e796e8ef95",
+          "fields": {
+            "/facts/record_count": {
+              "new": 81,
+              "old": 89
+            }
+          },
+          "kind": "asset",
+          "name": "Animator"
+        },
+        {
+          "entity_key": "e-9c2e720a5df5e80b48358a13d71b6c6f",
+          "fields": {
+            "/facts/record_count": {
+              "new": 7,
+              "old": 9
+            }
+          },
+          "kind": "asset",
+          "name": "ParentConstraint"
+        },
+        {
+          "entity_key": "e-9d8f5905429f5c6c0a165f6ef744bc19",
+          "fields": {
+            "/facts/record_count": {
+              "new": 563,
+              "old": 579
+            }
+          },
+          "kind": "asset",
+          "name": "SkinnedMeshRenderer"
+        },
+        {
+          "entity_key": "e-a3537b374b9a744dfb7f5ffd01be445a",
+          "fields": {
+            "/facts/record_count": {
+              "new": 4043,
+              "old": 4045
+            }
+          },
+          "kind": "component",
+          "name": "Battle_Info"
+        },
+        {
+          "entity_key": "e-ab065ca2b794743d0f639e8a046203e1",
+          "fields": {
+            "/facts/record_count": {
+              "new": 433,
+              "old": 431
+            }
+          },
+          "kind": "component",
+          "name": "DuloGames.UI.ColorSchemeElement"
+        },
+        {
+          "entity_key": "e-c0c33f77ac22ca10ad5b5aad0faf0851",
+          "fields": {
+            "/facts/record_count": {
+              "new": 3,
+              "old": 11
+            }
+          },
+          "kind": "component",
+          "name": "RootMotion.FinalIK.LookAtIK"
+        },
+        {
+          "entity_key": "e-c5d8964a314e12af4665ebc2dbecdd49",
+          "fields": {
+            "/notes": {
+              "new": "Interaction service UI, audio, highlight (outline style and loot-sparkle material) and save-service bindings; code-defined interaction mechanics are not inferred from these bindings.",
+              "old": "Interaction service UI, audio and save-service bindings; code-defined interaction mechanics are not inferred from these bindings."
+            }
+          },
+          "kind": "component",
+          "name": "Use_F"
+        },
+        {
+          "entity_key": "e-c7abdd0b9b09130f0efaa395cb969092",
+          "fields": {
+            "/facts/text": {
+              "new": "The EA version currently has some bugs. You can report bugs to us via Email or Discord, and we usually fix them within a few days.\n\nThank you for trying the EA version. We'll do our best to make the game better!",
+              "old": "The EA version currently has some bugs. You can report bugs to us via Email or Discord, and we usually fix them within a few days.\n\n\nThank you for trying the EA version. We'll do our best to make the game better!"
+            }
+          },
+          "kind": "configuration",
+          "name": "Hey, the Early Access version"
+        },
+        {
+          "entity_key": "e-ca1a289729cc4914a28f57b3c4025be6",
+          "fields": {
+            "/facts/record_count": {
+              "new": 4104,
+              "old": 4092
+            }
+          },
+          "kind": "component",
+          "name": "UnityEngine.UI.Image"
+        },
+        {
+          "entity_key": "e-cccb5f8aa0ec737755debf44c500b2a2",
+          "fields": {
+            "/facts/record_count": {
+              "new": 4559,
+              "old": 4601
+            }
+          },
+          "kind": "asset",
+          "name": "LODGroup"
+        },
+        {
+          "entity_key": "e-ceb83a171bf3e9981422cbf652a39931",
+          "fields": {
+            "/facts/record_count": {
+              "new": 310,
+              "old": 308
+            }
+          },
+          "kind": "component",
+          "name": "DuloGames.UI.UIPressTransition"
+        },
+        {
+          "entity_key": "e-d067aa75272e72f77055c01f956f336e",
+          "fields": {
+            "/facts/record_count": {
+              "new": 5596,
+              "old": 5580
+            }
+          },
+          "kind": "asset",
+          "name": "CanvasRenderer"
+        },
+        {
+          "entity_key": "e-d9be7bc51dba32a34368f765552c278c",
+          "fields": {
+            "/facts/record_count": {
+              "new": 3353,
+              "old": 3641
+            }
+          },
+          "kind": "asset",
+          "name": "Material"
+        },
+        {
+          "entity_key": "e-daca7f4d7e8615031368db0a365301e2",
+          "fields": {
+            "/facts/record_count": {
+              "new": 6191,
+              "old": 6173
+            }
+          },
+          "kind": "asset",
+          "name": "RectTransform"
+        },
+        {
+          "entity_key": "e-e15945c658a3fc80e99ae7f32a840737",
+          "fields": {
+            "/facts/text": {
+              "new": {
+                "omitted_bytes": 261,
+                "sha256": "8fb442f7aec571c7ba824f4185bafd64229b2e331437d9fd6f14215fc95e1479"
+              },
+              "old": {
+                "omitted_bytes": 263,
+                "sha256": "9908671f81598e8fff1520b121165374de5fd52151e4562cda29cdd758c04f5b"
+              }
+            }
+          },
+          "kind": "configuration",
+          "name": "Enabling super resolution"
+        },
+        {
+          "entity_key": "e-e2d0486e61b08662bb292d7fd5d83a3c",
+          "fields": {
+            "/facts/record_count": {
+              "new": 22,
+              "old": 20
+            }
+          },
+          "kind": "component",
+          "name": "DuloGames.UI.UISelectField"
+        },
+        {
+          "entity_key": "e-e6bee11e3b7d5124413c2b2b359fd36d",
+          "fields": {
+            "/facts/record_count": {
+              "new": 931,
+              "old": 904
+            }
+          },
+          "kind": "component",
+          "name": "Language_Text"
+        },
+        {
+          "entity_key": "e-e771e4d3fdd8a71ca0a1e8531017aeba",
+          "fields": {
+            "/facts/record_count": {
+              "new": 95,
+              "old": 107
+            }
+          },
+          "kind": "component",
+          "name": "Map_POI"
+        },
+        {
+          "entity_key": "e-f0a52c889ba1fc2263ec196882a671bd",
+          "fields": {
+            "/facts/record_count": {
+              "new": 413,
+              "old": 411
+            }
+          },
+          "kind": "component",
+          "name": "Text_Language_Helper"
+        },
+        {
+          "entity_key": "e-f1d73033dbf19734c976eb61b4653aab",
+          "fields": {
+            "/facts/record_count": {
+              "new": 3,
+              "old": 4
+            }
+          },
+          "kind": "component",
+          "name": "UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData"
+        }
+      ],
+      "count": 9615,
+      "game_version": "0.8.330",
+      "previous": {
+        "build_id": "26180432",
+        "game_version": "0.8.326",
+        "snapshot_id": "build-26180432-202c27fe16cb"
+      },
+      "removed": [
+        {
+          "entity_key": "e-01232cdd03bc9afbc88d82e669d3b2bf",
+          "kind": "component",
+          "name": "Merchant_LookAt",
+          "status": "not-present"
+        },
+        {
+          "entity_key": "e-2e7703e7a02c7102a3e4a02e9a27f33a",
+          "kind": "component",
+          "name": "Merchant_Ins",
+          "status": "not-present"
+        },
+        {
+          "entity_key": "e-3c5cd97afd5ee9001dfe300c1b1e8ebe",
+          "kind": "asset",
+          "name": "Merchant_04",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-3e62afdafb7118985c019f6ac1eac30c",
+          "kind": "asset",
+          "name": "Merchant_08",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-42f755a696ccedfcebbe97c27433e46b",
+          "kind": "asset",
+          "name": "Merchant_06",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-46b5a0a1691b7654f3aabb85c0f31920",
+          "kind": "configuration",
+          "name": "Work in progress...Coming soon",
+          "status": "not-present"
+        },
+        {
+          "entity_key": "e-82ff3a22e17afe578fa62357b6c958a5",
+          "kind": "asset",
+          "name": "Merchant_07",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-8598f2bfdc24db0390181c52b7a5fc32",
+          "kind": "asset",
+          "name": "Merchant_03",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-8c6ea075a6ff19df33afb03e8958088e",
+          "kind": "component",
+          "name": "TND.DLSS.DLSS_HDRP",
+          "status": "not-present"
+        },
+        {
+          "entity_key": "e-b64b3a1ee298678dc54e3652162dc663",
+          "kind": "asset",
+          "name": "Merchant_01",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-b7a0fac99035dee134a846fe78646275",
+          "kind": "asset",
+          "name": "Merchant_02",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-c258cd6511b274c53b1690639d2fcedd",
+          "kind": "asset",
+          "name": "Merchant_05",
+          "status": "uncaptured"
+        },
+        {
+          "entity_key": "e-db7f29917110a0eda1c94a04f493f139",
+          "kind": "asset",
+          "name": "Merchant_09",
+          "status": "uncaptured"
+        }
+      ],
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    }
+  ]
+}

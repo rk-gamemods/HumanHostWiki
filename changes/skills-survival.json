@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "topic": "skills-survival",
+  "versions": [
+    {
+      "added": [],
+      "build_id": "26507141",
+      "changed": [],
+      "count": 267,
+      "game_version": "0.8.330",
+      "previous": {
+        "build_id": "26180432",
+        "game_version": "0.8.326",
+        "snapshot_id": "build-26180432-202c27fe16cb"
+      },
+      "removed": [],
+      "snapshot_id": "build-26507141-c9f85a54326a"
+    }
+  ]
+}
