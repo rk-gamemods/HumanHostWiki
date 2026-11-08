@@ -406,6 +406,32 @@ class ReleaseTests(unittest.TestCase):
         workspace.checkout_lock(self.root, self.project)
         self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
 
+    def test_dropped_files_of_the_published_release_are_restored_from_its_commit(self):
+        # 2026-11-07: a release built without retention dropped the still-published
+        # release's files. The next release must restore them, byte for byte.
+        import json
+        from wikibuild import release_prepare
+        first, _ = self.run_release()
+        repo = self.root / 'repositories/items'
+        r1 = release.owned(repo)
+        manifest = json.loads((self.root / 'releases' / (first['release_id'] + '.json')).read_text(encoding='utf-8'))
+        r1_commits = {identity: record['commit'] for identity, record in manifest['repositories'].items()}
+        self.changed_weight(4, '300')
+        with patch.object(release_prepare, 'retained_members', return_value=None):
+            self.run_release()
+        r1_config = 'site/releases/' + first['release_id'] + '.json'
+        self.assertNotIn(r1_config, release.owned(repo))
+        self.changed_weight(5, '400')
+        with patch.object(release_prepare, 'retained_release', return_value=(first['release_id'], r1_commits)):
+            self.run_release()
+        r3 = release.owned(repo)
+        restored = {name for name in r1 if release_output.retainable(name)}
+        self.assertIn(r1_config, restored)
+        self.assertTrue(restored <= r3.keys(), sorted(restored - r3.keys())[:5])
+        for name in restored:
+            self.assertEqual(r1[name], r3[name], name)
+            self.assertEqual(r1[name]['sha256'], digest((repo / name).read_bytes()), name)
+
     def test_trees_keep_current_and_previous_release_only(self):
         from wikibuild import ownership
         first, _ = self.run_release()

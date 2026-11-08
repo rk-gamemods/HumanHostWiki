@@ -30,7 +30,7 @@ def retained_members(target, identity, commits, repo):
     if identity is None or repo not in commits:
         return None
     owner, _ = ownership.committed(target, commits[repo])
-    return identity, release_output.members(owner)
+    return identity, release_output.members(owner), commits[repo], set(owner.get("capacity_objects", ()))
 
 
 def prepare(root, project, candidate, release_id, inventory, previous, issue_templates):

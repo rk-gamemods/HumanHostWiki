@@ -7,7 +7,9 @@ the hub moves. Every other earlier site and reference file is removed through th
 normal commit; Git history may still contain them.
 """
 
-from . import capacity, extraction, ownership, workspace
+import subprocess
+
+from . import bounded, capacity, extraction, ownership, workspace
 from .storage import ContractError, digest, json_bytes, within
 
 OWNER_FILE = ownership.OWNER_FILE
@@ -25,6 +27,28 @@ def members(owner):
     """Files that belong to the receipt's own release, from its explicit membership."""
     retained = set(owner.get("retained_files", ()))
     return {name: meta for name, meta in owner["files"].items() if name not in retained}
+
+
+def committed_blobs(path, commit, names):
+    """Read committed file bytes through one Git process; binary-safe."""
+    result = {}
+    with bounded.stream(["git", "-C", str(path), "cat-file", "--batch"],
+                        timeout=ownership.GIT_STREAM_TIMEOUT, stdin=subprocess.PIPE) as process:
+        for name in names:
+            process.stdin.write(f"{commit}:{name}\n".encode())
+            process.stdin.flush()
+            header = process.stdout.readline().split()
+            if len(header) != 3 or header[1] != b"blob" or not header[2].isdigit():
+                raise ContractError(f"Retained release file is missing from its pinned commit: {name}")
+            size = int(header[2])
+            data = process.stdout.read(size)
+            if len(data) != size or process.stdout.read(1) != b"\n":
+                raise ContractError("Invalid committed object boundary")
+            result[name] = data
+        process.stdin.close()
+        if process.wait():
+            raise ContractError("Git object read failed")
+    return result
 
 
 def owned(path, receipt=None):
@@ -53,7 +77,9 @@ def owned(path, receipt=None):
 
 class Writer:
     def __init__(self, destination, stage, repo, release_id, retain=None):
-        """retain is (release_id, member files) of the release to keep loadable, or None."""
+        """retain is (release_id, member files, pinned commit, allocated objects) of the
+        release to keep loadable, or None. The commit restores retained files a
+        tree no longer holds; the allocated set keeps capacity accounting exact."""
         self.destination, self.stage, self.repo, self.release_id = destination, stage, repo, release_id
         receipt = ownership.checkout(destination)
         self.previous = owned(destination, receipt)
@@ -117,15 +143,34 @@ class Writer:
         retained = set()
         if self.retain is None:
             return retained
+        missing = []
         for name, meta in sorted(self.retain[1].items()):
             if name in self.output or name in self.removed or not retainable(name):
                 continue
-            if self.previous.get(name) != meta:
-                raise ContractError(f"The tree no longer holds a file of retained release {self.retain[0][:12]}: {name}")
+            prior = self.previous.get(name)
+            if prior is None:
+                # An earlier release dropped it; restore the exact bytes from the
+                # retained release's pinned commit so its hub stays loadable.
+                missing.append(name)
+            elif prior != meta:
+                raise ContractError(f"The tree holds different bytes for a file of retained release {self.retain[0][:12]}: {name}")
             self.output[name] = meta
             retained.add(name)
-            if name in self.previous_allocated:
+            if name in self.previous_allocated or (len(self.retain) > 3 and name in self.retain[3]):
                 self.allocated.add(name)
+        if missing:
+            if len(self.retain) < 3:
+                raise ContractError(f"The tree no longer holds a file of retained release {self.retain[0][:12]}: {missing[0]}")
+            for name, data in committed_blobs(self.destination, self.retain[2], missing).items():
+                meta = self.retain[1][name]
+                if {"sha256": digest(data), "bytes": len(data)} != meta:
+                    raise ContractError(f"Retained release file differs from its receipt: {name}")
+                if within(self.destination, name).exists():
+                    raise ContractError(f"Refusing to adopt an unknown generated file: {name}")
+                staged = within(self.stage, name)
+                staged.parent.mkdir(parents=True, exist_ok=True)
+                staged.write_bytes(data)
+                self.changes[name] = {"old": None, "new": meta["sha256"], "bytes": meta["bytes"]}
         return retained
 
     def finish(self, file_limit=capacity.Budgets().file_bytes):
