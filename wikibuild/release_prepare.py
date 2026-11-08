@@ -26,6 +26,20 @@ def retained_release(root, previous):
     return identity, {repo: record["commit"] for repo, record in manifest["repositories"].items()}
 
 
+def legacy(root, project, identity, commits):
+    """True when the retained release predates recorded membership.
+
+    Such a release's trees hold every earlier version, so its hub lists many
+    release configurations. Keeping its files would restore all of them; the
+    one migration publish keeps nothing of it instead.
+    """
+    hub = next((repo for repo in project["repositories"] if repo["id"] == "hub"), None)
+    if identity is None or hub is None or "hub" not in commits:
+        return False
+    owner, _ = ownership.committed(within(root, hub["path"]), commits["hub"])
+    return sum(1 for name in release_output.members(owner) if name.startswith("site/releases/")) > 1
+
+
 def retained_members(target, identity, commits, repo):
     if identity is None or repo not in commits:
         return None
@@ -42,6 +56,8 @@ def prepare(root, project, candidate, release_id, inventory, previous, issue_tem
     proposed, rolled = inventory.partitions, set()
     logical = {repo["id"]: repo for repo in project["repositories"]}
     kept_release, kept_commits = retained_release(root, previous)
+    if legacy(root, project, kept_release, kept_commits):
+        kept_release, kept_commits = None, {}
     while True:
         fronts = entrypoints.active(proposed)
         initial = physical.repositories(project, physical.registry(proposed))

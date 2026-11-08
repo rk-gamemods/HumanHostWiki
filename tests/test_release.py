@@ -406,6 +406,17 @@ class ReleaseTests(unittest.TestCase):
         workspace.checkout_lock(self.root, self.project)
         self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
 
+    def test_a_release_from_before_recorded_membership_is_not_retained(self):
+        from wikibuild import ownership, release_prepare
+        project = {"repositories": [{"id": "hub", "path": "repositories/hub"}]}
+        config = lambda identity: {"site/releases/" + identity + ".json": {"sha256": "0" * 64, "bytes": 1}}
+        for configs, expected in (({**config("a" * 64), **config("b" * 64)}, True), (config("a" * 64), False)):
+            with self.subTest(expected=expected):
+                owner = {"files": configs, "capacity_objects": [], "retained_files": []}
+                with patch.object(ownership, "committed", return_value=(owner, {})):
+                    self.assertEqual(expected, release_prepare.legacy(self.root, project, "a" * 64, {"hub": "c" * 40}))
+        self.assertFalse(release_prepare.legacy(self.root, project, None, {}))
+
     def test_dropped_files_of_the_published_release_are_restored_from_its_commit(self):
         # 2026-11-07: a release built without retention dropped the still-published
         # release's files. The next release must restore them, byte for byte.
