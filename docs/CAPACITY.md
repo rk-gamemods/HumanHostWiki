@@ -3,7 +3,7 @@
 The [ADR](adr/0001-versioned-public-wiki.md#5-storage-and-presentation) requires
 automatic file, site and history budgets while preserving logical topic ownership.
 Since the [2026-11-07 amendment](adr/0001-versioned-public-wiki.md#amendment-2026-11-07-current-version-plus-a-change-log)
-sites hold only the current release, so historical URLs are not preserved. This contract defines allocation, committed-input measurement,
+sites hold the current release and the immediately previous one, so older URLs are not preserved. This contract defines allocation, committed-input measurement,
 immutable reference projection, control-metadata splitting and logical entrypoint
 rollover. [ACCEPTANCE.md](ACCEPTANCE.md) owns implementation status and evidence limits.
 
@@ -122,8 +122,10 @@ object, using the field names in `capacity.Budgets`.
 
 ## Current-only releases
 
-Each release removes the files it no longer writes or reuses
-([RELEASE.md](RELEASE.md#output-ownership-and-storage)). Allocation still reads
+Each release removes the files it no longer writes, reuses or retains for the
+immediately previous release
+([RELEASE.md](RELEASE.md#output-ownership-and-storage)). Retained objects stay in
+`capacity_objects`, so allocation charges them and may reuse them. Allocation reads
 stored placements from the committed receipt, so an object that this release
 drops is charged to its partition's site bytes during this one allocation and is
 freed at the next. Measured history never shrinks: removed blobs stay reachable

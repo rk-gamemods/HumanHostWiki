@@ -12,7 +12,7 @@ from unittest.mock import patch
 from tests._support import cache_git_queries, fixture_dir
 
 import test_reader
-from wikibuild import git_transaction, reader, release, workspace
+from wikibuild import git_transaction, reader, release, release_output, workspace
 from wikibuild.storage import ContractError, digest, git, json_bytes
 from tools.check_release import check as independent_check
 
@@ -235,7 +235,7 @@ class ReleaseTests(unittest.TestCase):
             self.candidate, self.fixture = cloned.candidate, cloned.fixture
             return
         baselines = {'test_font_links_and_exact_bytes_survive_release_and_repeat',
-                     'test_second_release_removes_unwritten_files_and_keeps_reused_objects',
+                     'test_trees_keep_current_and_previous_release_only',
                      'test_reviewed_explanation_after_published_baseline_preserves_old_release_and_repeats',
                      'test_reviewed_successor_cannot_change_generated_outputs',
                      'test_failure_between_children_preserves_previous_release_then_resumes'}
@@ -398,39 +398,67 @@ class ReleaseTests(unittest.TestCase):
             self.run_release()
         self.assertFalse((self.root / "releases/latest.json").exists())
 
-    def test_second_release_removes_unwritten_files_and_keeps_reused_objects(self):
+    def changed_weight(self, weight, run_id):
+        row = self.fixture.observation(self.fixture.a, '<script>alert(1)</script>')
+        row['semantic']['facts']['weight'] = weight
+        row['revision_id'] = digest(json_bytes(row['semantic']))
+        self.fixture.runs = [self.fixture.make_run(run_id, [row], absent={self.fixture.b: 'not-present'})]
+        workspace.checkout_lock(self.root, self.project)
+        self.candidate = reader.build(self.root, self.project, self.fixture.runs, bases=release.bases(self.project))
+
+    def test_trees_keep_current_and_previous_release_only(self):
+        from wikibuild import ownership
         first, _ = self.run_release()
         repo = self.root / 'repositories/items'
-        before = release.owned(repo)
-        old_config = 'site/releases/' + first['release_id'] + '.json'
-        self.assertIn(old_config, before)
-        row = self.fixture.observation(self.fixture.a, '<script>alert(1)</script>')
-        row['semantic']['facts']['weight'] = 4
-        row['revision_id'] = digest(json_bytes(row['semantic']))
-        self.fixture.runs = [self.fixture.make_run('300', [row], absent={self.fixture.b: 'not-present'})]
-        self.new_candidate()
+
+        def receipt():
+            return ownership.checkout(repo)[0]
+
+        r1 = release.owned(repo)
+        r1_config = 'site/releases/' + first['release_id'] + '.json'
+        self.assertIn(r1_config, r1)
+        self.assertNotIn('retained_files', receipt())
+        self.changed_weight(4, '300')
         second, _ = self.run_release()
-        after = release.owned(repo)
-        # The tree holds exactly this release's files: no earlier config, snapshot or changed pack.
-        self.assertNotIn(old_config, after)
-        self.assertIn('site/releases/' + second['release_id'] + '.json', after)
-        removed = before.keys() - after.keys()
-        self.assertTrue(any(name.startswith('site/data/') for name in removed))
-        self.assertTrue(any(name.startswith('site/objects/') for name in removed))
+        r2 = release.owned(repo)
+        r2_owner = receipt()
+        # The previous release stays loadable: its configuration and objects remain.
+        self.assertIn(r1_config, r2)
+        self.assertIn('site/releases/' + second['release_id'] + '.json', r2)
+        self.assertEqual(r2_owner['retained_release_id'], first['release_id'])
+        self.assertIn(r1_config, r2_owner['retained_files'])
+        self.assertEqual(independent_check(self.root)['retained_release_id'], first['release_id'])
+        self.changed_weight(5, '400')
+        third, _ = self.run_release()
+        r3 = release.owned(repo)
+        r3_owner = receipt()
+        r2_members = {name for name in r2 if name not in set(r2_owner['retained_files'])}
+        r1_only = {name for name in r1 if name not in r2_members}
+        self.assertTrue(any(name.startswith('site/data/') for name in r1_only))
+        self.assertTrue(any(name.startswith('site/objects/') for name in r1_only))
+        # R3 holds R3 and every immutable R2 file, and nothing that only R1 used.
+        self.assertFalse(r1_only & r3.keys(), sorted(r1_only & r3.keys())[:5])
+        self.assertTrue({name for name in r2_members if name.startswith(release_output.IMMUTABLE)} <= r3.keys())
+        self.assertEqual(r3_owner['retained_release_id'], second['release_id'])
+        r3_current = set(r3) - set(r3_owner['retained_files'])
+        self.assertEqual(set(r3_owner['retained_files']),
+                         {name for name in r2_members - r3_current if release_output.retainable(name)})
         on_disk = {p.relative_to(repo).as_posix() for folder in ('site', 'reference') for p in (repo / folder).rglob('*') if p.is_file()}
-        self.assertEqual(on_disk, {name for name in after if name.startswith(('site/', 'reference/'))})
+        self.assertEqual(on_disk, {name for name in r3 if name.startswith(('site/', 'reference/'))})
         # Unchanged content-addressed objects are kept, not rewritten.
-        kept = {name for name in before.keys() & after.keys() if name.startswith('site/data/')}
+        kept = {name for name in r1.keys() & r3.keys() if name.startswith('site/data/')}
         self.assertTrue(kept)
-        self.assertTrue(all(before[name] == after[name] for name in kept))
-        owner = json.loads((repo / '.wiki-output.json').read_bytes())
-        self.assertTrue(set(owner['capacity_objects']) <= set(after))
-        self.assertNotIn(old_config, owner['capacity_objects'])
+        self.assertTrue(all(r1[name] == r3[name] for name in kept))
+        self.assertTrue(set(r3_owner['capacity_objects']) <= set(r3))
+        self.assertNotIn(r1_config, r3_owner['capacity_objects'])
         # Removal is an ordinary commit; history still holds the old file.
-        git(repo, 'cat-file', '-e', first['repositories']['items']['commit'] + ':' + old_config)
-        self.assertEqual(git(repo, 'rev-parse', 'HEAD^'), first['repositories']['items']['commit'])
-        self.assertEqual(independent_check(self.root)['release_configs'], len(self.project['repositories']))
-        self.assertEqual(self.run_release()[0], second)
+        git(repo, 'cat-file', '-e', first['repositories']['items']['commit'] + ':' + r1_config)
+        self.assertEqual(git(repo, 'rev-parse', 'HEAD^'), second['repositories']['items']['commit'])
+        audit = independent_check(self.root)
+        self.assertEqual(audit['release_configs'], len(self.project['repositories']))
+        self.assertEqual(audit['retained_release_configs'], len(self.project['repositories']))
+        self.assertEqual(audit['retained_release_id'], second['release_id'])
+        self.assertEqual(self.run_release()[0], third)
 
     def test_reviewed_explanation_after_published_baseline_preserves_old_release_and_repeats(self):
         first, _ = self.run_release()

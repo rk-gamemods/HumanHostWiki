@@ -1,8 +1,10 @@
 """Own generated paths and stage only changed release bytes.
 
-Each release's tree holds exactly the generated files that release writes or keeps.
-Earlier site and reference files it neither writes nor keeps are removed through
-the normal commit; Git history may still contain them.
+Each release's tree holds the generated files that release writes or keeps, plus
+the immutable files of one retained release: the release a live hub may still
+select while this one publishes. Its configuration and objects stay loadable until
+the hub moves. Every other earlier site and reference file is removed through the
+normal commit; Git history may still contain them.
 """
 
 from . import capacity, extraction, ownership, workspace
@@ -12,6 +14,17 @@ OWNER_FILE = ownership.OWNER_FILE
 IMMUTABLE = ("site/data/", "site/objects/", "site/releases/", "site/runtime/", "site/fonts/")
 GENERATED = ("site/", "reference/")
 HUB_ATTRIBUTES = b"* text=auto eol=lf\n/.github/ISSUE_TEMPLATE/*.yml -text\n"
+
+
+def retainable(name):
+    """Only immutable paths can serve an earlier release beside the current one."""
+    return name.startswith(IMMUTABLE) or capacity.OBJECT.fullmatch(name) is not None
+
+
+def members(owner):
+    """Files that belong to the receipt's own release, from its explicit membership."""
+    retained = set(owner.get("retained_files", ()))
+    return {name: meta for name, meta in owner["files"].items() if name not in retained}
 
 
 def owned(path, receipt=None):
@@ -39,12 +52,18 @@ def owned(path, receipt=None):
 
 
 class Writer:
-    def __init__(self, destination, stage, repo, release_id):
+    def __init__(self, destination, stage, repo, release_id, retain=None):
+        """retain is (release_id, member files) of the release to keep loadable, or None."""
         self.destination, self.stage, self.repo, self.release_id = destination, stage, repo, release_id
         receipt = ownership.checkout(destination)
         self.previous = owned(destination, receipt)
         self.marker = destination / OWNER_FILE
-        _, self.pages = receipt
+        old, self.pages = receipt
+        self.previous_allocated = set(old["capacity_objects"])
+        self.recorded = (frozenset(old.get("retained_files", ())), old.get("retained_release_id"))
+        if retain is not None and retain[0] == release_id:
+            raise ContractError("A release cannot retain itself")
+        self.retain, self.removed = retain, set()
         # Allocation membership is rebuilt from this release's add and keep calls.
         self.allocated = set()
         readme = destination / "README.md"
@@ -91,11 +110,33 @@ class Writer:
         if name not in self.previous:
             raise ContractError(f"Cannot remove an unowned generated file: {name}")
         self.output.pop(name, None)
+        self.removed.add(name)
+
+    def _retain(self):
+        """Keep the retained release's immutable files this release does not own."""
+        retained = set()
+        if self.retain is None:
+            return retained
+        for name, meta in sorted(self.retain[1].items()):
+            if name in self.output or name in self.removed or not retainable(name):
+                continue
+            if self.previous.get(name) != meta:
+                raise ContractError(f"The tree no longer holds a file of retained release {self.retain[0][:12]}: {name}")
+            self.output[name] = meta
+            retained.add(name)
+            if name in self.previous_allocated:
+                self.allocated.add(name)
+        return retained
 
     def finish(self, file_limit=capacity.Budgets().file_bytes):
+        retained = self._retain()
+        retained_id = self.retain[0] if retained else None
         for name in sorted(self.previous.keys() - self.output.keys()):
             self.changes[name] = {"old": self.previous[name]["sha256"], "new": None, "bytes": 0}
-        if self.changes or not self.marker.exists():
+        # Membership is part of the receipt: a changed retained set needs a new
+        # receipt even when no file bytes change.
+        membership = (frozenset(retained), retained_id) != self.recorded
+        if self.changes or membership or not self.marker.exists():
             def emit(name, data):
                 prior = self.pages.get(name)
                 meta = {"sha256": digest(data), "bytes": len(data)}
@@ -108,9 +149,12 @@ class Writer:
                 target.write_bytes(data)
                 self.changes[name] = {"old": None, "new": meta["sha256"], "bytes": len(data)}
 
-            data, pages = ownership.encode({"schema_version": 1, "kind": "generated-wiki-output", "release_id": self.release_id,
-                                            "repository_id": self.repo["id"], "files": self.output,
-                                            "capacity_objects": sorted(self.allocated)}, file_limit, emit)
+            receipt = {"schema_version": 1, "kind": "generated-wiki-output", "release_id": self.release_id,
+                       "repository_id": self.repo["id"], "files": self.output,
+                       "capacity_objects": sorted(self.allocated), "retained_files": sorted(retained)}
+            if retained_id is not None:
+                receipt["retained_release_id"] = retained_id
+            data, pages = ownership.encode(receipt, file_limit, emit)
             # Receipts are read at pinned commits, not browser URLs. Their old
             # pages remain in Git history; HEAD needs only the current graph.
             for name in self.pages.keys() - pages.keys():

@@ -233,8 +233,11 @@ never enters preparation, so rehearsal checks no source pins.
 The hub remains at its
 previous release until every topic verifies. Direct topic landing pages consult
 the hub's selection, so preparing a newer topic does not advertise an incomplete
-release. Sites hold only the current release, so a link pinned to an earlier
-release fails explicitly instead of loading substitute content.
+release. Each front also keeps the published release's configuration and objects
+([RELEASE.md](RELEASE.md#output-ownership-and-storage)), so the hub's current
+selection stays loadable during publication and after a failure before hub
+promotion. Sites hold no older release, so a link pinned to one fails explicitly
+instead of loading substitute content.
 
 If the new hub fails verification, a new commit restores the previous validated
 tree at that selection point. On the first publication, the fallback is an explicit unavailable page.

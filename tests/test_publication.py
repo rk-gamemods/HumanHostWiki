@@ -625,10 +625,11 @@ class PublicationTests(unittest.TestCase):
             self.assertFalse(any(name.startswith("data/") for name in plan["checks"]))
             self.assertLess(len(plan["checks"]), len(plan["files"]))
             for name, meta in first["repositories"][topic]["files"].items():
-                # Sites hold the current release only; kept immutable files keep their bytes.
-                if name.startswith(("data/", "objects/", "releases/", "runtime/", "fonts/")) and name in plan["files"]:
+                # Sites keep the published release beside the new one; kept immutable files keep their bytes.
+                if name.startswith(("data/", "objects/", "releases/", "runtime/", "fonts/")):
                     self.assertEqual(plan["files"][name], meta)
-            self.assertFalse(any(name == "releases/" + first["release_id"] + ".json" for name in plan["files"]))
+            if "releases/" + first["release_id"] + ".json" in first["repositories"][topic]["files"]:
+                self.assertIn("releases/" + first["release_id"] + ".json", plan["files"])
 
     def test_public_history_audit_checks_deleted_private_files(self):
         repo = self.root / "repositories/items"

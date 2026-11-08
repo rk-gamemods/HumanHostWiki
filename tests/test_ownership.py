@@ -44,6 +44,23 @@ class OwnershipTests(unittest.TestCase):
         self.assertEqual(actual, value)
         self.assertEqual(set(names), set(parts))
 
+    def test_retained_release_membership_survives_flat_and_paged_receipts(self):
+        from tools.audit_ownership import expand
+        for count in (2, 400):
+            value = self.receipt(count)
+            value.update(retained_files=sorted(value["files"])[1::3], retained_release_id="b" * 64)
+            raw, parts, metadata = self.encode(value)
+            self.assertEqual(ownership.decode(raw, parts.__getitem__), (value, metadata))
+            self.assertEqual(expand(json.loads(raw), parts.__getitem__)[0], value)
+        value = self.receipt(2)
+        value["retained_files"] = ["site/missing.json"]
+        with self.assertRaisesRegex(ContractError, "release membership"):
+            self.encode(value)
+        value = self.receipt(2)
+        value["retained_files"] = sorted(value["files"])[:1]
+        with self.assertRaisesRegex(ContractError, "retained release"):
+            self.encode(value)  # Membership without the release it serves.
+
     def test_changed_missing_escaped_and_duplicated_parts_fail(self):
         raw, parts, _ = self.encode(self.receipt(40))
         name = json.loads(raw)["file_index"][0]["path"]

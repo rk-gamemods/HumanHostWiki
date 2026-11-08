@@ -1,9 +1,13 @@
 """Forced physical allocation through real Git release and publication adapters."""
 
+import base64
 import json
 import copy
 from pathlib import Path
+import shutil
+import subprocess
 import unittest
+from urllib.parse import urljoin
 from unittest.mock import patch
 
 import test_publication
@@ -138,7 +142,7 @@ class CapacityReleaseTests(unittest.TestCase):
         self.assertTrue(all(self.host.refs[key] == value for key, value in refs.items()))
         self.assertTrue(all(row["verified"] for row in public["repositories"].values()))
 
-    def test_next_release_keeps_reused_partition_bytes_and_drops_old_configurations(self):
+    def test_next_release_keeps_reused_partition_bytes_and_the_published_release(self):
         first, _ = self.run_release()
         publication.run(self.root, self.project, first, host=self.host)
         stored = release.inventory(self.root, self.project).stored
@@ -148,19 +152,85 @@ class CapacityReleaseTests(unittest.TestCase):
         workspace.checkout_lock(self.root, self.project)
         self.candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
         second, _ = self.run_release()
-        self.assertEqual(check(self.root)["release_configs"], len(self.project["repositories"]))
+        audit = check(self.root)
+        self.assertEqual(audit["release_configs"], len(self.project["repositories"]))
+        self.assertEqual(audit["retained_release_id"], first["release_id"])
         for (identity, name), data in before.items():
+            # The published release stays loadable until the hub moves, so its
+            # configuration and every object it stored keep their bytes.
             path = self.root / second["repositories"][identity]["path"] / name
-            if name.startswith("site/releases/"):
-                # The earlier release configuration leaves the tree with that release.
-                self.assertFalse(path.exists())
-            else:
-                self.assertEqual(path.read_bytes(), data)
+            self.assertEqual(path.read_bytes(), data)
         workspace.checkout_lock(self.root, self.project, check=True)
         publication.run(self.root, self.project, second, host=self.host)
         for identity in first["capacity"]["new_repositories"]:
             if first["repositories"][identity]["files_sha256"] == second["repositories"][identity]["files_sha256"]:
                 self.assertEqual(first["repositories"][identity]["commit"], second["repositories"][identity]["commit"])
+
+    def served(self, manifest, overrides):
+        """URL to bytes for each repository's Pages commit, as GitHub Pages would serve it."""
+        files = {}
+        for identity, record in manifest["repositories"].items():
+            path = self.root / record["path"]
+            commit = overrides.get(identity, record["pages"])
+            base = f"https://{self.project['github_owner']}.github.io/{record['github_name']}/"
+            for line in git(path, "ls-tree", "-r", "--name-only", commit).splitlines():
+                data = subprocess.run(["git", "-C", str(path), "cat-file", "blob", f"{commit}:{line}"],
+                                      capture_output=True, check=True).stdout
+                files[base + line] = data
+        return files
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js runs the release loader")
+    def test_hub_on_previous_release_still_loads_after_new_fronts_are_written(self):
+        from tools.audit_shard_index import leaves
+        releases = []
+        for label in ("R1", "R2", "R3"):
+            if releases:
+                self.project["official_links"] = [{"title": label, "url": "https://example.invalid/"}]
+                workspace.checkout_lock(self.root, self.project)
+                self.candidate = reader.build(self.root, self.project, self.fixture.fixture.runs, bases=release.bases(self.project))
+            result, _ = self.run_release()
+            releases.append(result)
+            if label != "R3":
+                publication.run(self.root, self.project, result, host=self.host)
+        first, second, third = releases
+        audit = check(self.root)
+        self.assertEqual(audit["retained_release_id"], second["release_id"])
+        self.assertGreater(audit["retained_release_configs"], 0)
+        # R3's trees hold no configuration that only R1 used.
+        for record in third["repositories"].values():
+            self.assertFalse((self.root / record["path"] / f"site/releases/{first['release_id']}.json").exists())
+        # Every tree but the hub has its R3 Pages commit; the hub still serves R2,
+        # as during publication or after a failure before hub promotion.
+        hub = third.get("entrypoints", {}).get("hub", "hub")
+        name = second["repositories"][hub]["github_name"]
+        files = self.served(third, {hub: self.host.ref(name, "gh-pages")})
+        self.assertNotEqual(self.host.ref(name, "gh-pages"), third["repositories"][hub]["pages"])
+        pages = sorted(third["routes"].values())
+        work = self.root / ".local/served-transition.json"
+        work.write_text(json.dumps({"files": {url: base64.b64encode(data).decode() for url, data in files.items()},
+                                    "pages": pages}), encoding="utf-8")
+        result = subprocess.run([shutil.which("node"), str(Path(__file__).with_name("release_bootstrap_served.js")), str(work)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        loaded = json.loads(result.stdout)
+        self.assertEqual(len(loaded), len(pages))
+        for page in loaded:
+            self.assertIsNone(page["error"], page)
+            self.assertEqual(page["config"]["release_id"], second["release_id"], page["page"])
+            self.assertIn(page["script"], files)
+            self.assertIn(page["stylesheet"], files)
+
+            def fetch(reference, base=page["base"]):
+                url = urljoin(base, reference["path"] if isinstance(reference, dict) else reference)
+                self.assertIn(url, files, page["page"])
+                return json.loads(files[url])
+
+            # The R2 snapshot indexes and every data pack they name are still served.
+            for index_ref in page["config"]["snapshots"].values():
+                index = fetch(index_ref)
+                for kind in ("entries", "semantics", "search", "backlinks", "cards", "player"):
+                    for pack in leaves(index.get(kind, []), fetch):
+                        fetch(pack)
 
     def test_paged_ownership_commits_publishes_and_preserves_prior_release_reads(self):
         # Force only the metadata-page threshold. Runtime objects still obey

@@ -9,6 +9,30 @@ from . import staging
 from .storage import ContractError, git, within
 
 
+def retained_release(root, previous):
+    """Name the release a live hub may still select while this one publishes.
+
+    That is the published release when one exists, because the hub moves last.
+    Before any publication it is the checked-out local release. Returns the
+    release id and a per-repository commit whose receipt records its membership.
+    """
+    if previous is not None:
+        return previous["release_id"], {identity: record["main"] for identity, record in previous["repositories"].items()}
+    pointer = Path(root) / "releases/latest.json"
+    if not pointer.exists():
+        return None, {}
+    identity = json.loads(pointer.read_text(encoding="utf-8"))["release_id"]
+    manifest = json.loads(within(root, f"releases/{identity}.json").read_text(encoding="utf-8"))
+    return identity, {repo: record["commit"] for repo, record in manifest["repositories"].items()}
+
+
+def retained_members(target, identity, commits, repo):
+    if identity is None or repo not in commits:
+        return None
+    owner, _ = ownership.committed(target, commits[repo])
+    return identity, release_output.members(owner)
+
+
 def prepare(root, project, candidate, release_id, inventory, previous, issue_templates):
     from .release_retention import completed_legacy
     # A failed proposal never acquires a pending journal.
@@ -17,6 +41,7 @@ def prepare(root, project, candidate, release_id, inventory, previous, issue_tem
     existing = {part.id for part in inventory.partitions}
     proposed, rolled = inventory.partitions, set()
     logical = {repo["id"]: repo for repo in project["repositories"]}
+    kept_release, kept_commits = retained_release(root, previous)
     while True:
         fronts = entrypoints.active(proposed)
         initial = physical.repositories(project, physical.registry(proposed))
@@ -36,16 +61,21 @@ def prepare(root, project, candidate, release_id, inventory, previous, issue_tem
             plans, repositories, writers, destinations, new_repositories = {}, {}, {}, {}, []
             for repo in ordered:
                 target = within(root, repo["path"])
+                retain = None
                 if repo["id"] in created:
                     target, entry = release_partitions.seed(root, stage, repo, logical[repo["logical_topic"]])
                     new_repositories.append(entry)
+                else:
+                    # The live hub moves last, so fronts keep its release loadable.
+                    retain = retained_members(target, kept_release, kept_commits, repo["id"])
                 prepared = stage / repo["id"]
                 prepared.mkdir()
                 destinations[repo["id"]] = target
-                writers[repo["id"]] = release_output.Writer(target, prepared, repo, release_id)
+                writers[repo["id"]] = release_output.Writer(target, prepared, repo, release_id, retain)
             for placement, data in projection.writes():
                 writers[placement.partition].add(placement.artifact.path, data, allocated=True)
-            # Reused objects stay; every other earlier object leaves this release's tree.
+            # Reused objects stay. Objects of the retained release stay at finish;
+            # every other earlier object leaves this release's tree.
             reused = set(projection.reused)
             for placement in projection.placements:
                 if placement.artifact.key in reused:

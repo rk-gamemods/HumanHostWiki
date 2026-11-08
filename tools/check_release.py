@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 from urllib.parse import urljoin
@@ -14,6 +15,9 @@ from tools.audit_capture_catalog import expand
 from tools.audit_ownership import expand as expand_ownership
 from tools.audit_external_articles import compare as compare_articles, reachable as articles_reachable
 from tools.audit_fonts import compare as compare_fonts, reachable as fonts_reachable
+
+
+IMMUTABLE = ("site/data/", "site/objects/", "site/runtime/", "site/releases/", "site/fonts/")
 
 
 def sha(data):
@@ -65,8 +69,9 @@ def check(root):
     assert sha(canonical(candidate_manifest["inputs"])) == candidate_id
     assert manifest["versions"] == candidate_manifest["versions"]
     assert manifest["routes"] == candidate_manifest["inputs"]["bases"]
-    counts = {"repositories": 0, "owned_files": 0, "owned_bytes": 0, "candidate_files": 0, "release_configs": 0, "ownership_pages": 0}
-    origins, ownership, locations = {}, {}, {}
+    counts = {"repositories": 0, "owned_files": 0, "owned_bytes": 0, "candidate_files": 0, "release_configs": 0,
+              "retained_release_configs": 0, "retained_files": 0, "ownership_pages": 0}
+    origins, ownership, locations, owners, retained, retained_ids = {}, {}, {}, {}, {}, set()
     owner_name = candidate_manifest["inputs"]["project"]["github_owner"]
     for identity, record in manifest["repositories"].items():
         path = contained(root, record["path"])
@@ -114,16 +119,32 @@ def check(root):
         assert origin not in origins
         origins[origin] = (logical, path)
         ownership[path] = files
-        allocated = owner.get("capacity_objects", [name for name in files if name.startswith(
-            ("site/data/", "site/objects/", "site/runtime/", "site/releases/", "site/fonts/"))])
+        # A tree may keep one earlier release beside the current one: the release
+        # a live hub can still select while this one publishes. Membership is
+        # recorded in the receipt, and only immutable paths can be retained.
+        kept = owner.get("retained_files", [])
+        assert set(kept) <= set(files) and len(kept) == len(set(kept))
+        assert all(name.startswith(IMMUTABLE) or name.startswith("reference/objects/") for name in kept), kept[:5]
+        if kept:
+            assert re.fullmatch(r"[0-9a-f]{64}", owner["retained_release_id"]) and owner["retained_release_id"] != release_id
+            retained_ids.add(owner["retained_release_id"])
+        else:
+            assert "retained_release_id" not in owner
+        retained[path] = set(kept)
+        counts["retained_files"] += len(kept)
+        allocated = owner.get("capacity_objects", [name for name in files if name.startswith(IMMUTABLE)])
         assert len(allocated) == len(set(allocated))
         for name in allocated:
             assert (logical, name) not in locations
             locations[(logical, name)] = contained(path, name)
+            owners[(logical, name)] = path
         counts["repositories"] += 1
         counts["owned_files"] += len(files)
         counts["owned_bytes"] += record["output_bytes"]
 
+    # At most the immediately previous release remains, and every tree agrees on it.
+    assert len(retained_ids) <= 1, sorted(retained_ids)
+    previous_id = next(iter(retained_ids), None)
     fetched = set()
 
     def public(topic, reference):
@@ -224,13 +245,19 @@ def check(root):
         counts["candidate_files"] += 1
     # Full configs have one allocated location. Front stubs do not count as
     # duplicate configurations and must resolve to the same pinned bytes above.
-    # Sites hold only the current release: an earlier configuration is a leak.
+    # Sites hold the current release and at most the retained one; any other
+    # configuration is a leak.
+    previous_configs = {}
     for (topic, name), path in locations.items():
         if not name.startswith("site/releases/"):
             continue
         fetched.add(path)
         old = expand(read(path), lambda ref: json.loads(public(topic, ref)))
-        assert old["release_id"] == path.stem == release_id, name
+        assert old["release_id"] == path.stem and path.stem in {release_id, previous_id}, name
+        if path.stem != release_id:
+            assert name in retained[owners[(topic, name)]], name
+            previous_configs[topic] = old
+            counts["retained_release_configs"] += 1
         articles_reachable(old.get("external_articles"), lambda ref: json.loads(public(topic, ref)))
         fonts_reachable(old.get("fonts"), lambda ref: public("hub", ref))
         for name in old["runtime"].values():
@@ -245,12 +272,26 @@ def check(root):
                     public(topic, pack)
             for guide in [*index.get("guides", []), *index.get("changes", [])]:
                 public(topic, guide)
-        counts["release_configs"] += 1
-    # Every allocated object is reachable from the current release; nothing older remains.
+        if path.stem == release_id:
+            counts["release_configs"] += 1
+    # Until the hub moves, the bootstrap reads the retained release id from the
+    # hub and loads that configuration from the front the hub named. Each such
+    # front must still serve it, through any reference or successor chain.
+    if previous_id is not None:
+        assert "hub" in previous_configs
+        fronts = previous_configs["hub"].get("entrypoints", {})
+        for topic in previous_configs:
+            front = fronts.get(topic, manifest["routes"][topic])
+            old = configuration(topic, front + "releases/" + previous_id + ".json")
+            assert old["release_id"] == previous_id and old["topic"] == topic, topic
+    # Every allocated object is reachable from the current or retained release,
+    # and every retained file is something that release loads. Nothing older remains.
     unreachable = sorted(str(path) for path in set(locations.values()) - fetched)
+    unreachable += sorted(str(contained(path, name)) for path, names in retained.items()
+                          for name in names if contained(path, name) not in fetched)
     assert not unreachable, unreachable[:5]
-    return {"status": "passed", "release_id": release_id, **counts,
-            "scope": "Committed bytes, candidate conservation and current-release-only outputs; not gameplay or deployment verification"}
+    return {"status": "passed", "release_id": release_id, "retained_release_id": previous_id, **counts,
+            "scope": "Committed bytes, candidate conservation and current-plus-retained-release outputs; not gameplay or deployment verification"}
 
 
 if __name__ == "__main__":
